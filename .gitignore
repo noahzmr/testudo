@@ -1,0 +1,15 @@
+.claude
+.agents
+skills-lock.json
+
+# Build artifacts
+/testudo
+/bin/
+
+# Runtime storage
+/storage/captures/*
+/storage/sessions/*
+/storage/metrics/*
+!/storage/captures/.gitkeep
+!/storage/sessions/.gitkeep
+!/storage/metrics/.gitkeep

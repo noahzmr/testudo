@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Testudo · login</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    body { display: grid; place-items: center; min-height: 100vh; }
+    .login-card { width: 22rem; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
+    .login-card h1 { font-size: 18px; color: var(--accent); margin: 0 0 1rem 0; text-align: center; }
+    .login-card form { display: grid; gap: 0.75rem; }
+    .login-card input { width: 100%; padding: 0.5rem 0.6rem; background: var(--bg-row); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); font: inherit; }
+    .login-card button { padding: 0.55rem; background: var(--accent-strong); color: white; border: 0; border-radius: 4px; cursor: pointer; }
+    .err-line { color: var(--err); min-height: 1.3em; text-align: center; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <h1>Testudo</h1>
+    <form method="post" action="/login">
+      <input name="username" placeholder="username" autocomplete="username" autofocus>
+      <input name="password" placeholder="password" type="password" autocomplete="current-password">
+      <button type="submit">Sign in</button>
+      <div class="err-line">{{.Error}}</div>
+    </form>
+  </div>
+</body>
+</html>

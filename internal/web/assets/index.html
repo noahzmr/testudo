@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Testudo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">⛯ Testudo</div>
+    <div class="session">
+      <span id="session-id">—</span>
+      <span class="dot">·</span>
+      <span>uptime <span id="uptime">—</span></span>
+    </div>
+    <nav class="tabs">
+      <button data-tab="dashboard" class="tab active">Dashboard</button>
+      <button data-tab="flows" class="tab">Flows</button>
+      <button data-tab="devices" class="tab">Devices</button>
+      <button data-tab="ifaces" class="tab">Interfaces</button>
+      <button data-tab="routes" class="tab">Routes</button>
+      <button data-tab="firewall" class="tab">Firewall</button>
+      <button data-tab="nat" class="tab">NAT</button>
+      <button data-tab="tcpdump" class="tab">TCPDump</button>
+      <button data-tab="talkers" class="tab">Talkers</button>
+      <button data-tab="probes" class="tab">Probes</button>
+      <button data-tab="alerts" class="tab">Alerts</button>
+      <button data-tab="settings" class="tab">Settings</button>
+    </nav>
+    <button id="logout" class="logout">logout</button>
+  </header>
+
+  <main>
+    <!-- DASHBOARD ----------------------------------------------------- -->
+    <section data-pane="dashboard" class="pane active">
+      <div class="card grade-card">
+        <h2>Network Quality</h2>
+        <div class="grade-row">
+          <div class="grade-badge" id="grade-badge">—</div>
+          <div class="grade-meta">
+            <div class="grade-score"><span id="grade-score">—</span> / 100</div>
+            <div class="grade-verdict" id="grade-verdict">awaiting probes…</div>
+          </div>
+        </div>
+        <div class="grade-bars" id="grade-bars"></div>
+      </div>
+
+      <div class="card">
+        <h2>Bandwidth — per interface (1Hz, 120s window)</h2>
+        <div id="bandwidth-list"></div>
+      </div>
+      <div class="card">
+        <h2>ICMP latency (rolling samples)</h2>
+        <div id="icmp-sparks"></div>
+      </div>
+      <div class="card">
+        <h2>DNS latency (rolling samples)</h2>
+        <div id="dns-sparks"></div>
+      </div>
+
+      <div class="card">
+        <h2>ICMP — per-target detail</h2>
+        <table>
+          <thead><tr><th>Target</th><th>Last</th><th>Avg</th><th>P95</th><th>Loss%</th><th>Jitter</th></tr></thead>
+          <tbody id="targets-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>DNS — per-resolver detail</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Last</th><th>Avg</th><th>Queries</th><th>Failures</th></tr></thead>
+          <tbody id="dns-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Top flows</h2>
+        <table>
+          <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th>Packets</th><th>Bytes</th></tr></thead>
+          <tbody id="flows-body-dash"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- FLOWS --------------------------------------------------------- -->
+    <section data-pane="flows" class="pane">
+      <div class="card">
+        <h2>Flow capture</h2>
+        <div class="row">
+          <span class="status-pill" id="capture-pill">capture OFF</span>
+          <span class="muted" id="capture-ifaces"></span>
+        </div>
+        <div class="row">
+          <input id="capture-ifaces-input" placeholder="comma-separated ifaces; blank = auto-discover" />
+          <button data-action="capture-start" class="btn btn-go">Start</button>
+          <button data-action="capture-stop" class="btn">Stop</button>
+          <button data-action="capture-clear" class="btn btn-warn">Clear flow table</button>
+        </div>
+      </div>
+      <div class="card">
+        <input class="filter" id="flow-filter" placeholder="filter rows (proto / iface / process / IP / DNS)" />
+        <table>
+          <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th>DNS</th><th>Packets</th><th>Bytes</th></tr></thead>
+          <tbody id="flows-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- DEVICES ------------------------------------------------------- -->
+    <section data-pane="devices" class="pane">
+      <div class="card">
+        <h2>Discovered devices</h2>
+        <p class="muted">
+          <b>Scan</b> probes each host for SSH / RDP / VNC / Telnet / HTTP / HTTPS.
+          <b>Connect</b> launches via your Guacamole template (if set) or your browser's native URI handler.
+        </p>
+        <table>
+          <thead><tr><th>IP</th><th>Hostname</th><th>Vendor</th><th>Open ports</th><th>Connect</th><th>Actions</th></tr></thead>
+          <tbody id="devices-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- INTERFACES ---------------------------------------------------- -->
+    <section data-pane="ifaces" class="pane">
+      <div class="card">
+        <h2>Interfaces</h2>
+        <table>
+          <thead><tr><th>Name</th><th>State</th><th>MTU</th><th>HW addr</th><th>Addresses</th><th>RX</th><th>TX</th><th>Actions</th></tr></thead>
+          <tbody id="ifaces-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ROUTES -------------------------------------------------------- -->
+    <section data-pane="routes" class="pane">
+      <div class="card">
+        <h2>Add route</h2>
+        <div class="form-row">
+          <input id="route-cidr" placeholder="cidr e.g. 10.0.0.0/24"/>
+          <input id="route-gw" placeholder="gateway (optional)"/>
+          <input id="route-iface" placeholder="iface (optional)"/>
+          <button data-action="route-add" class="btn btn-go">Add</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Routes</h2>
+        <table>
+          <thead><tr><th>Family</th><th>Dst</th><th>Gateway</th><th>Iface</th><th>Proto</th><th>Metric</th><th></th></tr></thead>
+          <tbody id="routes-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- FIREWALL ------------------------------------------------------ -->
+    <section data-pane="firewall" class="pane">
+      <div class="card">
+        <h2>Add filter rule</h2>
+        <div class="form-grid">
+          <label>chain<select id="fw-chain"><option>input</option><option>output</option><option>forward</option></select></label>
+          <label>action<select id="fw-action"><option>drop</option><option>accept</option></select></label>
+          <label>proto<select id="fw-proto"><option value="">any</option><option>tcp</option><option>udp</option></select></label>
+          <label>port<input id="fw-port" placeholder="dst port; blank = any"/></label>
+          <label>in iface<input id="fw-iif" placeholder="blank = any"/></label>
+          <label>out iface<input id="fw-oif" placeholder="blank = any"/></label>
+          <label>src (IPv4/CIDR)<input id="fw-src" placeholder="blank = any"/></label>
+          <label>dst (IPv4/CIDR)<input id="fw-dst" placeholder="blank = any"/></label>
+        </div>
+        <div class="row"><button data-action="fw-add" class="btn btn-go">Add rule</button></div>
+      </div>
+      <div class="card">
+        <h2>Testudo-managed rules</h2>
+        <table>
+          <thead><tr><th>Chain</th><th>Action</th><th>Proto</th><th>Port</th><th>In</th><th>Out</th><th>Src</th><th>Dst</th><th></th></tr></thead>
+          <tbody id="fw-rules-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>System nftables (read-only)</h2>
+        <table>
+          <thead><tr><th>Family</th><th>Table</th><th>Chain</th><th>Hook</th><th>Type</th><th>Rules</th></tr></thead>
+          <tbody id="fw-system-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- NAT ----------------------------------------------------------- -->
+    <section data-pane="nat" class="pane">
+      <div class="card">
+        <h2>Add port forward</h2>
+        <div class="form-grid">
+          <label>proto<select id="nat-proto"><option>tcp</option><option>udp</option></select></label>
+          <label>wan port<input id="nat-wan" placeholder="external"/></label>
+          <label>lan ip<input id="nat-lanip" placeholder="192.168.1.10"/></label>
+          <label>lan port<input id="nat-lanport" placeholder="blank = same as wan"/></label>
+        </div>
+        <div class="row"><button data-action="nat-add" class="btn btn-go">Add forward</button></div>
+      </div>
+      <div class="card">
+        <h2>Port forwards</h2>
+        <table>
+          <thead><tr><th>Proto</th><th>WAN</th><th>→ LAN IP</th><th>LAN port</th><th></th></tr></thead>
+          <tbody id="nat-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TCPDUMP ------------------------------------------------------- -->
+    <section data-pane="tcpdump" class="pane">
+      <div class="card">
+        <h2>New capture · with filter wizard</h2>
+        <div class="form-grid">
+          <label>iface<input id="td-iface" placeholder="eth0"/></label>
+          <label>name<input id="td-name" placeholder="label (optional)"/></label>
+          <label>max size MiB<input id="td-size" value="64"/></label>
+          <label>duration sec<input id="td-dur" value="0" placeholder="0 = unbounded"/></label>
+          <label>proto<select id="td-proto"><option value="">any</option><option>tcp</option><option>udp</option><option>icmp</option></select></label>
+          <label>src host<input id="td-srch" placeholder="blank = any"/></label>
+          <label>dst host<input id="td-dsth" placeholder="blank = any"/></label>
+          <label>src port<input id="td-srcp" placeholder="blank = any"/></label>
+          <label>dst port<input id="td-dstp" placeholder="blank = any"/></label>
+          <label class="full">raw filter (BPF)<input id="td-raw" placeholder="extra appended; blank = use wizard fields"/></label>
+        </div>
+        <div class="row"><button data-action="td-start" class="btn btn-go">Start capture</button></div>
+      </div>
+      <div class="card">
+        <h2>Captures</h2>
+        <table>
+          <thead><tr><th>ID</th><th>State</th><th>Iface</th><th>Size</th><th>Filter</th><th>File</th><th></th></tr></thead>
+          <tbody id="td-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TALKERS ------------------------------------------------------- -->
+    <section data-pane="talkers" class="pane">
+      <div class="card">
+        <h2>Top hosts (by bytes)</h2>
+        <table>
+          <thead><tr><th>#</th><th>Host / DNS</th><th>Zone</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
+          <tbody id="talkers-hosts-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Top processes</h2>
+        <table>
+          <thead><tr><th>#</th><th>Process</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
+          <tbody id="talkers-procs-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Top services</h2>
+        <table>
+          <thead><tr><th>#</th><th>Service</th><th>Proto</th><th>Port</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
+          <tbody id="talkers-services-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PROBES -------------------------------------------------------- -->
+    <section data-pane="probes" class="pane">
+      <div class="card">
+        <h2>Run probe</h2>
+        <div class="form-row">
+          <label>kind
+            <select id="probe-kind">
+              <option>icmp</option><option>tcp</option><option>udp</option><option>dns</option><option>throughput</option><option>traceroute</option>
+            </select>
+          </label>
+          <label>target<input id="probe-target" value="1.1.1.1"/></label>
+          <label>port<input id="probe-port" value="443"/></label>
+          <button data-action="probe-run" class="btn btn-go">Run</button>
+        </div>
+        <pre id="probe-out" class="probe-output"></pre>
+      </div>
+    </section>
+
+    <!-- ALERTS -------------------------------------------------------- -->
+    <section data-pane="alerts" class="pane">
+      <div class="card">
+        <h2>Alerts</h2>
+        <input class="filter" id="alert-filter" placeholder="filter alerts by substring"/>
+        <table>
+          <thead><tr><th>Time</th><th>Severity</th><th>Message</th></tr></thead>
+          <tbody id="alerts-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SETTINGS ------------------------------------------------------ -->
+    <section data-pane="settings" class="pane">
+      <div class="card">
+        <h2>Thresholds</h2>
+        <div class="form-grid">
+          <label>packet loss %<input id="s-loss" type="number" step="0.1"/></label>
+          <label>DNS latency ms<input id="s-dns" type="number"/></label>
+          <label>jitter ms<input id="s-jitter" type="number"/></label>
+          <label>RTT ms<input id="s-rtt" type="number"/></label>
+          <label>retransmissions %<input id="s-retrans" type="number" step="0.1"/></label>
+          <label>incident cooldown s<input id="s-cooldown" type="number"/></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Netops &amp; integrations</h2>
+        <div class="form-grid">
+          <label class="full"><input id="s-allow" type="checkbox"/> allow netops writes</label>
+          <label class="full">Sentry DSN<input id="s-sentry"/></label>
+          <label>Guacamole URL<input id="s-guac-url"/></label>
+          <label>Guacamole conn ID<input id="s-guac-cid"/></label>
+          <label class="full">Connect template (Guacamole or custom)
+            <input id="s-guac-tpl" placeholder="https://guac.example.com/#/client/?host={host}&amp;protocol={proto}&amp;port={port}"/>
+          </label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>IPFIX flow export</h2>
+        <div class="form-grid">
+          <label class="full"><input id="s-ipfix-en" type="checkbox"/> enable IPFIX export</label>
+          <label class="full">collector endpoint<input id="s-ipfix-ep" placeholder="host:port (UDP), e.g. collector.opsanio.io:4739"/></label>
+          <label>interval (s)<input id="s-ipfix-int" type="number"/></label>
+          <label>observation domain<input id="s-ipfix-dom" type="number"/></label>
+        </div>
+        <div class="muted" id="ipfix-status">status: —</div>
+      </div>
+      <div class="row"><button data-action="settings-save" class="btn btn-go">Save settings</button></div>
+    </section>
+  </main>
+
+  <footer id="toast" class="toast"></footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

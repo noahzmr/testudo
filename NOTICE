@@ -1,0 +1,214 @@
+================================================================================
+                            TESTUDO — NOTICE
+================================================================================
+
+Project:    Testudo
+Owner:      Noah Zeumer
+Repository: https://github.com/noahzmr/testudo
+Created:    2026-05-24
+Updated:    2026-05-24
+
+This product includes software developed by Noah Zeumer and the Testudo
+contributors. The source code is licensed under the Mozilla Public
+License, Version 2.0 — see the LICENSE file for full terms.
+
+This NOTICE file documents additional branding terms that apply
+alongside the source-code license. The two are deliberately separate:
+
+  * The LICENSE governs the CODE.
+  * This NOTICE governs the BRAND.
+
+Read both before forking, redistributing, or derivative work.
+
+--------------------------------------------------------------------------------
+1. BRAND IDENTITY
+--------------------------------------------------------------------------------
+
+The following are the property of Noah Zeumer and constitute the brand
+identity of the Testudo project:
+
+  (a) the name "Testudo", in any casing or stylization;
+  (b) the ASCII banner reproduced below and shipped throughout the
+      project's source and documentation;
+  (c) the visual and textual identity of the Testudo project,
+      including its tagline, color treatments, and any logo derived
+      from the ASCII banner;
+  (d) the URL slugs and project identifiers that uniquely refer to
+      Testudo as a product.
+
+   ASCII banner:
+
+         ___    __________ ________   ______ __________  __   __   _______     ______
+    ,,  // \\   \__    __/ |  ____/  /  ___/ \__    __/ |  | |  | |   ___  \  /  __   \
+   (_,\/ \_/ \     |  |    |  |___   \  \       |  |    |  | |  | |  |   \  \ |  |  |  |
+     \ \_/_\_/>    |  |    |   ___|   \  \      |  |    |  | |  | |  |   |  | |  |  |  |
+     /_/  /_/      |  |    |  |_____  /  /      |  |    |  |_|  | |  |___/  / |  |__|  |
+                   |__|    |_______/ /__/       |__|     \_____/  |________/   \______/
+
+The MPL-2.0 grant on the source code does NOT extend to these brand
+elements. They are licensed only on the terms set out in this NOTICE.
+
+--------------------------------------------------------------------------------
+2. PERMITTED USES
+--------------------------------------------------------------------------------
+
+You are free, without separate permission, to:
+
+  (a) fork the repository and retain the Testudo name and banner so
+      long as the fork remains a fork — meaning it tracks the upstream
+      project, reasonably acknowledges that relationship, and presents
+      itself as a derivative of Testudo rather than a new product;
+
+  (b) reference the name "Testudo" in factual, descriptive contexts —
+      documentation, blog posts, comparison tables, talks, academic
+      work, or compatibility statements — without prior approval;
+
+  (c) distribute unmodified or minimally modified builds of Testudo
+      under the original name, provided this NOTICE file accompanies
+      the distribution and remains unaltered;
+
+  (d) ship Testudo as a component of a larger system or commercial
+      product, provided the Testudo branding is preserved within the
+      Testudo portion and attribution is given in your product's
+      documentation or about screen.
+
+--------------------------------------------------------------------------------
+3. RESTRICTED USES
+--------------------------------------------------------------------------------
+
+The following uses require separate written permission from Noah Zeumer:
+
+  (a) releasing a substantively modified fork under the name
+      "Testudo" or any name confusingly similar to it;
+
+  (b) re-publishing the project under a different product name while
+      retaining the ASCII banner, identity, or marketing language of
+      Testudo as if to suggest authorship;
+
+  (c) reusing the ASCII banner as the identity of any product,
+      service, or organization other than Testudo, or any direct
+      derivative thereof that remains identified as Testudo;
+
+  (d) commercial use of the name "Testudo" or the banner in a way
+      that implies endorsement, affiliation with, or sponsorship by
+      Noah Zeumer or the Testudo project where no such relationship
+      exists;
+
+  (e) registering "Testudo" or a confusingly similar mark as a
+      trademark, domain name, package name, or service identifier in
+      a way that would interfere with the Testudo project's ability
+      to operate under its own name.
+
+--------------------------------------------------------------------------------
+4. ATTRIBUTION REQUIREMENTS
+--------------------------------------------------------------------------------
+
+When redistributing Testudo, in source or binary form, you must:
+
+  (a) include a copy of this NOTICE file in the distribution;
+  (b) include a copy of the LICENSE file in the distribution;
+  (c) preserve all copyright headers in the source files you
+      redistribute;
+  (d) preserve the ASCII banner in any user-visible help, splash, or
+      "about" surface where it appears upstream, unless the form
+      factor genuinely precludes it.
+
+When publishing a substantively modified derivative under a different
+name (as Section 3(a) requires), you must:
+
+  (e) remove the Testudo ASCII banner and replace it with your own
+      identity;
+  (f) retain a short factual notice such as "Derived from Testudo by
+      Noah Zeumer — https://github.com/noahzmr/testudo" in your project's
+      documentation, README, or about screen;
+  (g) retain the copyright headers from any Testudo source files you
+      reuse, as MPL-2.0 requires.
+
+--------------------------------------------------------------------------------
+5. REDISTRIBUTION RULES
+--------------------------------------------------------------------------------
+
+Source-form redistribution must satisfy both the MPL-2.0 conditions in
+the LICENSE file and the attribution requirements in Section 4 of this
+NOTICE.
+
+Binary-form redistribution must satisfy MPL-2.0 Section 3.2 (Executable
+Form) and additionally:
+
+  (a) preserve the project's name in user-facing surfaces unless the
+      derivative is renamed in full compliance with Section 3(a);
+  (b) make the corresponding source code available on the terms of
+      MPL-2.0;
+  (c) include this NOTICE file alongside the LICENSE.
+
+Repackaging into operating-system package managers (apt, dnf, pacman,
+Homebrew, Nix, etc.) is permitted without prior approval as long as the
+package preserves the project name, the source remains available, and
+this NOTICE and the LICENSE travel with the package.
+
+--------------------------------------------------------------------------------
+6. TRADEMARK-STYLE PROTECTION
+--------------------------------------------------------------------------------
+
+The name "Testudo" and the ASCII banner are treated by Noah Zeumer as
+trademark-equivalent brand identifiers, regardless of whether formal
+trademark registration has been pursued in any jurisdiction.
+
+Nothing in the MPL-2.0 grants any rights in these brand identifiers
+beyond what is necessary to comply with the attribution and notice
+requirements of that license (MPL-2.0 Section 2.3 last paragraph; this
+NOTICE elaborates that reservation).
+
+Any use of the brand identifiers outside the bounds of Sections 2 and 4
+of this NOTICE requires prior written permission. Permission requests
+should be directed to Noah Zeumer via the contact information on the
+project's public repository.
+
+--------------------------------------------------------------------------------
+7. AUTHORSHIP & MISREPRESENTATION
+--------------------------------------------------------------------------------
+
+You may not:
+
+  (a) misrepresent the origin of Testudo or of any code originating
+      from Testudo;
+
+  (b) remove or alter author attribution from individual source files
+      (this is also forbidden by MPL-2.0 Section 3.4);
+
+  (c) hold yourself out as the original author of Testudo or of any
+      substantial portion of it;
+
+  (d) imply that contributors, including Noah Zeumer, endorse a
+      derivative work, a fork, or a commercial offering when no such
+      endorsement has been given in writing.
+
+--------------------------------------------------------------------------------
+8. SUMMARY (NON-BINDING)
+--------------------------------------------------------------------------------
+
+The plain-language version of this NOTICE, provided only for
+convenience and subordinate to the binding text above:
+
+  Fork freely. Modify freely. Use it commercially. Build on it.
+
+  But: don't ship a substantively different product still calling
+  itself Testudo, don't strip the credit, don't reuse the banner as
+  some other thing's identity, and don't claim you wrote it.
+
+  If you change it enough that it isn't Testudo anymore, give it a
+  different name — and the code itself stays MPL-2.0 either way.
+
+--------------------------------------------------------------------------------
+9. CONTACT
+--------------------------------------------------------------------------------
+
+For licensing questions, branding permission requests, or any other
+correspondence regarding this NOTICE, contact:
+
+  Noah Zeumer
+  https://github.com/noahzmr
+
+================================================================================
+END OF NOTICE
+================================================================================

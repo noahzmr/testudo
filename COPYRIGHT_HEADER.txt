@@ -1,0 +1,182 @@
+================================================================================
+                  TESTUDO — STANDARD COPYRIGHT HEADER
+================================================================================
+
+Every source file contributed to the Testudo project must carry the
+standard copyright header in the form appropriate for the file's
+language. This document defines the canonical header text and provides
+ready-to-paste forms for the languages used in this repository.
+
+  Project:    Testudo
+  Owner:      Noah Zeumer
+  Created:    2026-05-24
+  Updated:    2026-05-24
+  License:    MPL-2.0  (see LICENSE)
+  Notice:     see NOTICE for branding terms
+
+--------------------------------------------------------------------------------
+CANONICAL HEADER TEXT (language-neutral)
+--------------------------------------------------------------------------------
+
+Copyright (c) 2026 Noah Zeumer
+Project: Testudo
+Created: 2026-05-24
+Updated: 2026-05-24
+License: MPL-2.0
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+Branding terms apply — see the NOTICE file at the repository root.
+
+SPDX-License-Identifier: MPL-2.0
+
+--------------------------------------------------------------------------------
+GO  (.go)
+--------------------------------------------------------------------------------
+
+/*
+Copyright (c) 2026 Noah Zeumer
+
+Project: Testudo
+Created: 2026-05-24
+Updated: 2026-05-24
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+Branding terms apply — see the NOTICE file at the repository root.
+
+SPDX-License-Identifier: MPL-2.0
+*/
+
+package <name>
+
+--------------------------------------------------------------------------------
+SHELL / PYTHON / YAML / TOML  (.sh, .py, .yaml, .yml, .toml, Makefile)
+--------------------------------------------------------------------------------
+
+# Copyright (c) 2026 Noah Zeumer
+#
+# Project: Testudo
+# Created: 2026-05-24
+# Updated: 2026-05-24
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# Branding terms apply — see the NOTICE file at the repository root.
+#
+# SPDX-License-Identifier: MPL-2.0
+
+--------------------------------------------------------------------------------
+HTML
+--------------------------------------------------------------------------------
+
+<!--
+  Copyright (c) 2026 Noah Zeumer
+
+  Project: Testudo
+  Created: 2026-05-24
+  Updated: 2026-05-24
+
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+  Branding terms apply — see the NOTICE file at the repository root.
+
+  SPDX-License-Identifier: MPL-2.0
+-->
+
+--------------------------------------------------------------------------------
+CSS
+--------------------------------------------------------------------------------
+
+/*
+ * Copyright (c) 2026 Noah Zeumer
+ *
+ * Project: Testudo
+ * Created: 2026-05-24
+ * Updated: 2026-05-24
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * Branding terms apply — see the NOTICE file at the repository root.
+ *
+ * SPDX-License-Identifier: MPL-2.0
+ */
+
+--------------------------------------------------------------------------------
+JAVASCRIPT / TYPESCRIPT  (.js, .ts, .mjs, .cjs)
+--------------------------------------------------------------------------------
+
+/*
+ * Copyright (c) 2026 Noah Zeumer
+ *
+ * Project: Testudo
+ * Created: 2026-05-24
+ * Updated: 2026-05-24
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * Branding terms apply — see the NOTICE file at the repository root.
+ *
+ * SPDX-License-Identifier: MPL-2.0
+ */
+
+--------------------------------------------------------------------------------
+SQL
+--------------------------------------------------------------------------------
+
+-- Copyright (c) 2026 Noah Zeumer
+--
+-- Project: Testudo
+-- Created: 2026-05-24
+-- Updated: 2026-05-24
+--
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+--
+-- Branding terms apply — see the NOTICE file at the repository root.
+--
+-- SPDX-License-Identifier: MPL-2.0
+
+--------------------------------------------------------------------------------
+USAGE RULES
+--------------------------------------------------------------------------------
+
+1. Every new source file must include the header before its first
+   declaration, in the language-appropriate comment form above.
+
+2. The "Created" field is set once, when the file is first added to the
+   repository, and never changed. The "Updated" field is bumped on
+   substantive edits — typo fixes, formatting passes, and dependency
+   bumps do not require it.
+
+3. When updating an existing file with a meaningful change, advance the
+   "Updated" date to the current date in ISO 8601 form (YYYY-MM-DD).
+   Leave the "Created" date untouched.
+
+4. The SPDX-License-Identifier line is mandatory — automated tooling
+   relies on it. Do not remove it when stripping comments for minified
+   builds; preserve it in a build-tool license banner instead.
+
+5. Do not remove copyright headers from contributed source files. This
+   is required by MPL-2.0 Section 3.4 and reinforced by Section 7 of
+   the NOTICE file.
+
+6. Third-party files vendored into the repository keep their original
+   upstream headers. Do not replace upstream headers with this one.
+
+================================================================================
+END OF COPYRIGHT_HEADER
+================================================================================

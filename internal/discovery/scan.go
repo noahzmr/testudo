@@ -1,0 +1,351 @@
+package discovery
+
+import (
+	"bufio"
+	"context"
+	"net"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
+
+	"github.com/noahzmr/testudo/internal/events"
+)
+
+// Scanner runs periodic active + passive discovery against the local subnets.
+type Scanner struct {
+	Inventory *Inventory
+	Interval  time.Duration // sweep cadence
+	Active    bool          // when true, also runs ICMP/mDNS probes
+}
+
+func (s *Scanner) Name() string { return "discovery" }
+
+func (s *Scanner) Run(ctx context.Context, bus *events.Bus) error {
+	if s.Interval <= 0 {
+		s.Interval = 60 * time.Second
+	}
+	s.pass(ctx, bus)
+	ticker := time.NewTicker(s.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			s.pass(ctx, bus)
+		}
+	}
+}
+
+// pass runs one round of discovery work — always reads the ARP cache, and
+// when Active is true also fires an ICMP sweep, an mDNS probe, and a small
+// TCP/UDP port probe against currently-known hosts.
+func (s *Scanner) pass(ctx context.Context, bus *events.Bus) {
+	s.scanARPCache()
+	if !s.Active {
+		return
+	}
+	subnets := localIPv4Subnets()
+	for _, sub := range subnets {
+		s.icmpSweep(ctx, sub)
+	}
+	s.mdnsProbe(ctx)
+	hosts := make([]string, 0, 32)
+	for _, d := range s.Inventory.Snapshot() {
+		hosts = append(hosts, d.IP)
+	}
+	if len(hosts) > 0 {
+		// Bound the work — large inventories don't want to be re-probed
+		// every sweep. Take a rotating window of up to 32 hosts.
+		if len(hosts) > 32 {
+			hosts = hosts[:32]
+		}
+		s.TCPProbe(ctx, hosts, nil, 300*time.Millisecond)
+		s.UDPProbe(ctx, hosts, nil, 400*time.Millisecond)
+	}
+}
+
+// scanARPCache reads /proc/net/arp and records every (IP, MAC, iface) tuple.
+// Cheap, low-noise, runs every interval. Stale entries decay via MarkStale.
+func (s *Scanner) scanARPCache() {
+	f, err := os.Open("/proc/net/arp")
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Scan() // header
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		// IP HW-Type Flags HW-Addr Mask Device
+		if len(fields) < 6 {
+			continue
+		}
+		ip := fields[0]
+		mac := fields[3]
+		iface := fields[5]
+		if mac == "00:00:00:00:00:00" {
+			continue
+		}
+		d := Device{
+			IP: ip, MAC: mac, Iface: iface, Source: "arp",
+			Vendor: vendorFor(mac),
+		}
+		s.Inventory.Observe(d)
+	}
+}
+
+// icmpSweep pings every host in subnet (capped to /24-sized ranges to bound
+// network noise) and records responders. Reuses the same unprivileged-ICMP
+// fallback dance as the collector.
+func (s *Scanner) icmpSweep(ctx context.Context, subnet *net.IPNet) {
+	ones, bits := subnet.Mask.Size()
+	if bits-ones > 8 {
+		// Wider than /24 — skip; could be a /16. Avoid 65k pings.
+		return
+	}
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		conn, err = icmp.ListenPacket("udp4", "0.0.0.0")
+		if err != nil {
+			return
+		}
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	// Send echoes to every host in the subnet, except network/broadcast.
+	base := subnet.IP.Mask(subnet.Mask).To4()
+	if base == nil {
+		return
+	}
+	count := 1 << (bits - ones)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	// Reader: collects responses.
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 1500)
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			n, peer, err := conn.ReadFrom(buf)
+			if err != nil {
+				continue
+			}
+			msg, err := icmp.ParseMessage(int(ipv4.ICMPTypeEchoReply.Protocol()), buf[:n])
+			if err != nil || msg.Type != ipv4.ICMPTypeEchoReply {
+				continue
+			}
+			ip := stripPort(peer.String())
+			s.Inventory.Observe(Device{IP: ip, Source: "icmp"})
+		}
+	}()
+
+	for i := 1; i < count-1; i++ {
+		target := dupIP(base)
+		incIP(target, i)
+		msg := icmp.Message{
+			Type: ipv4.ICMPTypeEcho, Code: 0,
+			Body: &icmp.Echo{ID: 1, Seq: i & 0xffff, Data: []byte("testudo-disc")},
+		}
+		b, err := msg.Marshal(nil)
+		if err != nil {
+			continue
+		}
+		_, _ = conn.WriteTo(b, &net.IPAddr{IP: target})
+		// Tiny stagger so we don't burst into upstream rate-limits.
+		time.Sleep(2 * time.Millisecond)
+		if ctx.Err() != nil {
+			return
+		}
+	}
+	wg.Wait()
+}
+
+func stripPort(addr string) string {
+	if i := strings.LastIndex(addr, ":"); i > 0 && i < len(addr)-1 && !strings.Contains(addr[:i], "]") {
+		return addr[:i]
+	}
+	return addr
+}
+
+func dupIP(ip net.IP) net.IP {
+	out := make(net.IP, len(ip))
+	copy(out, ip)
+	return out
+}
+
+// incIP adds offset to the IP in place (big-endian, IPv4 only).
+func incIP(ip net.IP, offset int) {
+	v := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+	v += uint32(offset)
+	ip[0] = byte(v >> 24)
+	ip[1] = byte(v >> 16)
+	ip[2] = byte(v >> 8)
+	ip[3] = byte(v)
+}
+
+// mdnsProbe sends a single ANY query to 224.0.0.251:5353 and listens for
+// responses for a few seconds. Responders advertise hostnames in their
+// answer records — we extract the first .local name as a hostname hint.
+func (s *Scanner) mdnsProbe(ctx context.Context) {
+	mdnsAddr := &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 0})
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	// Minimal mDNS query: standard query, 1 question for "_services._dns-sd._udp.local" PTR
+	query := buildMDNSQuery("_services._dns-sd._udp.local")
+	_, _ = conn.WriteToUDP(query, mdnsAddr)
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 4096)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		n, from, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		host := extractFirstMDNSName(buf[:n])
+		if host == "" {
+			continue
+		}
+		s.Inventory.Observe(Device{
+			IP: from.IP.String(), Hostname: host, Source: "mdns",
+		})
+	}
+}
+
+// buildMDNSQuery hand-rolls a minimal DNS query for name (type PTR, class IN).
+// Returns wire-format bytes. Sufficient for "anyone there?" probes.
+func buildMDNSQuery(name string) []byte {
+	var b []byte
+	// Header: id=0, flags=0x0000 (standard query), qdcount=1
+	b = append(b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+	// QNAME: length-prefixed labels + null terminator
+	for _, label := range strings.Split(name, ".") {
+		if label == "" {
+			continue
+		}
+		b = append(b, byte(len(label)))
+		b = append(b, []byte(label)...)
+	}
+	b = append(b, 0x00)
+	// QTYPE=PTR(12), QCLASS=IN(1)
+	b = append(b, 0x00, 0x0c, 0x00, 0x01)
+	return b
+}
+
+// extractFirstMDNSName parses a tiny subset of DNS to find the first ANSWER
+// record's RDATA when it points at a name. Returns the parsed name or "".
+// Not a full DNS parser; just enough to recover hostnames from mDNS replies.
+func extractFirstMDNSName(packet []byte) string {
+	if len(packet) < 12 {
+		return ""
+	}
+	qdcount := int(packet[4])<<8 | int(packet[5])
+	ancount := int(packet[6])<<8 | int(packet[7])
+	if ancount == 0 {
+		return ""
+	}
+	off := 12
+	// Skip question section.
+	for i := 0; i < qdcount; i++ {
+		n, ok := skipName(packet, off)
+		if !ok {
+			return ""
+		}
+		off = n + 4
+	}
+	// First answer: NAME(skipped) TYPE(2) CLASS(2) TTL(4) RDLEN(2) RDATA
+	n, ok := skipName(packet, off)
+	if !ok {
+		return ""
+	}
+	if n+10 > len(packet) {
+		return ""
+	}
+	rdLen := int(packet[n+8])<<8 | int(packet[n+9])
+	rdStart := n + 10
+	if rdStart+rdLen > len(packet) {
+		return ""
+	}
+	name, _ := readName(packet, rdStart)
+	return name
+}
+
+// skipName walks DNS-encoded labels and returns the byte offset just past
+// the terminator (or first pointer). Pointers are followed for one hop.
+func skipName(packet []byte, off int) (int, bool) {
+	for off < len(packet) {
+		b := packet[off]
+		if b == 0 {
+			return off + 1, true
+		}
+		if b&0xC0 == 0xC0 {
+			return off + 2, true
+		}
+		off += int(b) + 1
+	}
+	return 0, false
+}
+
+// readName resolves a DNS-encoded name including one level of pointer chasing.
+func readName(packet []byte, off int) (string, int) {
+	var labels []string
+	for i := 0; i < 32 && off < len(packet); i++ {
+		b := packet[off]
+		if b == 0 {
+			return strings.Join(labels, "."), off + 1
+		}
+		if b&0xC0 == 0xC0 {
+			if off+1 >= len(packet) {
+				return "", off
+			}
+			ptr := int(b&0x3F)<<8 | int(packet[off+1])
+			name, _ := readName(packet, ptr)
+			if name != "" {
+				labels = append(labels, name)
+			}
+			return strings.Join(labels, "."), off + 2
+		}
+		llen := int(b)
+		if off+1+llen > len(packet) {
+			return "", off
+		}
+		labels = append(labels, string(packet[off+1:off+1+llen]))
+		off += 1 + llen
+	}
+	return strings.Join(labels, "."), off
+}
+
+// localIPv4Subnets returns CIDRs assigned to up, non-loopback interfaces.
+func localIPv4Subnets() []*net.IPNet {
+	var out []*net.IPNet
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, ifi := range ifs {
+		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := ifi.Addrs()
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok || ipn.IP.To4() == nil {
+				continue
+			}
+			out = append(out, ipn)
+		}
+	}
+	return out
+}
