@@ -105,13 +105,26 @@ type Config struct {
 	// mutates this via a controller, not directly.
 	Thresholds Thresholds
 
-	// DiscoveryEnabled toggles the network discovery scanner (ARP + mDNS,
-	// passive only by default).
+	// DiscoveryEnabled toggles the network discovery scanner. Passive
+	// collectors (ARP cache read, LLDP listener) are always on when this
+	// is true; active probes are gated by DiscoveryActive.
 	DiscoveryEnabled bool
-	// DiscoveryActive enables ICMP sweeps on local subnets.
+	// DiscoveryActive enables active probing (ARP broadcast sweep, ICMP
+	// sweep, TCP/UDP port probe, SNMPv2c GET).
 	DiscoveryActive bool
 	// DiscoveryInterval is the sweep cadence.
 	DiscoveryInterval time.Duration
+	// DiscoveryMaxSubnetBits caps prefix expansion for the ARP and ICMP
+	// sweeps. 10 = /22 (1024 hosts) by default; 8 keeps it at /24.
+	DiscoveryMaxSubnetBits int
+	// LLDPEnabled toggles the passive LLDP listener. Requires CAP_NET_RAW;
+	// soft-fails per interface when the cap is missing.
+	LLDPEnabled bool
+	// SNMPCommunity is the read community used by the SNMPv2c probe.
+	// Empty string disables SNMP probing.
+	SNMPCommunity string
+	// SNMPTimeout is the per-host UDP/161 deadline.
+	SNMPTimeout time.Duration
 
 	// WebEnabled toggles the embedded HTTP UI.
 	WebEnabled bool
@@ -154,9 +167,13 @@ func Default() Config {
 		CaptureEnabled:    false,
 		FlowFlushInterval: 5 * time.Second,
 		Thresholds:        DefaultThresholds(),
-		DiscoveryEnabled:  true,
-		DiscoveryActive:   false,
-		DiscoveryInterval: 60 * time.Second,
+		DiscoveryEnabled:       true,
+		DiscoveryActive:        false,
+		DiscoveryInterval:      60 * time.Second,
+		DiscoveryMaxSubnetBits: 10,
+		LLDPEnabled:            true,
+		SNMPCommunity:          "public",
+		SNMPTimeout:            time.Second,
 		WebEnabled:        false,
 		WebListen:         "127.0.0.1:8080",
 		SnapshotInterval:  30 * time.Second,

@@ -97,7 +97,7 @@ func usage() {
 	fmt.Println("  nat list          show Testudo-managed port forwards")
 	fmt.Println("  nat add <proto> <wan> <lan-ip>[:<lan-port>]   add port forward")
 	fmt.Println("  nat del <proto> <wan>                          remove port forward")
-	fmt.Println("  discover [--active] [--wait]                   one-shot network scan")
+	fmt.Println("  discover [--active] [--lldp] [--snmp-community] one-shot scan (ARP/ICMP/mDNS/LLDP/SNMP)")
 	fmt.Println("  probe <kind> <target> [port]                   one-shot probe (icmp/tcp/udp/dns/throughput/traceroute)")
 	fmt.Println("  user passwd [name]                             set/rotate user password (web UI auth)")
 	fmt.Println("  user list                                      list configured users")

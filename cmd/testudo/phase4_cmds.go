@@ -124,26 +124,41 @@ func cmdWeb(args []string) error {
 }
 
 // cmdDiscover runs one round of network discovery from the CLI and prints
-// the inventory. Useful for scripts and quick ad-hoc scans.
+// the inventory. Useful for scripts and quick ad-hoc scans. With --active
+// also fires ARP broadcast, ICMP sweep, mDNS query and SNMPv2c GET; with
+// --lldp also listens for LLDP frames for the duration of --wait.
 func cmdDiscover(args []string) error {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
-	active := fs.Bool("active", false, "also run ICMP/mDNS probes (needs CAP_NET_RAW)")
-	wait := fs.Duration("wait", 4*time.Second, "wait for active scans to complete")
+	active := fs.Bool("active", false, "run active probes (ARP sweep, ICMP, mDNS, SNMP) — needs CAP_NET_RAW")
+	lldp := fs.Bool("lldp", true, "listen for LLDP frames from directly-connected neighbours")
+	community := fs.String("snmp-community", "public", "SNMPv2c read community (empty disables SNMP)")
+	wait := fs.Duration("wait", 6*time.Second, "wait for scans / LLDP listening to complete")
+	maxBits := fs.Int("max-subnet-bits", 10, "cap subnet expansion for active sweeps (10 = /22)")
+	verbose := fs.Bool("v", false, "print SNMP/LLDP details when available")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	inv := discovery.NewInventory()
-	scanner := &discovery.Scanner{Inventory: inv, Active: *active, Interval: 24 * time.Hour}
+	scanner := &discovery.Scanner{
+		Inventory:     inv,
+		Active:        *active,
+		Interval:      24 * time.Hour,
+		MaxSubnetBits: *maxBits,
+		SNMPCommunity: *community,
+		SNMPTimeout:   time.Second,
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *wait)
 	defer cancel()
-	// Reach into Run via a side channel — Run drives the schedule, but we
-	// just need one pass: call the unexported pass via Run + immediate cancel.
 	done := make(chan struct{})
 	go func() {
-		_ = scanner.Run(ctx, nil) // bus is nil — discovery package tolerates this for scanARPCache path
+		_ = scanner.Run(ctx, nil)
 		close(done)
 	}()
+	if *lldp {
+		l := &discovery.LLDPListener{Inventory: inv}
+		go func() { _ = l.Run(ctx) }()
+	}
 	<-ctx.Done()
 	<-done
 
@@ -152,10 +167,31 @@ func cmdDiscover(args []string) error {
 		fmt.Println("no devices discovered")
 		return nil
 	}
-	fmt.Printf("%-16s %-19s %-22s %-16s %s\n", "IP", "MAC", "HOSTNAME", "VENDOR", "SOURCE")
+	fmt.Printf("%-16s %-19s %-22s %-10s %-16s %s\n",
+		"IP", "MAC", "HOSTNAME", "TYPE", "VENDOR", "SOURCE")
 	for _, d := range devs {
-		fmt.Printf("%-16s %-19s %-22s %-16s %s\n",
-			d.IP, dashIfEmpty(d.MAC), dashIfEmpty(d.Hostname), dashIfEmpty(d.Vendor), d.Source)
+		fmt.Printf("%-16s %-19s %-22s %-10s %-16s %s\n",
+			d.IP, dashIfEmpty(d.MAC), dashIfEmpty(d.Hostname),
+			dashIfEmpty(d.DeviceType), dashIfEmpty(d.Vendor), d.Source)
+		if !*verbose {
+			continue
+		}
+		if d.SysDescr != "" {
+			fmt.Printf("    sysDescr: %s\n", d.SysDescr)
+		}
+		if d.SysName != "" && d.SysName != d.Hostname {
+			fmt.Printf("    sysName:  %s\n", d.SysName)
+		}
+		if d.SysLocation != "" {
+			fmt.Printf("    location: %s\n", d.SysLocation)
+		}
+		if d.SysUptime != "" {
+			fmt.Printf("    uptime:   %s\n", d.SysUptime)
+		}
+		if d.LLDPChassisID != "" {
+			fmt.Printf("    LLDP:     chassis=%s port=%s caps=%s\n",
+				d.LLDPChassisID, d.LLDPPortID, strings.Join(d.LLDPCapabilities, ","))
+		}
 	}
 	return nil
 }

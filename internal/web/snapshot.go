@@ -82,14 +82,30 @@ type flowView struct {
 }
 
 type deviceView struct {
-	IP        string   `json:"ip"`
-	MAC       string   `json:"mac"`
-	Hostname  string   `json:"hostname"`
-	Vendor    string   `json:"vendor"`
-	Iface     string   `json:"iface"`
-	Source    string   `json:"source"`
-	OpenPorts []uint16 `json:"open_ports"`
-	Protocols []string `json:"protocols"`
+	IP         string   `json:"ip"`
+	MAC        string   `json:"mac"`
+	Hostname   string   `json:"hostname"`
+	Vendor     string   `json:"vendor"`
+	Iface      string   `json:"iface"`
+	Source     string   `json:"source"`
+	DeviceType string   `json:"device_type,omitempty"`
+	OpenPorts  []uint16 `json:"open_ports"`
+	Protocols  []string `json:"protocols"`
+
+	SysName     string   `json:"sys_name,omitempty"`
+	SysDescr    string   `json:"sys_descr,omitempty"`
+	SysObjectID string   `json:"sys_object_id,omitempty"`
+	SysContact  string   `json:"sys_contact,omitempty"`
+	SysLocation string   `json:"sys_location,omitempty"`
+	SysUptime   string   `json:"sys_uptime,omitempty"`
+	IfCount     int      `json:"if_count,omitempty"`
+
+	LLDPChassisID    string   `json:"lldp_chassis_id,omitempty"`
+	LLDPPortID       string   `json:"lldp_port_id,omitempty"`
+	LLDPPortDesc     string   `json:"lldp_port_desc,omitempty"`
+	LLDPMgmtAddrs    []string `json:"lldp_mgmt_addrs,omitempty"`
+	LLDPCapabilities []string `json:"lldp_capabilities,omitempty"`
+	LLDPLocalIface   string   `json:"lldp_local_iface,omitempty"`
 }
 
 type ifaceView struct {
@@ -315,8 +331,21 @@ func (s *Server) buildSnapshot() snapshot {
 			snap.Devices = append(snap.Devices, deviceView{
 				IP: d.IP, MAC: d.MAC, Hostname: d.Hostname,
 				Vendor: d.Vendor, Iface: d.Iface, Source: d.Source,
-				OpenPorts: d.OpenPorts,
-				Protocols: protoStrs,
+				DeviceType: d.DeviceType,
+				OpenPorts:  d.OpenPorts,
+				Protocols:  protoStrs,
+
+				SysName: d.SysName, SysDescr: d.SysDescr,
+				SysObjectID: d.SysObjectID,
+				SysContact:  d.SysContact, SysLocation: d.SysLocation,
+				SysUptime: d.SysUptime, IfCount: d.IfCount,
+
+				LLDPChassisID:    d.LLDPChassisID,
+				LLDPPortID:       d.LLDPPortID,
+				LLDPPortDesc:     d.LLDPPortDesc,
+				LLDPMgmtAddrs:    d.LLDPMgmtAddrs,
+				LLDPCapabilities: d.LLDPCapabilities,
+				LLDPLocalIface:   d.LLDPLocalIface,
 			})
 		}
 	}

@@ -516,19 +516,30 @@ func (e *Engine) flushFlows(ctx context.Context) {
 	}
 }
 
-// startDiscovery runs the ARP/ICMP/mDNS scanner and periodically flushes
-// the inventory to SQLite.
+// startDiscovery runs the active scanner (ARP/ICMP/mDNS/SNMP), the
+// passive LLDP listener, and a periodic flush of the inventory to SQLite.
 func (e *Engine) startDiscovery(ctx context.Context) {
 	scanner := &discovery.Scanner{
-		Inventory: e.inventory,
-		Interval:  e.cfg.DiscoveryInterval,
-		Active:    e.cfg.DiscoveryActive,
+		Inventory:     e.inventory,
+		Interval:      e.cfg.DiscoveryInterval,
+		Active:        e.cfg.DiscoveryActive,
+		MaxSubnetBits: e.cfg.DiscoveryMaxSubnetBits,
+		SNMPCommunity: e.cfg.SNMPCommunity,
+		SNMPTimeout:   e.cfg.SNMPTimeout,
 	}
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
 		_ = scanner.Run(ctx, e.bus)
 	}()
+	if e.cfg.LLDPEnabled {
+		lldp := &discovery.LLDPListener{Inventory: e.inventory}
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			_ = lldp.Run(ctx)
+		}()
+	}
 	// Periodic devices-table flush.
 	e.wg.Add(1)
 	go func() {

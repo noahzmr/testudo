@@ -24,9 +24,31 @@ type Device struct {
 	OpenPorts []uint16
 	Services  []string
 	OSHint    string
-	Source    string // "arp", "icmp", "mdns", "passive"
+	Source    string // "arp", "icmp", "mdns", "passive", "lldp", "snmp", "arp-sweep", "netbios"
 	FirstSeen time.Time
 	LastSeen  time.Time
+
+	// DeviceType is a coarse classifier ("router", "switch", "ap", "phone",
+	// "printer", "server", "workstation", ...). Derived from LLDP/SNMP/OUI
+	// signals — best-effort, never blocks lookup.
+	DeviceType string
+
+	// SNMP / LLDP managed-device fields. Populated when the device speaks
+	// LLDP on a directly-connected link, or replies to SNMPv2c GET.
+	SysName     string   // sysName.0 or LLDP system-name TLV
+	SysDescr    string   // sysDescr.0 or LLDP system-description TLV
+	SysObjectID string   // sysObjectID.0 (vendor-rooted OID)
+	SysContact  string   // sysContact.0
+	SysLocation string   // sysLocation.0
+	SysUptime   string   // sysUpTime.0 (formatted as duration)
+	IfCount     int      // ifNumber.0 — interface count
+
+	LLDPChassisID    string   // LLDP Chassis ID TLV (formatted)
+	LLDPPortID       string   // LLDP Port ID TLV (formatted)
+	LLDPPortDesc     string   // LLDP Port Description TLV
+	LLDPMgmtAddrs    []string // LLDP Management Address TLV(s)
+	LLDPCapabilities []string // bridge/router/wlan-ap/telephone/...
+	LLDPLocalIface   string   // local interface where the LLDPDU was seen
 }
 
 // Inventory is the canonical device table. Safe for concurrent use.
@@ -78,6 +100,48 @@ func (in *Inventory) Observe(d Device) {
 	}
 	if len(d.Services) > 0 {
 		cur.Services = mergeUniqString(cur.Services, d.Services)
+	}
+	if d.DeviceType != "" {
+		cur.DeviceType = d.DeviceType
+	}
+	if d.SysName != "" {
+		cur.SysName = d.SysName
+	}
+	if d.SysDescr != "" {
+		cur.SysDescr = d.SysDescr
+	}
+	if d.SysObjectID != "" {
+		cur.SysObjectID = d.SysObjectID
+	}
+	if d.SysContact != "" {
+		cur.SysContact = d.SysContact
+	}
+	if d.SysLocation != "" {
+		cur.SysLocation = d.SysLocation
+	}
+	if d.SysUptime != "" {
+		cur.SysUptime = d.SysUptime
+	}
+	if d.IfCount != 0 {
+		cur.IfCount = d.IfCount
+	}
+	if d.LLDPChassisID != "" {
+		cur.LLDPChassisID = d.LLDPChassisID
+	}
+	if d.LLDPPortID != "" {
+		cur.LLDPPortID = d.LLDPPortID
+	}
+	if d.LLDPPortDesc != "" {
+		cur.LLDPPortDesc = d.LLDPPortDesc
+	}
+	if len(d.LLDPMgmtAddrs) > 0 {
+		cur.LLDPMgmtAddrs = mergeUniqString(cur.LLDPMgmtAddrs, d.LLDPMgmtAddrs)
+	}
+	if len(d.LLDPCapabilities) > 0 {
+		cur.LLDPCapabilities = mergeUniqString(cur.LLDPCapabilities, d.LLDPCapabilities)
+	}
+	if d.LLDPLocalIface != "" {
+		cur.LLDPLocalIface = d.LLDPLocalIface
 	}
 }
 

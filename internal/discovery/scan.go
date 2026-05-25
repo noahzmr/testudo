@@ -19,7 +19,20 @@ import (
 type Scanner struct {
 	Inventory *Inventory
 	Interval  time.Duration // sweep cadence
-	Active    bool          // when true, also runs ICMP/mDNS probes
+	Active    bool          // when true, also runs ICMP/ARP/mDNS/SNMP probes
+
+	// MaxSubnetBits caps the prefix expansion for active sweeps. Default
+	// 10 = /22 (1024 hosts). Set to 8 to keep behaviour pinned to /24,
+	// raise to 12 for /20 networks. Anything wider is silently skipped
+	// to avoid burying the local NIC.
+	MaxSubnetBits int
+
+	// SNMPCommunity is the read community used by the SNMPv2c probe.
+	// Empty disables SNMP probing entirely.
+	SNMPCommunity string
+
+	// SNMPTimeout is the per-host UDP/161 deadline. Default 1s.
+	SNMPTimeout time.Duration
 }
 
 func (s *Scanner) Name() string { return "discovery" }
@@ -41,31 +54,53 @@ func (s *Scanner) Run(ctx context.Context, bus *events.Bus) error {
 	}
 }
 
-// pass runs one round of discovery work — always reads the ARP cache, and
-// when Active is true also fires an ICMP sweep, an mDNS probe, and a small
-// TCP/UDP port probe against currently-known hosts.
+// pass runs one round of discovery work. Passive observation (ARP cache
+// read) runs every tick; when Active is true the round also fires an ARP
+// broadcast sweep (the biggest single coverage win — catches hosts that
+// drop ICMP), an ICMP sweep, mDNS, the TCP/UDP service probe against
+// every known host, and an SNMPv2c GET against UDP/161 responders.
+//
+// The TCP/UDP probes no longer cap at 32 hosts; each probe bounds its
+// own concurrency, and the per-pass interval (default 60s) keeps even
+// large inventories from saturating the link. The ICMP sweep still
+// skips anything wider than MaxSubnetBits.
 func (s *Scanner) pass(ctx context.Context, bus *events.Bus) {
 	s.scanARPCache()
 	if !s.Active {
 		return
 	}
+	maxBits := s.MaxSubnetBits
+	if maxBits == 0 {
+		maxBits = 10 // /22 — 1024 hosts
+	}
+	// ARP sweep first: the kernel populates /proc/net/arp from replies,
+	// so the next scanARPCache() on the next tick picks up the long tail
+	// of devices that ignored ICMP.
+	s.arpSweepAll(ctx, maxBits)
 	subnets := localIPv4Subnets()
 	for _, sub := range subnets {
-		s.icmpSweep(ctx, sub)
+		s.icmpSweep(ctx, sub, maxBits)
 	}
 	s.mdnsProbe(ctx)
-	hosts := make([]string, 0, 32)
+	// Refresh hosts after the ARP/ICMP sweeps so the port probes see
+	// everything we just discovered.
+	hosts := make([]string, 0)
 	for _, d := range s.Inventory.Snapshot() {
-		hosts = append(hosts, d.IP)
+		// Skip pseudo-IPs (LLDP-only neighbours under "lldp:..." keys).
+		if d.IP != "" && d.IP[0] != 'l' {
+			hosts = append(hosts, d.IP)
+		}
 	}
 	if len(hosts) > 0 {
-		// Bound the work — large inventories don't want to be re-probed
-		// every sweep. Take a rotating window of up to 32 hosts.
-		if len(hosts) > 32 {
-			hosts = hosts[:32]
-		}
 		s.TCPProbe(ctx, hosts, nil, 300*time.Millisecond)
 		s.UDPProbe(ctx, hosts, nil, 400*time.Millisecond)
+	}
+	if s.SNMPCommunity != "" {
+		timeout := s.SNMPTimeout
+		if timeout <= 0 {
+			timeout = time.Second
+		}
+		s.snmpProbeAll(ctx, s.SNMPCommunity, timeout)
 	}
 }
 
@@ -99,13 +134,14 @@ func (s *Scanner) scanARPCache() {
 	}
 }
 
-// icmpSweep pings every host in subnet (capped to /24-sized ranges to bound
-// network noise) and records responders. Reuses the same unprivileged-ICMP
-// fallback dance as the collector.
-func (s *Scanner) icmpSweep(ctx context.Context, subnet *net.IPNet) {
+// icmpSweep pings every host in subnet (capped to maxBits-sized ranges
+// to bound network noise) and records responders. Reuses the same
+// unprivileged-ICMP fallback dance as the collector.
+func (s *Scanner) icmpSweep(ctx context.Context, subnet *net.IPNet, maxBits int) {
 	ones, bits := subnet.Mask.Size()
-	if bits-ones > 8 {
-		// Wider than /24 — skip; could be a /16. Avoid 65k pings.
+	if bits-ones > maxBits {
+		// Wider than the configured cap — skip. Avoid blasting tens of
+		// thousands of ICMP echoes against a misconfigured /16.
 		return
 	}
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")

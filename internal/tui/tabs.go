@@ -1669,9 +1669,9 @@ func (t *devicesTab) View(w, h int) string {
 		rows = append(rows, subtitleStyle.Render("  no devices yet — enable active discovery (--discover-active) or press 's' on a known IP"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
-	widths := []int{16, 18, 16, 24, 8}
+	widths := []int{16, 18, 10, 16, 20, 8}
 	rows = append(rows, renderRowWidths(widths,
-		"IP", "HOSTNAME", "VENDOR", "PROTOCOLS", "LAST"))
+		"IP", "HOSTNAME", "TYPE", "VENDOR", "PROTOCOLS", "LAST"))
 	for i, d := range t.devices {
 		age := time.Since(d.LastSeen).Truncate(time.Second)
 		protos := discovery.ProtocolsForPorts(d.OpenPorts)
@@ -1686,7 +1686,8 @@ func (t *devicesTab) View(w, h int) string {
 			protoCell = okStyle.Render(protoCell)
 		}
 		row := renderRowWidths(widths,
-			d.IP, dashIfEmpty(d.Hostname), dashIfEmpty(d.Vendor), protoCell,
+			d.IP, dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
+			dashIfEmpty(d.Vendor), protoCell,
 			fmt.Sprintf("%s ago", age))
 		if i == t.cursor {
 			rows = append(rows, selectedRowStyle.Render(row))
@@ -1694,7 +1695,62 @@ func (t *devicesTab) View(w, h int) string {
 			rows = append(rows, rowStyle.Render(row))
 		}
 	}
+	// Detail pane for the selected device — surfaces LLDP/SNMP fields
+	// that don't fit in a row. Empty fields are omitted so the pane
+	// stays compact when there's nothing to show.
+	if t.cursor >= 0 && t.cursor < len(t.devices) {
+		rows = append(rows, "")
+		rows = append(rows, renderDeviceDetail(t.devices[t.cursor]))
+	}
 	return boxStyle.Render(strings.Join(rows, "\n"))
+}
+
+// renderDeviceDetail produces the per-device detail pane shown below the
+// devices list. Surfaces SNMP sys-* fields and LLDP neighbour info when
+// the device has been positively identified by either protocol.
+func renderDeviceDetail(d discovery.Device) string {
+	lines := []string{subtitleStyle.Render("─── selected: " + d.IP + " ───")}
+	add := func(label, value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		lines = append(lines, fmt.Sprintf("  %-14s %s", label+":", value))
+	}
+	add("MAC", d.MAC)
+	add("Source", d.Source)
+	add("Hostname", d.Hostname)
+	add("Vendor", d.Vendor)
+	add("Device type", d.DeviceType)
+	add("SNMP sysName", d.SysName)
+	add("SNMP sysDescr", d.SysDescr)
+	add("SNMP location", d.SysLocation)
+	add("SNMP contact", d.SysContact)
+	add("SNMP uptime", d.SysUptime)
+	add("SNMP objectID", d.SysObjectID)
+	if d.IfCount > 0 {
+		add("SNMP ifCount", fmt.Sprintf("%d", d.IfCount))
+	}
+	add("LLDP chassis", d.LLDPChassisID)
+	add("LLDP port", d.LLDPPortID)
+	add("LLDP port-desc", d.LLDPPortDesc)
+	if len(d.LLDPMgmtAddrs) > 0 {
+		add("LLDP mgmt", strings.Join(d.LLDPMgmtAddrs, ", "))
+	}
+	if len(d.LLDPCapabilities) > 0 {
+		add("LLDP caps", strings.Join(d.LLDPCapabilities, ", "))
+	}
+	add("LLDP local-if", d.LLDPLocalIface)
+	if len(d.OpenPorts) > 0 {
+		parts := make([]string, len(d.OpenPorts))
+		for i, p := range d.OpenPorts {
+			parts[i] = fmt.Sprintf("%d", p)
+		}
+		add("Open ports", strings.Join(parts, ", "))
+	}
+	if len(lines) == 1 {
+		lines = append(lines, dimStyle.Render("  no extended info — press 's' to scan, or enable LLDP/SNMP"))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func dashIfEmpty(s string) string {
