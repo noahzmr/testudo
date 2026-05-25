@@ -10,6 +10,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -55,6 +56,12 @@ type App struct {
 	height    int
 	startedAt time.Time
 	statusMsg string
+
+	// bodyScroll is the vertical offset applied to the active tab's
+	// rendered body. Driven by PgUp/PgDn/Home/End/Ctrl-U/Ctrl-D in the
+	// chrome so every tab gets scrolling without per-tab plumbing. Reset
+	// to 0 whenever the active tab changes.
+	bodyScroll int
 }
 
 // SetModal installs a modal overlay. Subsequent key events go to the modal
@@ -220,11 +227,38 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 	case "tab", "right":
 		a.activeIdx = (a.activeIdx + 1) % len(a.tabs)
+		a.bodyScroll = 0
 		a.refreshActive()
 		return a, nil
 	case "shift+tab", "left":
 		a.activeIdx = (a.activeIdx - 1 + len(a.tabs)) % len(a.tabs)
+		a.bodyScroll = 0
 		a.refreshActive()
+		return a, nil
+	case "pgup":
+		a.bodyScroll -= a.bodyHeight() - 2
+		if a.bodyScroll < 0 {
+			a.bodyScroll = 0
+		}
+		return a, nil
+	case "pgdown":
+		a.bodyScroll += a.bodyHeight() - 2
+		return a, nil
+	case "ctrl+u":
+		a.bodyScroll -= a.bodyHeight() / 2
+		if a.bodyScroll < 0 {
+			a.bodyScroll = 0
+		}
+		return a, nil
+	case "ctrl+d":
+		a.bodyScroll += a.bodyHeight() / 2
+		return a, nil
+	case "home":
+		a.bodyScroll = 0
+		return a, nil
+	case "end":
+		// scrollClip clamps this to the true max on the next render.
+		a.bodyScroll = 1 << 30
 		return a, nil
 	}
 	// Numeric hotkeys: 1..9 pick the first nine tabs; "0" picks the tenth
@@ -239,6 +273,7 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if idx >= 0 && idx < len(a.tabs) {
 			a.activeIdx = idx
+			a.bodyScroll = 0
 			a.refreshActive()
 			return a, nil
 		}
@@ -262,6 +297,7 @@ func (a *App) updateCommandMode(m tea.KeyMsg) tea.Cmd {
 		}
 		if idx >= 0 {
 			a.activeIdx = idx
+			a.bodyScroll = 0
 			a.refreshActive()
 		} else {
 			a.statusMsg = "unknown command — try `:flows`, `:firewall`, `:q`"
@@ -348,16 +384,24 @@ func (a *App) View() string {
 	header := a.renderHeader(width)
 	tabBar := a.renderTabBar(width)
 	crumb := a.renderBreadcrumb()
-	body := a.tabs[a.activeIdx].View(width, a.bodyHeight())
+	bodyH := a.bodyHeight()
+	body := a.tabs[a.activeIdx].View(width, bodyH)
 	bottom := a.renderCommandBar(width)
 
 	if a.modal != nil {
 		// Centre the modal over the body region so it's always visible —
 		// appending below the tab body pushes it off the viewport on full-
 		// height tabs (Firewall, NAT, Routes).
-		body = lipgloss.Place(width, a.bodyHeight(),
+		body = lipgloss.Place(width, bodyH,
 			lipgloss.Center, lipgloss.Center, a.modal.View())
 	}
+
+	// Tabs currently ignore the height parameter, so a long table would
+	// overflow the body region and push the footer off the bottom of the
+	// terminal. scrollClip windows the body using a.bodyScroll (driven by
+	// PgUp/PgDn/Home/End/Ctrl-U/Ctrl-D in handleKey) so the chrome stays
+	// anchored and the operator can reach hidden rows.
+	body = a.scrollClip(body, bodyH)
 
 	parts := []string{header, tabBar, crumb, body, bottom}
 	main := strings.Join(parts, "\n")
@@ -386,6 +430,47 @@ func (a *App) bodyHeight() int {
 		return 5
 	}
 	return h
+}
+
+// scrollClip windows the rendered body string so it fits within h screen
+// lines. When the body is taller than h, the last line is replaced with a
+// dim status line showing the current scroll position and bindings. The
+// scroll offset is clamped against the actual line count so PgDn/End never
+// overshoot.
+func (a *App) scrollClip(s string, h int) string {
+	if h <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= h {
+		// Body fits — keep scroll at 0 so resizing back up doesn't leave
+		// a stale offset that re-applies the next time content grows.
+		a.bodyScroll = 0
+		return s
+	}
+	// Reserve the bottom line for the scroll indicator.
+	visibleH := h - 1
+	if visibleH < 1 {
+		visibleH = 1
+	}
+	maxScroll := len(lines) - visibleH
+	if a.bodyScroll > maxScroll {
+		a.bodyScroll = maxScroll
+	}
+	if a.bodyScroll < 0 {
+		a.bodyScroll = 0
+	}
+	end := a.bodyScroll + visibleH
+	if end > len(lines) {
+		end = len(lines)
+	}
+	window := make([]string, 0, h)
+	window = append(window, lines[a.bodyScroll:end]...)
+	indicator := dimStyle.Render(fmt.Sprintf(
+		"lines %d–%d of %d  ·  PgUp/PgDn · Home/End · Ctrl-U/Ctrl-D",
+		a.bodyScroll+1, end, len(lines)))
+	window = append(window, indicator)
+	return strings.Join(window, "\n")
 }
 
 // footerRows counts the rendered lines the footer block currently occupies.
