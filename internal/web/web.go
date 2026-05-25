@@ -84,6 +84,8 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/settings", s.protect(s.handleSettings))
 	mux.HandleFunc("/api/probe", s.protect(s.handleProbe))
 	mux.HandleFunc("/api/sessions", s.protect(s.handleSessions))
+	mux.HandleFunc("/api/session/detail", s.protect(s.handleSessionDetail))
+	mux.HandleFunc("/api/session/snapshot", s.protect(s.handleSnapshotPayload))
 
 	// Capture
 	mux.HandleFunc("/api/capture/start", s.protect(s.handleCaptureStart))

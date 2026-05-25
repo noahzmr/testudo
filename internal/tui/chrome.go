@@ -74,6 +74,10 @@ var commandAliases = map[string]string{
 	"probes":     "Probes",
 	"alert":      "Alerts",
 	"alerts":     "Alerts",
+	"history":    "History",
+	"hist":       "History",
+	"sessions":   "History",
+	"replay":     "History",
 	"set":        "Settings",
 	"settings":   "Settings",
 }

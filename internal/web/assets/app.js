@@ -11,6 +11,9 @@
     tabs.forEach(b => b.classList.toggle('active', b === btn));
     const target = btn.dataset.tab;
     panes.forEach(p => p.classList.toggle('active', p.dataset.pane === target));
+    // History is opt-in: don't bake its query into the 2s snapshot loop.
+    // Load it lazily when the tab is shown.
+    if (target === 'history') loadHistory();
   }));
 
   // ---- Toast ----
@@ -226,6 +229,20 @@
       case 'settings-save':
         await post('/api/settings', collectSettings());
         showToast('settings saved');
+        break;
+
+      // History tab — read-only browse of past sessions.
+      case 'history-refresh':
+        await loadHistory();
+        break;
+      case 'history-open':
+        await openHistorySession(btn.dataset.id);
+        break;
+      case 'history-snapshot':
+        await inspectSnapshot(btn.dataset.id);
+        break;
+      case 'history-inspect-close':
+        document.getElementById('history-inspect-card').hidden = true;
         break;
     }
   }
@@ -677,6 +694,126 @@
     if (!s || s.length <= max) return s || '';
     const keep = Math.floor((max - 1) / 2);
     return s.slice(0, keep) + '…' + s.slice(s.length - (max - 1 - keep));
+  }
+
+  // ---- History tab ---------------------------------------------------
+  // The history view is opt-in (loaded when the tab is clicked or the
+  // user hits Refresh). It does NOT join the 2s snapshot poll because
+  // past sessions don't change between page loads.
+  function escapeHTML(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function fmtDuration(ms) {
+    if (!ms || ms <= 0) return 'running';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60), rem = s % 60;
+    if (m < 60) return m + 'm ' + rem + 's';
+    const h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
+  }
+  function shortID(s) {
+    if (!s) return '—';
+    return s.length > 12 ? s.slice(0, 8) + '…' : s;
+  }
+
+  async function loadHistory() {
+    const status = document.getElementById('history-status');
+    const body = document.getElementById('history-body');
+    status.textContent = 'loading…';
+    try {
+      const list = await api('/api/sessions');
+      if (!Array.isArray(list) || list.length === 0) {
+        body.innerHTML = '<tr><td colspan="6" class="muted">no sessions persisted yet</td></tr>';
+        status.textContent = '0 sessions';
+        return;
+      }
+      body.innerHTML = list.map(s => {
+        const targets = (s.targets || []).join(', ');
+        return '<tr>'
+          + '<td><code>' + escapeHTML(shortID(s.id)) + '</code></td>'
+          + '<td>' + escapeHTML(s.started_at || '') + '</td>'
+          + '<td>' + escapeHTML(s.ended_at || '—') + '</td>'
+          + '<td>' + escapeHTML(fmtDuration(s.duration_ms)) + '</td>'
+          + '<td>' + escapeHTML(targets) + '</td>'
+          + '<td><button class="btn" data-action="history-open" data-id="'
+          + escapeHTML(s.id) + '">Open</button></td>'
+          + '</tr>';
+      }).join('');
+      status.textContent = list.length + ' session(s)';
+    } catch (e) {
+      status.textContent = 'error: ' + (e.message || e);
+    }
+  }
+
+  async function openHistorySession(id) {
+    if (!id) return;
+    const card = document.getElementById('history-detail-card');
+    const title = document.getElementById('history-detail-title');
+    const meta = document.getElementById('history-detail-meta');
+    const aBody = document.getElementById('history-anomalies-body');
+    const sBody = document.getElementById('history-snapshots-body');
+    const inspect = document.getElementById('history-inspect-card');
+    inspect.hidden = true;
+    card.hidden = false;
+    title.textContent = 'Session ' + id;
+    meta.textContent = 'loading…';
+    aBody.innerHTML = '';
+    sBody.innerHTML = '';
+    try {
+      const d = await api('/api/session/detail?id=' + encodeURIComponent(id));
+      if (!d) return;
+      meta.innerHTML =
+        '<b>started:</b> ' + escapeHTML(d.started_at) +
+        ' &nbsp; <b>ended:</b> ' + escapeHTML(d.ended_at || '(running)') +
+        ' &nbsp; <b>duration:</b> ' + escapeHTML(fmtDuration(d.duration_ms)) +
+        ' &nbsp; <b>targets:</b> ' + escapeHTML((d.targets || []).join(', ') || '—') +
+        ' &nbsp; <b>counts:</b> ' + (d.anomalies || []).length + ' anomalies · '
+        + (d.snapshots || []).length + ' snapshots';
+
+      const anomalies = d.anomalies || [];
+      aBody.innerHTML = anomalies.length === 0
+        ? '<tr><td colspan="3" class="muted">no anomalies recorded for this session</td></tr>'
+        : anomalies.map(a => '<tr>'
+            + '<td>' + escapeHTML(a.ts) + '</td>'
+            + '<td><span class="severity severity-' + escapeHTML(a.severity || '')
+            + '">' + escapeHTML(a.severity) + '</span></td>'
+            + '<td>' + escapeHTML(a.message) + '</td>'
+            + '</tr>').join('');
+
+      const snaps = d.snapshots || [];
+      sBody.innerHTML = snaps.length === 0
+        ? '<tr><td colspan="4" class="muted">no snapshots captured for this session</td></tr>'
+        : snaps.map(e => '<tr>'
+            + '<td><code>' + e.id + '</code></td>'
+            + '<td>' + escapeHTML(e.kind) + '</td>'
+            + '<td>' + escapeHTML(e.ts) + '</td>'
+            + '<td><button class="btn" data-action="history-snapshot" data-id="'
+            + e.id + '">Inspect</button></td>'
+            + '</tr>').join('');
+    } catch (e) {
+      meta.textContent = 'error: ' + (e.message || e);
+    }
+  }
+
+  async function inspectSnapshot(id) {
+    if (!id) return;
+    const card = document.getElementById('history-inspect-card');
+    const title = document.getElementById('history-inspect-title');
+    const body = document.getElementById('history-inspect-body');
+    card.hidden = false;
+    title.textContent = 'Snapshot #' + id + ' — loading…';
+    body.textContent = '';
+    try {
+      const r = await api('/api/session/snapshot?id=' + encodeURIComponent(id));
+      if (!r) return;
+      title.textContent = 'Snapshot #' + r.id + ' · ' + r.kind + ' · ' + r.ts;
+      body.textContent = r.payload || '(empty payload)';
+    } catch (e) {
+      body.textContent = 'error: ' + (e.message || e);
+    }
   }
 
   // ---- Refresh loop ----

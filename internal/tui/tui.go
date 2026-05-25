@@ -92,6 +92,7 @@ func NewApp(eng *engine.Engine) *App {
 		newTalkersTab(eng),
 		newProbesTab(eng),
 		newAlertsTab(app),
+		newHistoryTab(eng, app),
 		newSettingsTab(eng, app),
 	}
 	return app

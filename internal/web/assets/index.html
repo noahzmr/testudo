@@ -26,6 +26,7 @@
       <button data-tab="talkers" class="tab">Talkers</button>
       <button data-tab="probes" class="tab">Probes</button>
       <button data-tab="alerts" class="tab">Alerts</button>
+      <button data-tab="history" class="tab">History</button>
       <button data-tab="settings" class="tab">Settings</button>
     </nav>
     <button id="logout" class="logout">logout</button>
@@ -284,6 +285,51 @@
           <thead><tr><th>Time</th><th>Severity</th><th>Message</th></tr></thead>
           <tbody id="alerts-body"></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- HISTORY ------------------------------------------------------- -->
+    <section data-pane="history" class="pane">
+      <div class="card">
+        <h2>Past sessions</h2>
+        <p class="muted">
+          Read-only browse of sessions persisted to SQLite. Pick a session to
+          see its anomaly timeline and snapshot index, then a snapshot row to
+          inspect its raw JSON payload.
+        </p>
+        <div class="row">
+          <button data-action="history-refresh" class="btn">Refresh</button>
+          <span class="muted" id="history-status">—</span>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Started</th><th>Ended</th><th>Duration</th><th>Targets</th><th></th></tr></thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card" id="history-detail-card" hidden>
+        <h2 id="history-detail-title">Session —</h2>
+        <div class="muted" id="history-detail-meta">—</div>
+
+        <h3>Anomaly timeline</h3>
+        <table>
+          <thead><tr><th>Time</th><th>Severity</th><th>Message</th></tr></thead>
+          <tbody id="history-anomalies-body"></tbody>
+        </table>
+
+        <h3>Snapshots</h3>
+        <table>
+          <thead><tr><th>#</th><th>Kind</th><th>Timestamp</th><th></th></tr></thead>
+          <tbody id="history-snapshots-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card" id="history-inspect-card" hidden>
+        <h2 id="history-inspect-title">Snapshot —</h2>
+        <div class="row">
+          <button data-action="history-inspect-close" class="btn">Close</button>
+        </div>
+        <pre class="probe-output" id="history-inspect-body"></pre>
       </div>
     </section>
 

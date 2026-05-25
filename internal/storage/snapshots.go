@@ -42,6 +42,57 @@ func (s *Store) InsertSnapshot(ctx context.Context, sessionID, kind string, payl
 	return err
 }
 
+// SnapshotIndexEntry is one row in the snapshot index — id + kind + ts,
+// without the payload. Used by history views that just need to list what
+// snapshots exist before letting the user inspect a specific row.
+type SnapshotIndexEntry struct {
+	ID   int64
+	Kind string
+	TS   time.Time
+}
+
+// SnapshotIndexBySession returns every snapshot for a session, newest-first,
+// without the payload column. Cheap enough to call on every history-tab
+// refresh; the payload is fetched on demand via SnapshotByID.
+func (s *Store) SnapshotIndexBySession(ctx context.Context, sessionID string) ([]SnapshotIndexEntry, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, kind, ts FROM snapshots
+		 WHERE session_id = ?
+		 ORDER BY ts DESC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SnapshotIndexEntry
+	for rows.Next() {
+		var e SnapshotIndexEntry
+		var ms int64
+		if err := rows.Scan(&e.ID, &e.Kind, &ms); err != nil {
+			return nil, err
+		}
+		e.TS = time.UnixMilli(ms)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// SnapshotByID returns one snapshot row by its primary key, payload included.
+// Returns sql.ErrNoRows if the id is unknown.
+func (s *Store) SnapshotByID(ctx context.Context, id int64) (SnapshotRow, error) {
+	var r SnapshotRow
+	var ms int64
+	var payload string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, session_id, kind, ts, payload FROM snapshots WHERE id = ?`, id,
+	).Scan(&r.ID, &r.SessionID, &r.Kind, &ms, &payload)
+	if err != nil {
+		return SnapshotRow{}, err
+	}
+	r.TS = time.UnixMilli(ms)
+	r.PayloadRaw = []byte(payload)
+	return r, nil
+}
+
 // SnapshotsBySession returns snapshots of one kind for a session, oldest first.
 func (s *Store) SnapshotsBySession(ctx context.Context, sessionID, kind string) ([]SnapshotRow, error) {
 	rows, err := s.db.QueryContext(ctx,
