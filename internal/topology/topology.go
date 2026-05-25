@@ -1,6 +1,6 @@
 // Package topology builds an in-memory graph of devices and the
 // connections observed between them. The graph is assembled passively from
-// flow telemetry and the device inventory — no active scans run here.
+// flow telemetry and the device inventory - no active scans run here.
 //
 // The result is consumed by:
 //   - the TUI topology view (rendered as a connection list)

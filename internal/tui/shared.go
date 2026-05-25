@@ -83,7 +83,7 @@ func padOrTrim(s string, w int) string {
 
 func fmtRTT(d time.Duration) string {
 	if d == 0 {
-		return "—"
+		return "-"
 	}
 	if d < time.Millisecond {
 		return fmt.Sprintf("%dµs", d.Microseconds())
@@ -111,18 +111,18 @@ func fmtDuration(d time.Duration) string {
 	return d.Truncate(time.Second).String()
 }
 
-// orDash returns "—" for an empty string, otherwise the input. Used by the
+// orDash returns "-" for an empty string, otherwise the input. Used by the
 // firewall row renderer where most columns are optional ("any") and a dash
 // reads better than blank cells in a fixed-width table.
 func orDash(s string) string {
 	if strings.TrimSpace(s) == "" {
-		return "—"
+		return "-"
 	}
 	return s
 }
 
 // portOrAny returns the port as a string, or empty when port == 0 so that
-// orDash can collapse it into "—".
+// orDash can collapse it into "-".
 func portOrAny(p uint16) string {
 	if p == 0 {
 		return ""
@@ -132,7 +132,7 @@ func portOrAny(p uint16) string {
 
 // netopsErrLines turns a netops/netlink error into one or more user-facing
 // lines. The kernel reports "operation not permitted" / "permission denied"
-// for callers without CAP_NET_ADMIN — when we recognise that, we append a
+// for callers without CAP_NET_ADMIN - when we recognise that, we append a
 // concrete hint instead of leaving the operator to guess what went wrong.
 func netopsErrLines(err error) []string {
 	if err == nil {

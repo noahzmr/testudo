@@ -1,5 +1,5 @@
 // Package ipfix exports Testudo flow data over the IETF IPFIX protocol
-// (RFC 7011). Wire format is hand-rolled over net.Conn — no external
+// (RFC 7011). Wire format is hand-rolled over net.Conn - no external
 // dependency. The exporter speaks UDP by default; the manager hooks it
 // up to the engine and the Settings tab so operators can point the feed
 // at any IPFIX-aware collector (Opsanio, ipfixcol2, nProbe, Elastic
@@ -23,7 +23,7 @@ import (
 const (
 	versionIPFIX uint16 = 0x000A
 
-	// Reserved set IDs — anything ≥ 256 is a data-set ID matched against
+	// Reserved set IDs - anything ≥ 256 is a data-set ID matched against
 	// a template the exporter previously announced.
 	setIDTemplate uint16 = 2
 
@@ -33,15 +33,15 @@ const (
 
 	// IANA Information Element IDs we ship in the template. Field widths
 	// are documented in https://www.iana.org/assignments/ipfix/ipfix.xhtml
-	ieProtocolIdentifier        uint16 = 4
-	ieSourceTransportPort       uint16 = 7
-	ieSourceIPv4Address         uint16 = 8
-	ieDestinationTransportPort  uint16 = 11
-	ieDestinationIPv4Address    uint16 = 12
-	ieOctetDeltaCount           uint16 = 1
-	iePacketDeltaCount          uint16 = 2
-	ieFlowStartMilliseconds     uint16 = 152
-	ieFlowEndMilliseconds       uint16 = 153
+	ieProtocolIdentifier       uint16 = 4
+	ieSourceTransportPort      uint16 = 7
+	ieSourceIPv4Address        uint16 = 8
+	ieDestinationTransportPort uint16 = 11
+	ieDestinationIPv4Address   uint16 = 12
+	ieOctetDeltaCount          uint16 = 1
+	iePacketDeltaCount         uint16 = 2
+	ieFlowStartMilliseconds    uint16 = 152
+	ieFlowEndMilliseconds      uint16 = 153
 )
 
 // Config holds the operator-supplied knobs.
@@ -59,7 +59,7 @@ type Config struct {
 	TemplateEvery int
 }
 
-// FlowRec is the input shape — one bidirectional flow worth of data. The
+// FlowRec is the input shape - one bidirectional flow worth of data. The
 // exporter handles only IPv4 endpoints; v6 records are filtered out.
 type FlowRec struct {
 	SrcIP   net.IP
@@ -75,10 +75,10 @@ type FlowRec struct {
 
 // Exporter is the live UDP-bound exporter instance.
 type Exporter struct {
-	cfg          Config
-	conn         net.Conn
-	seq          uint32
-	exports      int // count of Export calls; used to throttle template re-emit
+	cfg     Config
+	conn    net.Conn
+	seq     uint32
+	exports int // count of Export calls; used to throttle template re-emit
 }
 
 // NewExporter dials the collector and returns a ready exporter. Pass an

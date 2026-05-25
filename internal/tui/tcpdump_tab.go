@@ -15,7 +15,7 @@ import (
 
 // tcpdumpTab drives the tcpdump capture subsystem from the TUI.
 //
-// Each row in the table is one capture job — either currently running or
+// Each row in the table is one capture job - either currently running or
 // finished. Adding a capture opens a guided "filter wizard" modal where
 // every field is optional; the BPF expression is assembled from the
 // structured inputs, and a "raw" pass-through field lets power users
@@ -82,12 +82,12 @@ func (t *tcpdumpTab) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// openAddModal is both "new capture" and "filter wizard" — every wizard
+// openAddModal is both "new capture" and "filter wizard" - every wizard
 // field maps onto a FilterSpec component, plus the run-time knobs
 // (interface, name, size cap, duration) live in the same form.
 func (t *tcpdumpTab) openAddModal() tea.Cmd {
 	if !capture.TCPDumpAvailable() {
-		return statusCmd("tcpdump binary not found — install it first (apt install tcpdump)")
+		return statusCmd("tcpdump binary not found - install it first (apt install tcpdump)")
 	}
 	defaultIface := ""
 	if names, err := capture.AutoDiscover(nil); err == nil && len(names) > 0 {
@@ -100,7 +100,7 @@ func (t *tcpdumpTab) openAddModal() tea.Cmd {
 			{Label: "name", Value: "", Hint: "label for the file (optional)"},
 			{Label: "max_size_mb", Value: "64", Hint: "rotate when file reaches N MiB; 0 = no limit"},
 			{Label: "duration_s", Value: "0", Hint: "auto-stop after N seconds; 0 = run until you stop"},
-			// Filter wizard fields — each one optional
+			// Filter wizard fields - each one optional
 			{Label: "proto", Value: "", Hint: "tcp / udp / icmp / blank=any"},
 			{Label: "src_host", Value: "", Hint: "source IP or hostname; blank=any"},
 			{Label: "dst_host", Value: "", Hint: "destination IP or hostname; blank=any"},
@@ -165,7 +165,7 @@ func (t *tcpdumpTab) showSelectedPath() tea.Cmd {
 
 func (t *tcpdumpTab) View(w, h int) string {
 	rows := []string{headerStyle.Render(fmt.Sprintf(
-		"TCPDump — %d capture(s) · a=new · x=stop/remove · o=path · r=refresh",
+		"TCPDump - %d capture(s) · a=new · x=stop/remove · o=path · r=refresh",
 		len(t.jobs)))}
 	if t.err != nil {
 		rows = append(rows, netopsErrLines(t.err)...)
@@ -173,13 +173,13 @@ func (t *tcpdumpTab) View(w, h int) string {
 	}
 	if !capture.TCPDumpAvailable() {
 		rows = append(rows,
-			warnStyle.Render("  tcpdump binary missing — install it to use this tab"),
+			warnStyle.Render("  tcpdump binary missing - install it to use this tab"),
 			dimStyle.Render("    Debian/Ubuntu:  sudo apt install tcpdump"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 	if len(t.jobs) == 0 {
 		rows = append(rows, subtitleStyle.Render(
-			"  no captures yet — press 'a' to start a new tcpdump"))
+			"  no captures yet - press 'a' to start a new tcpdump"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 

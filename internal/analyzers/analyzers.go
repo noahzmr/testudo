@@ -42,10 +42,10 @@ func escalate(value, threshold float64) events.Severity {
 	}
 }
 
-// HighRTTDetector — threshold detector: any single RTT > Thresholds.RTTMs.
+// HighRTTDetector - threshold detector: any single RTT > Thresholds.RTTMs.
 type HighRTTDetector struct {
-	Settings  *config.SettingsStore
-	CoolDown  time.Duration
+	Settings *config.SettingsStore
+	CoolDown time.Duration
 
 	mu        sync.Mutex
 	lastFired map[string]time.Time
@@ -162,7 +162,7 @@ func (d *HighDNSLatencyDetector) Run(ctx context.Context, in <-chan events.Event
 }
 
 // PacketLossDetector emits when rolling loss exceeds Settings.PacketLossPct.
-// Window is fixed at 20 — small enough to react quickly, large enough that
+// Window is fixed at 20 - small enough to react quickly, large enough that
 // a single missed probe doesn't fire on a 5% threshold.
 type PacketLossDetector struct {
 	Settings *config.SettingsStore
@@ -251,7 +251,7 @@ func (d *PacketLossDetector) record(target string, lost bool, bus *events.Bus) {
 }
 
 // LatencySpikeDetector fires when current RTT >> rolling baseline. This is
-// the "burst" complement to the absolute-threshold HighRTTDetector — useful
+// the "burst" complement to the absolute-threshold HighRTTDetector - useful
 // on low-latency links where 30ms is already a big deal even if it never
 // crosses the 150ms ceiling.
 type LatencySpikeDetector struct {
@@ -437,7 +437,7 @@ func (d *JitterSpikeDetector) record(target string, rtt time.Duration, bus *even
 	})
 }
 
-// DNSBurstDetector — DNS failure rate complement to the latency detector.
+// DNSBurstDetector - DNS failure rate complement to the latency detector.
 // Kept at a fixed 30% threshold because failure-rate isn't in the settings
 // table; the spec lists latency, not error-rate, as the DNS gauge.
 type DNSBurstDetector struct {

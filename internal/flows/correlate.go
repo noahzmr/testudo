@@ -126,7 +126,7 @@ func Decorate(stats []FlowStats, dns *DNSCache, proc *ProcMatcher) []FlowStats {
 // Tagger applies cross-subsystem correlation labels. Callers populate it
 // once per snapshot tick from authoritative state (conntrack, route table,
 // firewall counters) and pass it to Tag(). Unmatched flows are left
-// untagged — empty strings — so callers can distinguish "no data" from "no
+// untagged - empty strings - so callers can distinguish "no data" from "no
 // match".
 type Tagger struct {
 	// FirewallByFlow maps a canonical "proto|srcIP:srcPort→dstIP:dstPort"
@@ -174,7 +174,7 @@ func (t *Tagger) Tag(stats []FlowStats) []FlowStats {
 }
 
 // serviceFor returns the well-known service name for a flow's port pair.
-// The "server" side typically owns the well-known port — we try the lower
+// The "server" side typically owns the well-known port - we try the lower
 // port first and fall back to the higher.
 func serviceFor(proto string, portA, portB uint16) string {
 	lo, hi := portA, portB
@@ -249,7 +249,7 @@ func parseHexEndpoint(s string) (string, uint16, bool) {
 			b[3-i] = byte(v)
 		}
 		return net.IP(b).String(), port, true
-	case 32: // IPv6 — groups of 4 bytes, each group little-endian
+	case 32: // IPv6 - groups of 4 bytes, each group little-endian
 		b := make([]byte, 16)
 		for g := 0; g < 4; g++ {
 			for i := 0; i < 4; i++ {

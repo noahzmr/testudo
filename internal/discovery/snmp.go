@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// SNMP discovery — hand-rolled SNMPv2c GET over UDP/161. Pulls the five
+// SNMP discovery - hand-rolled SNMPv2c GET over UDP/161. Pulls the five
 // most useful sysX.0 OIDs from any device that responds with a configured
 // read community. No external dependency; the BER encoder is just enough
 // to build a fixed-shape GetRequest PDU and parse the corresponding
@@ -25,7 +25,7 @@ import (
 // for read-only access on managed gear. Operators that want a different
 // community (e.g. an audit account) override via Config.SNMPCommunity.
 
-// Well-known sysX.0 OIDs from SNMPv2-MIB. Encoded as integer slices —
+// Well-known sysX.0 OIDs from SNMPv2-MIB. Encoded as integer slices -
 // the BER encoder converts them on the wire.
 var (
 	oidSysDescr    = []int{1, 3, 6, 1, 2, 1, 1, 1, 0}
@@ -152,7 +152,7 @@ func SNMPGet(ctx context.Context, ip, community string, timeout time.Duration) (
 }
 
 // classifyFromSNMP infers a coarse DeviceType from sysDescr and the
-// interface count. Cheap heuristics, never authoritative — meant to give
+// interface count. Cheap heuristics, never authoritative - meant to give
 // the UI a column to colourise. Real classification would key off
 // sysObjectID against a vendor MIB index.
 func classifyFromSNMP(d Device) string {
@@ -246,7 +246,7 @@ func buildSNMPv2cGet(community string, reqID int32, oids [][]int) ([]byte, error
 	vbList := append([]byte{asnSequence}, encodeLength(len(vbs))...)
 	vbList = append(vbList, vbs...)
 
-	pdu := encodeInteger(int64(reqID)) // request-id
+	pdu := encodeInteger(int64(reqID))     // request-id
 	pdu = append(pdu, encodeInteger(0)...) // error-status
 	pdu = append(pdu, encodeInteger(0)...) // error-index
 	pdu = append(pdu, vbList...)
@@ -520,7 +520,7 @@ func oidStringFromBER(p []byte) string {
 
 // formatTicks renders a TimeTicks value (hundredths of a second since
 // agent boot) as a duration string like "12d 4h 3m". A close-enough
-// approximation — SNMP TimeTicks wrap every ~497 days.
+// approximation - SNMP TimeTicks wrap every ~497 days.
 func formatTicks(ticks uint64) string {
 	secs := ticks / 100
 	d := secs / 86400

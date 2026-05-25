@@ -14,5 +14,5 @@ This directory hosts deeper documentation that doesn't belong in the top-level
 | [topology.md](topology.md) | operators | Passive topology graph: nodes, edges, sources |
 | [alerts.md](alerts.md) | operators | Severity levels, default thresholds, anomaly engine |
 
-If a topic isn't covered yet, check `.claude/CLAUDE.md` — it's the canonical
-project spec — or open an issue.
+If a topic isn't covered yet, check `.claude/CLAUDE.md` - it's the canonical
+project spec - or open an issue.

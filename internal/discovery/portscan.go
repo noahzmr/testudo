@@ -8,7 +8,7 @@ import (
 )
 
 // DefaultProbePorts is the curated short list of TCP ports tried during an
-// active port sweep. Kept tiny so a /24 sweep finishes in seconds — wider
+// active port sweep. Kept tiny so a /24 sweep finishes in seconds - wider
 // scans belong to a manual `testudo discover --ports=...` invocation.
 var DefaultProbePorts = []uint16{
 	22, 23, 25, 53, 80, 110, 143, 443, 445, 587, 631, 993, 995,
@@ -20,7 +20,7 @@ var DefaultProbePorts = []uint16{
 // worth probing without specialised payloads.
 var DefaultUDPProbePorts = []uint16{53, 67, 123, 161, 500, 1900, 5353}
 
-// TCPProbe runs a TCP-connect probe (not a raw SYN — that would need raw
+// TCPProbe runs a TCP-connect probe (not a raw SYN - that would need raw
 // sockets and root-only privileges; CAP_NET_RAW won't cover SOCK_RAW IPv4
 // on all kernels). A successful connect is recorded; refused/timeout is
 // silently dropped.
@@ -119,7 +119,7 @@ func probeUDPOnce(ctx context.Context, ip string, port uint16, timeout time.Dura
 	}
 	buf := make([]byte, 1024)
 	if _, err := conn.Read(buf); err != nil {
-		// ICMP unreachable surfaces as a read error too — treat as closed.
+		// ICMP unreachable surfaces as a read error too - treat as closed.
 		return false
 	}
 	_ = ctx // signature parity with TCP variant

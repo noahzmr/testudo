@@ -25,7 +25,7 @@ const (
 
 // Filterable is implemented by tabs that accept a free-text filter string
 // applied to their rendered rows. Tabs that don't implement it just ignore
-// the filter bar — the App still tracks the pattern but the tab is free to
+// the filter bar - the App still tracks the pattern but the tab is free to
 // render normally.
 type Filterable interface {
 	SetFilter(string)
@@ -40,7 +40,7 @@ type KeyHint struct {
 
 // HelpProvider is implemented by tabs that want their bindings to appear in
 // the `?` help overlay and the bottom footer. Returning an empty slice is
-// fine — the chrome will still show global keys.
+// fine - the chrome will still show global keys.
 type HelpProvider interface {
 	HelpHints() []KeyHint
 }
@@ -193,11 +193,11 @@ func (a *App) renderHeader(width int) string {
 		width = 80
 	}
 
-	activeTitle := "—"
+	activeTitle := "-"
 	if a.activeIdx >= 0 && a.activeIdx < len(a.tabs) {
 		activeTitle = a.tabs[a.activeIdx].Title()
 	}
-	filterLine := panelVal.Render("—")
+	filterLine := panelVal.Render("-")
 	if a.filter != "" {
 		filterLine = filterActiveStyle.Render(a.filter)
 	}
@@ -299,7 +299,7 @@ func (a *App) renderTabBar(width int) string {
 	}
 
 	// Narrow layout: just the active tab's badge.
-	title := "—"
+	title := "-"
 	if a.activeIdx >= 0 && a.activeIdx < len(a.tabs) {
 		title = a.tabs[a.activeIdx].Title()
 	}
@@ -345,7 +345,7 @@ func (a *App) renderCommandBar(width int) string {
 // renderFooter packs the chrome hint set onto line 1 and the active tab's
 // HelpHints into one or more lines beneath, packing items left-to-right
 // until they don't fit, then wrapping. This keeps every binding readable
-// at any terminal width — the lines just stack rather than overflowing.
+// at any terminal width - the lines just stack rather than overflowing.
 func (a *App) renderFooter(width int) string {
 	if width <= 0 {
 		width = 80
@@ -426,7 +426,7 @@ func (a *App) activeTabHints() []KeyHint {
 // alias.
 func (a *App) renderHelp(width, height int) string {
 	groups := [][2]string{
-		{":", "open command bar — try :flows, :firewall, :q"},
+		{":", "open command bar - try :flows, :firewall, :q"},
 		{"/", "filter active view (Enter to apply, Esc to clear)"},
 		{"?", "toggle this help"},
 		{"Tab / Shift-Tab", "next / previous view"},
@@ -436,7 +436,7 @@ func (a *App) renderHelp(width, height int) string {
 		{"q / Ctrl-C", "quit"},
 	}
 	var lines []string
-	lines = append(lines, titleStyle.Render("Testudo — Keyboard Reference"))
+	lines = append(lines, titleStyle.Render("Testudo - Keyboard Reference"))
 	lines = append(lines, helpGroup.Render("Chrome"))
 	for _, g := range groups {
 		lines = append(lines, helpKey.Render(g[0])+helpDesc.Render(g[1]))

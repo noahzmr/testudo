@@ -54,18 +54,18 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type hopView struct {
-		TTL     int    `json:"ttl"`
-		IP      string `json:"ip"`
-		LatMs   int64  `json:"latency_ms"`
+		TTL   int    `json:"ttl"`
+		IP    string `json:"ip"`
+		LatMs int64  `json:"latency_ms"`
 	}
 	out := struct {
-		Kind     string    `json:"kind"`
-		OK       bool      `json:"ok"`
-		LatMs    int64     `json:"latency_ms"`
-		Detail   string    `json:"detail"`
-		Mbps     float64   `json:"mbps"`
-		Err      string    `json:"err"`
-		Hops     []hopView `json:"hops,omitempty"`
+		Kind   string    `json:"kind"`
+		OK     bool      `json:"ok"`
+		LatMs  int64     `json:"latency_ms"`
+		Detail string    `json:"detail"`
+		Mbps   float64   `json:"mbps"`
+		Err    string    `json:"err"`
+		Hops   []hopView `json:"hops,omitempty"`
 	}{
 		Kind:   string(res.Kind),
 		OK:     res.OK,
@@ -83,7 +83,7 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSessions returns a list of past sessions stored in SQLite plus the
-// IDs needed to /api/replay them. Phase 1 surface — replay scrubbing is on
+// IDs needed to /api/replay them. Phase 1 surface - replay scrubbing is on
 // the roadmap.
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -260,7 +260,7 @@ func (s *Server) handleSnapshotPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	var pretty bytes.Buffer
 	if jerr := json.Indent(&pretty, row.PayloadRaw, "", "  "); jerr != nil {
-		pretty.Write(row.PayloadRaw) // not JSON — return verbatim
+		pretty.Write(row.PayloadRaw) // not JSON - return verbatim
 	}
 	out := struct {
 		ID        int64  `json:"id"`

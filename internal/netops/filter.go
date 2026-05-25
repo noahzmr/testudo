@@ -18,7 +18,7 @@ const filterTableName = "testudo_filter"
 
 // FilterRule is one accept/drop rule in our private nftables table.
 //
-// Every field except Chain and Action is optional — empty means "any".
+// Every field except Chain and Action is optional - empty means "any".
 // Chain is one of "input", "output", "forward".
 // IP fields accept a bare address ("192.168.1.10") or a CIDR ("10.0.0.0/24")
 // and are IPv4-only; setting them implicitly gates the rule on IPv4 packets.
@@ -118,7 +118,7 @@ func (w *Writer) AddFilterRule(fr FilterRule) error {
 }
 
 // DelFilterRule removes the rule that matches the given target exactly.
-// The chain/proto/port-only signature is kept by zeroing the new fields —
+// The chain/proto/port-only signature is kept by zeroing the new fields -
 // callers that don't care about iface/IP can leave them empty and the
 // matching is done on Chain + Action + Proto + Port. Pass a fully-populated
 // FilterRule for surgical deletion.
@@ -164,7 +164,7 @@ func (w *Writer) DelFilterRule(target FilterRule) error {
 		for _, r := range rules {
 			fr, ok := decodeRuleUserData(r)
 			if !ok {
-				// Legacy rules without UserData — fall back to expr decode.
+				// Legacy rules without UserData - fall back to expr decode.
 				fr, ok = decodeFilterRule(r)
 				fr.Chain = c.Name
 			}

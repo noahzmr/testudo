@@ -325,9 +325,9 @@ func readDevCounters() map[string]ifaceCounter {
 // vs /proc/sys/net/netfilter/nf_conntrack_max and fires when occupancy
 // crosses warning / critical thresholds.
 type NATExhaustionDetector struct {
-	Interval   time.Duration
-	WarnRatio  float64 // 0.80 → WARN at 80%
-	CritRatio  float64 // 0.95 → CRIT at 95%
+	Interval  time.Duration
+	WarnRatio float64 // 0.80 → WARN at 80%
+	CritRatio float64 // 0.95 → CRIT at 95%
 
 	mu       sync.Mutex
 	lastFire time.Time
@@ -434,7 +434,7 @@ func (d *RetransmissionDetector) poll(_ context.Context, bus *events.Bus) {
 		Payload: events.AnomalyPayload{
 			Severity: string(escalate(rate, thresh)),
 			Message: fmt.Sprintf(
-				"TCP retransmissions at %.1f%% (%d / %d) — threshold %.0f%%",
+				"TCP retransmissions at %.1f%% (%d / %d) - threshold %.0f%%",
 				rate, dRetrans, dOut, thresh,
 			),
 		},

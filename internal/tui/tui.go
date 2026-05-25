@@ -2,8 +2,8 @@
 // Lip Gloss. The App is a tabbed shell; each tab is a Tab implementation
 // that owns its own state and rendering.
 //
-// The chrome around the tab body — top info panels, `:` command bar, `/`
-// filter bar, `?` help overlay, breadcrumb, footer — is inspired by k9s
+// The chrome around the tab body - top info panels, `:` command bar, `/`
+// filter bar, `?` help overlay, breadcrumb, footer - is inspired by k9s
 // and lives in chrome.go. The App owns the mode state machine that decides
 // which on-screen editor (if any) receives a given keypress.
 package tui
@@ -40,7 +40,7 @@ type App struct {
 	modal     Modal // when non-nil, eats key events until Modal.Done()
 
 	// anomalySub is a single long-lived subscription. listenAnomalies()
-	// re-runs as a tea.Cmd per message but always reads from this channel —
+	// re-runs as a tea.Cmd per message but always reads from this channel -
 	// never call bus.Subscribe() inside a tea.Cmd factory: each call adds a
 	// permanent dead subscriber to the bus's fan-out loop.
 	anomalySub *events.Subscription
@@ -100,7 +100,7 @@ func NewApp(eng *engine.Engine) *App {
 
 func (a *App) Init() tea.Cmd {
 	// App owns exactly one dashTick and one slowTick at any moment. Tabs
-	// must never return tick commands from their Update — see the comment
+	// must never return tick commands from their Update - see the comment
 	// at the top of tabs.go for the geometric-blowup story behind that rule.
 	cmds := []tea.Cmd{a.waitAnomaly(), dashTick(), slowTick()}
 	if cmd := a.refreshActive(); cmd != nil {
@@ -205,7 +205,7 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Normal mode — chrome bindings first, then global nav, then forward.
+	// Normal mode - chrome bindings first, then global nav, then forward.
 	switch m.String() {
 	case ":":
 		a.mode = modeCommand
@@ -301,7 +301,7 @@ func (a *App) updateCommandMode(m tea.KeyMsg) tea.Cmd {
 			a.bodyScroll = 0
 			a.refreshActive()
 		} else {
-			a.statusMsg = "unknown command — try `:flows`, `:firewall`, `:q`"
+			a.statusMsg = "unknown command - try `:flows`, `:firewall`, `:q`"
 			return clearStatusAfter(3 * time.Second)
 		}
 	case "tab":
@@ -390,7 +390,7 @@ func (a *App) View() string {
 	bottom := a.renderCommandBar(width)
 
 	if a.modal != nil {
-		// Centre the modal over the body region so it's always visible —
+		// Centre the modal over the body region so it's always visible -
 		// appending below the tab body pushes it off the viewport on full-
 		// height tabs (Firewall, NAT, Routes).
 		body = lipgloss.Place(width, bodyH,
@@ -444,7 +444,7 @@ func (a *App) scrollClip(s string, h int) string {
 	}
 	lines := strings.Split(s, "\n")
 	if len(lines) <= h {
-		// Body fits — keep scroll at 0 so resizing back up doesn't leave
+		// Body fits - keep scroll at 0 so resizing back up doesn't leave
 		// a stale offset that re-applies the next time content grows.
 		a.bodyScroll = 0
 		return s
@@ -475,7 +475,7 @@ func (a *App) scrollClip(s string, h int) string {
 }
 
 // footerRows counts the rendered lines the footer block currently occupies.
-// We render once and count newlines — cheaper than re-implementing the wrap
+// We render once and count newlines - cheaper than re-implementing the wrap
 // logic, and guaranteed to match what View() will produce.
 func (a *App) footerRows() int {
 	w := a.width
@@ -513,4 +513,3 @@ func Run(ctx context.Context, app *App) error {
 	_, err := p.Run()
 	return err
 }
-

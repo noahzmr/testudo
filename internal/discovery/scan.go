@@ -56,7 +56,7 @@ func (s *Scanner) Run(ctx context.Context, bus *events.Bus) error {
 
 // pass runs one round of discovery work. Passive observation (ARP cache
 // read) runs every tick; when Active is true the round also fires an ARP
-// broadcast sweep (the biggest single coverage win — catches hosts that
+// broadcast sweep (the biggest single coverage win - catches hosts that
 // drop ICMP), an ICMP sweep, mDNS, the TCP/UDP service probe against
 // every known host, and an SNMPv2c GET against UDP/161 responders.
 //
@@ -71,7 +71,7 @@ func (s *Scanner) pass(ctx context.Context, bus *events.Bus) {
 	}
 	maxBits := s.MaxSubnetBits
 	if maxBits == 0 {
-		maxBits = 10 // /22 — 1024 hosts
+		maxBits = 10 // /22 - 1024 hosts
 	}
 	// ARP sweep first: the kernel populates /proc/net/arp from replies,
 	// so the next scanARPCache() on the next tick picks up the long tail
@@ -140,7 +140,7 @@ func (s *Scanner) scanARPCache() {
 func (s *Scanner) icmpSweep(ctx context.Context, subnet *net.IPNet, maxBits int) {
 	ones, bits := subnet.Mask.Size()
 	if bits-ones > maxBits {
-		// Wider than the configured cap — skip. Avoid blasting tens of
+		// Wider than the configured cap - skip. Avoid blasting tens of
 		// thousands of ICMP echoes against a misconfigured /16.
 		return
 	}
@@ -228,7 +228,7 @@ func incIP(ip net.IP, offset int) {
 
 // mdnsProbe sends a single ANY query to 224.0.0.251:5353 and listens for
 // responses for a few seconds. Responders advertise hostnames in their
-// answer records — we extract the first .local name as a hostname hint.
+// answer records - we extract the first .local name as a hostname hint.
 func (s *Scanner) mdnsProbe(ctx context.Context) {
 	mdnsAddr := &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 0})

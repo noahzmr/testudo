@@ -15,7 +15,7 @@ import (
 
 // PCAPWriter writes the live ring buffer to a rotated set of pcap files in
 // dir/<session>/. Files are rotated when they exceed MaxSize bytes. The
-// writer is **opt-in** — call Trigger() to begin a capture window for the
+// writer is **opt-in** - call Trigger() to begin a capture window for the
 // configured duration; idle the rest of the time so we don't fill disks.
 type PCAPWriter struct {
 	Dir       string
@@ -23,13 +23,13 @@ type PCAPWriter struct {
 	MaxSize   int64
 	Ring      *RingBuffer
 
-	mu       sync.Mutex
-	active   bool
-	until    time.Time
-	file     *os.File
-	writer   *pcapgo.Writer
-	written  int64
-	rotated  int
+	mu      sync.Mutex
+	active  bool
+	until   time.Time
+	file    *os.File
+	writer  *pcapgo.Writer
+	written int64
+	rotated int
 }
 
 func NewPCAPWriter(dir, sessionID string, maxSize int64, ring *RingBuffer) *PCAPWriter {

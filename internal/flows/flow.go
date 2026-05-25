@@ -164,7 +164,7 @@ func (a *Aggregator) Snapshot() []FlowStats {
 }
 
 // Reset empties the flow table. Useful when an operator wants a clean slate
-// without restarting the engine — e.g. after enabling/disabling capture from
+// without restarting the engine - e.g. after enabling/disabling capture from
 // the TUI.
 func (a *Aggregator) Reset() {
 	a.mu.Lock()

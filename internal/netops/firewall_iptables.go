@@ -9,7 +9,7 @@ import (
 )
 
 // IptablesAvailable returns true iff the iptables binary is on PATH. The
-// nftables backend is used by default — this one is a fallback for systems
+// nftables backend is used by default - this one is a fallback for systems
 // that still expose the legacy iptables ABI.
 func IptablesAvailable() bool {
 	_, err := exec.LookPath("iptables")
@@ -51,7 +51,7 @@ type IptablesChain struct {
 
 // ListIptables shells out to iptables for every standard table and parses
 // the human-readable -v output (extended with -x for unscaled counters).
-// Returns an empty summary — not an error — if the binary is missing.
+// Returns an empty summary - not an error - if the binary is missing.
 func (w *Writer) ListIptables() (IptablesSummary, error) {
 	if !IptablesAvailable() {
 		return IptablesSummary{}, nil
@@ -79,9 +79,9 @@ func readIptablesTable(name string) (IptablesTable, error) {
 // parseIptablesOutput parses the canonical `iptables -L -v -n -x` format.
 // The format is line-oriented:
 //
-//   Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
-//       pkts      bytes target     prot opt in     out     source       destination
-//          0         0 ACCEPT     tcp  --  *      *       0.0.0.0/0    0.0.0.0/0    tcp dpt:22
+//	Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+//	    pkts      bytes target     prot opt in     out     source       destination
+//	       0         0 ACCEPT     tcp  --  *      *       0.0.0.0/0    0.0.0.0/0    tcp dpt:22
 func parseIptablesOutput(table, raw string) IptablesTable {
 	t := IptablesTable{Name: table}
 	var current *IptablesChain
@@ -170,7 +170,7 @@ func parseIptablesRuleLine(chain, line string) (IptablesRule, bool) {
 		In:      fields[5],
 		Out:     fields[6],
 		Source:  fields[7],
-		Dest:    safeField(fields, 8, "—"),
+		Dest:    safeField(fields, 8, "-"),
 		Extra:   extra,
 	}, true
 }

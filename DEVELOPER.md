@@ -1,4 +1,4 @@
-# Testudo — Developer Guide
+# Testudo - Developer Guide
 
 This document is the engineering counterpart to `README.md`. It targets contributors
 who need to build, run, test, and extend Testudo locally.
@@ -16,7 +16,7 @@ who need to build, run, test, and extend Testudo locally.
 | Optional | `sqlite3` CLI for ad-hoc inspection of session storage |
 
 Testudo is developed against Ubuntu and Debian-based systems. Fedora / Arch /
-openSUSE are roadmap targets — patches welcome.
+openSUSE are roadmap targets - patches welcome.
 
 ---
 
@@ -79,7 +79,7 @@ storage/
   sessions/          replay sessions (one SQLite db per session)
 ```
 
-Packages prefixed `internal/` are not importable from outside the module — that's
+Packages prefixed `internal/` are not importable from outside the module - that's
 deliberate. New subsystems should live under `internal/` unless there's a clear
 reason to expose an API surface.
 
@@ -106,7 +106,7 @@ Key invariants:
 3. **Writes are gated.** Every mutating `netops` call goes through `Writer`,
    which short-circuits to `ErrWritesDisabled` unless `AllowWrites=true`.
 4. **Subsystems are isolated.** No subsystem imports another's package
-   privately — all cross-talk goes through `events.Bus` or shared types
+   privately - all cross-talk goes through `events.Bus` or shared types
    (`flows.FlowStats`, `flows.FlowSummary`, `discovery.Device`).
 
 ---
@@ -120,7 +120,7 @@ Key invariants:
 | Layer 3: metrics | SQLite (`storage/metrics/`) | days–weeks | dashboards, alerting |
 | Layer 4: PCAP | filesystem (`storage/captures/`) | incident-scoped | forensics |
 
-The persistence-friendly projection of a flow is `flows.FlowSummary` — that's
+The persistence-friendly projection of a flow is `flows.FlowSummary` - that's
 what replay and the metrics layer serialise. See
 [internal/flows/flow.go](internal/flows/flow.go).
 
@@ -130,9 +130,9 @@ what replay and the metrics layer serialise. See
 
 Two backends are present:
 
-* **nftables** — default, via `github.com/google/nftables`. See
+* **nftables** - default, via `github.com/google/nftables`. See
   [internal/netops/firewall.go](internal/netops/firewall.go).
-* **iptables** — read-only fallback that shells out to the `iptables` binary
+* **iptables** - read-only fallback that shells out to the `iptables` binary
   and parses `-L -v -n -x` output. See
   [internal/netops/firewall_iptables.go](internal/netops/firewall_iptables.go).
 
@@ -163,7 +163,7 @@ go vet ./...
 ```
 
 Integration tests that need raw sockets are skipped unless `TESTUDO_NETTEST=1`
-is set — run those manually under sudo on a throwaway VM.
+is set - run those manually under sudo on a throwaway VM.
 
 ---
 
@@ -176,7 +176,7 @@ The release flow is intentionally minimal:
    target arch.
 3. Attach the binaries to the GitHub release.
 
-There is no automated CI release pipeline yet — that's a roadmap item.
+There is no automated CI release pipeline yet - that's a roadmap item.
 
 ---
 
@@ -188,7 +188,7 @@ See `.claude/CLAUDE.md` for the canonical list. The hot ones:
 * `context.Context` everywhere, first arg.
 * Channels over mutexes when the data flow is the model.
 * Render loops never block.
-* No raw packet rendering — always aggregate first.
+* No raw packet rendering - always aggregate first.
 * Structured logging (we use `slog`).
 
 ---

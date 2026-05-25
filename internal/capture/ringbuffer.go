@@ -6,7 +6,7 @@ import (
 )
 
 // PacketRecord is one entry in the live ring buffer. Payload is a defensive
-// copy — callers retain ownership of their original byte slice.
+// copy - callers retain ownership of their original byte slice.
 type PacketRecord struct {
 	Timestamp time.Time
 	Iface     string
@@ -23,8 +23,8 @@ type PacketRecord struct {
 type RingBuffer struct {
 	mu    sync.RWMutex
 	buf   []PacketRecord
-	head  int  // index of next slot to write
-	count int  // number of valid entries (<= cap)
+	head  int // index of next slot to write
+	count int // number of valid entries (<= cap)
 	cap   int
 }
 

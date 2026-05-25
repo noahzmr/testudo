@@ -25,20 +25,20 @@ import (
 // (interface hotplug is Phase 4 work).
 //
 // Capture writes directly into the supplied FlowAggregator rather than
-// publishing per-packet events on the bus — on a busy link the bus fanout
+// publishing per-packet events on the bus - on a busy link the bus fanout
 // would multiply each packet by the number of subscribers and saturate a
 // CPU with channel ops. The bus is reserved for low-frequency operational
 // signals (anomalies, lifecycle, status).
 type Multi struct {
 	// Ifaces is the explicit interface list. If empty, AutoDiscover is used.
 	Ifaces []string
-	// ExcludePatterns are name prefixes to skip during auto-discovery —
+	// ExcludePatterns are name prefixes to skip during auto-discovery -
 	// loopback, veth, etc. Augments the built-in deny-list.
 	ExcludePatterns []string
 	// Flows is the aggregator that receives every parsed packet. Required.
 	Flows *flows.Aggregator
 	// Ring is the Layer-1 live-storage buffer that receives a copy of every
-	// raw frame seen. Optional — if nil, frames are not retained.
+	// raw frame seen. Optional - if nil, frames are not retained.
 	Ring *RingBuffer
 }
 

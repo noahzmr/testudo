@@ -20,7 +20,7 @@ func NewSettingsStore(path string) *SettingsStore {
 	return &SettingsStore{path: path, cur: DefaultThresholds()}
 }
 
-// Load reads the JSON file if present. Missing file is not an error — the
+// Load reads the JSON file if present. Missing file is not an error - the
 // store keeps DefaultThresholds.
 func (s *SettingsStore) Load() error {
 	s.mu.Lock()
@@ -75,7 +75,7 @@ func (s *SettingsStore) Update(fn func(*Thresholds)) error {
 	return s.Save()
 }
 
-// persistedThresholds is the on-disk form — durations stored as seconds.
+// persistedThresholds is the on-disk form - durations stored as seconds.
 type persistedThresholds struct {
 	PacketLossPct       float64 `json:"packet_loss_pct"`
 	DNSLatencyMs        float64 `json:"dns_latency_ms"`

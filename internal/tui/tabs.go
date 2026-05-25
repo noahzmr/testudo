@@ -26,7 +26,7 @@ import (
 // methods after each tick. Combined with the App's untyped-broadcast loop
 // that forwarded every message to every tab, each tick fired N new ticks
 // (one per responding tab). The number of pending timers grew geometrically
-// per tick — within a minute the netlink-querying tabs (Devices, Ifaces,
+// per tick - within a minute the netlink-querying tabs (Devices, Ifaces,
 // Routes, Firewall, NAT) had hundreds of concurrent timers each kicking off
 // ListIfaces/ListRoutes/ListFirewall, and the binary was unusable.
 //
@@ -92,8 +92,8 @@ func (t *dashboardTab) View(w, h int) string {
 	b.WriteString(boxStyle.Render(strings.Join(gradeRows, "\n")))
 	b.WriteString("\n")
 
-	// --- Bandwidth (per interface) — sniffnet-style live chart ----------
-	bwRows := []string{headerStyle.Render("Bandwidth — per interface (1Hz, 120s window)")}
+	// --- Bandwidth (per interface) - sniffnet-style live chart ----------
+	bwRows := []string{headerStyle.Render("Bandwidth - per interface (1Hz, 120s window)")}
 	bw := t.eng.Bandwidth().Snapshot()
 	if len(bw) == 0 {
 		bwRows = append(bwRows, subtitleStyle.Render("  …awaiting first sample"))
@@ -142,7 +142,7 @@ func (t *dashboardTab) View(w, h int) string {
 	b.WriteString("\n")
 
 	// --- Detail tables ----------------------------------------------------
-	rows := []string{headerStyle.Render("ICMP — per-target detail")}
+	rows := []string{headerStyle.Render("ICMP - per-target detail")}
 	rows = append(rows, renderRowWidths([]int{16, 10, 10, 10, 10, 10},
 		"TARGET", "LAST", "AVG", "P95", "LOSS%", "JITTER"))
 	if len(t.targets) == 0 {
@@ -164,10 +164,10 @@ func (t *dashboardTab) View(w, h int) string {
 	b.WriteString(boxStyle.Render(strings.Join(rows, "\n")))
 	b.WriteString("\n")
 
-	// DNS detail table — same shape as the legacy dashboard, restored
+	// DNS detail table - same shape as the legacy dashboard, restored
 	// because the sparkline above only shows latency over time, not the
 	// query/failure counters operators rely on.
-	dnsDetail := []string{headerStyle.Render("DNS — per-resolver detail")}
+	dnsDetail := []string{headerStyle.Render("DNS - per-resolver detail")}
 	dnsDetail = append(dnsDetail, renderRowWidths([]int{20, 10, 10, 10, 10},
 		"NAME", "LAST", "AVG", "QUERIES", "FAIL"))
 	if len(t.dns) == 0 {
@@ -232,9 +232,9 @@ func (t *flowsTab) HelpHints() []KeyHint {
 		{Key: "/", Desc: "filter (proto / iface / process / IP / DNS)"},
 	}
 }
-func (t *flowsTab) Title() string              { return "Flows" }
-func (t *flowsTab) ShortKey() string           { return "2" }
-func (t *flowsTab) Init() tea.Cmd              { return nil }
+func (t *flowsTab) Title() string    { return "Flows" }
+func (t *flowsTab) ShortKey() string { return "2" }
+func (t *flowsTab) Init() tea.Cmd    { return nil }
 
 // SetFilter implements Filterable. Lowercased once at assignment so View can
 // substring-match without repeating ToLower per row.
@@ -337,7 +337,7 @@ func statusCmd(msg string) tea.Cmd {
 	return func() tea.Msg { return statusMessageMsg(msg) }
 }
 
-// visibleCount returns how many flows pass the current filter — used by the
+// visibleCount returns how many flows pass the current filter - used by the
 // arrow-key handler to bound the cursor.
 func (t *flowsTab) visibleCount() int {
 	if t.filter == "" {
@@ -364,7 +364,7 @@ func (t *flowsTab) View(w, h int) string {
 			}
 		}
 	}
-	// Capture status badge — surfaces the live toggle so operators always
+	// Capture status badge - surfaces the live toggle so operators always
 	// know whether the table is reflecting reality.
 	var status string
 	if t.eng.IsCaptureRunning() {
@@ -377,10 +377,10 @@ func (t *flowsTab) View(w, h int) string {
 	} else {
 		status = errStyle.Render("○ capture OFF")
 	}
-	title := fmt.Sprintf("Flows — %d active · %s · s=start/stop · i=pick ifaces · c=clear",
+	title := fmt.Sprintf("Flows - %d active · %s · s=start/stop · i=pick ifaces · c=clear",
 		len(t.rows), status)
 	if t.filter != "" {
-		title = fmt.Sprintf("Flows — %d / %d match `%s` · %s",
+		title = fmt.Sprintf("Flows - %d / %d match `%s` · %s",
 			len(visible), len(t.rows), t.filter, status)
 	}
 	rows := []string{
@@ -388,9 +388,9 @@ func (t *flowsTab) View(w, h int) string {
 		renderRowWidths(widths, headers...),
 	}
 	if len(t.rows) == 0 {
-		hint := "  no flows captured — press 's' to start capture (or 'i' to pick interfaces)"
+		hint := "  no flows captured - press 's' to start capture (or 'i' to pick interfaces)"
 		if t.eng.IsCaptureRunning() {
-			hint = "  capture running but no flows observed yet — give it a moment"
+			hint = "  capture running but no flows observed yet - give it a moment"
 		}
 		rows = append(rows, subtitleStyle.Render(hint))
 		return boxStyle.Render(strings.Join(rows, "\n"))
@@ -408,11 +408,11 @@ func (t *flowsTab) View(w, h int) string {
 		ab := f.Key.A.String() + " → " + f.Key.B.String()
 		dns := f.DNSName
 		if dns == "" {
-			dns = "—"
+			dns = "-"
 		}
 		proc := f.Process
 		if proc == "" {
-			proc = "—"
+			proc = "-"
 		}
 		row := renderRowWidths(widths,
 			strings.ToUpper(f.Key.Proto), f.Key.Iface, proc, ab,
@@ -611,7 +611,7 @@ func (t *ifacesTab) openStaticModal() tea.Cmd {
 }
 
 func (t *ifacesTab) View(w, h int) string {
-	rows := []string{headerStyle.Render("Interfaces — u=up · d=down · a=add addr · x=del addr · m=mtu · h=dhcp · s=static · r=refresh")}
+	rows := []string{headerStyle.Render("Interfaces - u=up · d=down · a=add addr · x=del addr · m=mtu · h=dhcp · s=static · r=refresh")}
 	if t.err != nil {
 		rows = append(rows, errStyle.Render("  "+t.err.Error()))
 		return boxStyle.Render(strings.Join(rows, "\n"))
@@ -735,7 +735,7 @@ func (t *routesTab) openDelModal() tea.Cmd {
 }
 
 func (t *routesTab) View(w, h int) string {
-	rows := []string{headerStyle.Render(fmt.Sprintf("Routes — %d entries · a=add · x=del · r=refresh", len(t.routes)))}
+	rows := []string{headerStyle.Render(fmt.Sprintf("Routes - %d entries · a=add · x=del · r=refresh", len(t.routes)))}
 	if t.err != nil {
 		rows = append(rows, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(rows, "\n"))
@@ -746,7 +746,7 @@ func (t *routesTab) View(w, h int) string {
 	for i, r := range t.routes {
 		gw := r.Gateway
 		if gw == "" {
-			gw = "—"
+			gw = "-"
 		}
 		row := renderRowWidths(widths,
 			r.Family, r.Dst, gw, r.Iface, r.Protocol, r.Scope,
@@ -796,6 +796,7 @@ func (t *firewallTab) refresh() {
 		t.managed, _ = t.eng.Netops().ListFilterRules()
 	}
 }
+
 // firewallRowKind classifies one row in the unified firewall list.
 type firewallRowKind int
 
@@ -807,14 +808,14 @@ const (
 // firewallRow is one navigable row. Managed rules carry their slice index;
 // system chains carry their table/family/chain coordinates for display.
 type firewallRow struct {
-	kind        firewallRowKind
-	managedIdx  int
-	sysFamily   string
-	sysTable    string
-	sysChain    string
-	sysHook     string
-	sysType     string
-	sysRules    int
+	kind       firewallRowKind
+	managedIdx int
+	sysFamily  string
+	sysTable   string
+	sysChain   string
+	sysHook    string
+	sysType    string
+	sysRules   int
 }
 
 // rows returns every navigable row in the firewall tab: managed rules
@@ -874,7 +875,7 @@ func (t *firewallTab) Update(msg tea.Msg) tea.Cmd {
 			// when they try to delete a system chain.
 			if t.cursor >= 0 && t.cursor < len(rows) {
 				if rows[t.cursor].kind == firewallRowSystem {
-					return statusCmd("system chain is read-only — managed rules only")
+					return statusCmd("system chain is read-only - managed rules only")
 				}
 			}
 			return t.openDelModal()
@@ -967,14 +968,14 @@ func (t *firewallTab) openDelModal() tea.Cmd {
 func (t *firewallTab) View(w, h int) string {
 	all := t.rows()
 	out := []string{headerStyle.Render(fmt.Sprintf(
-		"Firewall — %d managed · %d system chains · ↑/↓ select · a=add · x=del · r=refresh",
+		"Firewall - %d managed · %d system chains · ↑/↓ select · a=add · x=del · r=refresh",
 		len(t.managed), len(all)-len(t.managed)))}
 	if t.err != nil {
 		out = append(out, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(out, "\n"))
 	}
 	if len(all) == 0 {
-		out = append(out, subtitleStyle.Render("  no rules visible — press 'a' to add the first managed rule"))
+		out = append(out, subtitleStyle.Render("  no rules visible - press 'a' to add the first managed rule"))
 		return boxStyle.Render(strings.Join(out, "\n"))
 	}
 
@@ -1050,9 +1051,9 @@ func (t *natTab) HelpHints() []KeyHint {
 		{Key: "r", Desc: "refresh"},
 	}
 }
-func (t *natTab) Title() string            { return "NAT" }
-func (t *natTab) ShortKey() string         { return "7" }
-func (t *natTab) Init() tea.Cmd { return nil }
+func (t *natTab) Title() string    { return "NAT" }
+func (t *natTab) ShortKey() string { return "7" }
+func (t *natTab) Init() tea.Cmd    { return nil }
 func (t *natTab) refresh() {
 	if t.eng.Netops() == nil {
 		t.err = fmt.Errorf("netops not initialized")
@@ -1155,7 +1156,7 @@ func parseUint16(s string) (uint16, error) {
 	return uint16(n), nil
 }
 func (t *natTab) View(w, h int) string {
-	rows := []string{headerStyle.Render("NAT — port forwards in testudo_nat table · a=add · x=del · r=refresh")}
+	rows := []string{headerStyle.Render("NAT - port forwards in testudo_nat table · a=add · x=del · r=refresh")}
 	if t.err != nil {
 		rows = append(rows, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(rows, "\n"))
@@ -1193,14 +1194,14 @@ func (t *alertsTab) HelpHints() []KeyHint {
 		{Key: "/", Desc: "filter alerts by substring"},
 	}
 }
-func (t *alertsTab) Title() string     { return "Alerts" }
-func (t *alertsTab) ShortKey() string  { return "0" }
-func (t *alertsTab) Init() tea.Cmd     { return nil }
+func (t *alertsTab) Title() string    { return "Alerts" }
+func (t *alertsTab) ShortKey() string { return "0" }
+func (t *alertsTab) Init() tea.Cmd    { return nil }
 func (t *alertsTab) Update(_ tea.Msg) tea.Cmd {
 	return nil // alerts read from app.anomalies; no per-tab state
 }
 func (t *alertsTab) View(w, h int) string {
-	rows := []string{headerStyle.Render(fmt.Sprintf("Alerts — %d events", len(t.app.anomalies)))}
+	rows := []string{headerStyle.Render(fmt.Sprintf("Alerts - %d events", len(t.app.anomalies)))}
 	if len(t.app.anomalies) == 0 {
 		rows = append(rows, subtitleStyle.Render("  no anomalies detected"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
@@ -1429,7 +1430,7 @@ func (t *settingsTab) openStringEditor(r thresholdRow) tea.Cmd {
 }
 func (t *settingsTab) View(w, h int) string {
 	rows := []string{
-		headerStyle.Render("Settings — ↑/↓ row · +/- adjust · enter/space edit · auto-saves"),
+		headerStyle.Render("Settings - ↑/↓ row · +/- adjust · enter/space edit · auto-saves"),
 	}
 	widths := []int{28, 36, 8}
 	rows = append(rows, renderRowWidths(widths, "SETTING", "VALUE", "UNIT"))
@@ -1542,7 +1543,7 @@ func (t *devicesTab) scanSelected() tea.Cmd {
 		scanner := &discovery.Scanner{Inventory: t.eng.Inventory()}
 		_ = scanner.ScanHost(context.Background(), ip)
 	}()
-	return statusCmd("scanning " + ip + " — refresh in ~5s")
+	return statusCmd("scanning " + ip + " - refresh in ~5s")
 }
 
 // openConnectModal lists every connection option detected on the selected
@@ -1558,7 +1559,7 @@ func (t *devicesTab) openConnectModal() tea.Cmd {
 	th := t.eng.Settings().Snapshot()
 	protos := discovery.ProtocolsForPorts(d.OpenPorts)
 	if len(protos) == 0 {
-		return statusCmd("no connectable ports known — press 's' to scan " + d.IP)
+		return statusCmd("no connectable ports known - press 's' to scan " + d.IP)
 	}
 	fields := make([]FormField, 0, len(protos))
 	for _, p := range protos {
@@ -1567,7 +1568,7 @@ func (t *devicesTab) openConnectModal() tea.Cmd {
 		fields = append(fields, FormField{
 			Label: strings.ToUpper(string(p)),
 			Value: url,
-			Hint:  "open this URL in your browser — Esc to close",
+			Hint:  "open this URL in your browser - Esc to close",
 		})
 	}
 	modal := NewFormModal("Connect to "+d.IP, fields, nil)
@@ -1644,7 +1645,7 @@ func (t *devicesTab) openGuacamoleLaunch(proto string) tea.Cmd {
 	th := t.eng.Settings().Snapshot()
 	if th.GuacamoleURL == "" {
 		return func() tea.Msg {
-			return statusMessageMsg("Guacamole URL not configured — set it in Settings")
+			return statusMessageMsg("Guacamole URL not configured - set it in Settings")
 		}
 	}
 	spec := guacamole.LaunchSpec{Protocol: proto, Host: d.IP}
@@ -1652,7 +1653,7 @@ func (t *devicesTab) openGuacamoleLaunch(proto string) tea.Cmd {
 	if err != nil {
 		return func() tea.Msg { return statusMessageMsg("guacamole: " + err.Error()) }
 	}
-	modal := NewFormModal(fmt.Sprintf("Guacamole %s launch — %s", strings.ToUpper(proto), d.IP),
+	modal := NewFormModal(fmt.Sprintf("Guacamole %s launch - %s", strings.ToUpper(proto), d.IP),
 		[]FormField{
 			{Label: "url", Value: url, Hint: "open in browser (read-only); Esc to close"},
 		},
@@ -1663,10 +1664,10 @@ func (t *devicesTab) openGuacamoleLaunch(proto string) tea.Cmd {
 
 func (t *devicesTab) View(w, h int) string {
 	rows := []string{headerStyle.Render(fmt.Sprintf(
-		"Devices — %d on local network · s=scan · c=connect · g/G=guac legacy",
+		"Devices - %d on local network · s=scan · c=connect · g/G=guac legacy",
 		len(t.devices)))}
 	if len(t.devices) == 0 {
-		rows = append(rows, subtitleStyle.Render("  no devices yet — enable active discovery (--discover-active) or press 's' on a known IP"))
+		rows = append(rows, subtitleStyle.Render("  no devices yet - enable active discovery (--discover-active) or press 's' on a known IP"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 	widths := []int{16, 18, 10, 16, 20, 8}
@@ -1695,7 +1696,7 @@ func (t *devicesTab) View(w, h int) string {
 			rows = append(rows, rowStyle.Render(row))
 		}
 	}
-	// Detail pane for the selected device — surfaces LLDP/SNMP fields
+	// Detail pane for the selected device - surfaces LLDP/SNMP fields
 	// that don't fit in a row. Empty fields are omitted so the pane
 	// stays compact when there's nothing to show.
 	if t.cursor >= 0 && t.cursor < len(t.devices) {
@@ -1748,14 +1749,14 @@ func renderDeviceDetail(d discovery.Device) string {
 		add("Open ports", strings.Join(parts, ", "))
 	}
 	if len(lines) == 1 {
-		lines = append(lines, dimStyle.Render("  no extended info — press 's' to scan, or enable LLDP/SNMP"))
+		lines = append(lines, dimStyle.Render("  no extended info - press 's' to scan, or enable LLDP/SNMP"))
 	}
 	return strings.Join(lines, "\n")
 }
 
 func dashIfEmpty(s string) string {
 	if s == "" {
-		return "—"
+		return "-"
 	}
 	return s
 }
@@ -1837,7 +1838,7 @@ func (t *probesTab) Update(msg tea.Msg) tea.Cmd {
 
 func (t *probesTab) View(w, h int) string {
 	var rows []string
-	rows = append(rows, headerStyle.Render("Probes — ↑/↓ select · enter run · t edit target"))
+	rows = append(rows, headerStyle.Render("Probes - ↑/↓ select · enter run · t edit target"))
 	rows = append(rows, dimStyle.Render(fmt.Sprintf("  target: %s   port: %s", t.target, t.port)))
 	rows = append(rows, "")
 	for i, k := range probeKinds {

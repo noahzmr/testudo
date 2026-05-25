@@ -1,7 +1,7 @@
 // Package netops wraps Linux netlink operations (interfaces, routes,
 // firewall, NAT) behind a uniform read/write API.
 //
-// All write operations are gated by Writer.AllowWrites — set at construction
+// All write operations are gated by Writer.AllowWrites - set at construction
 // from --allow-netops-write. With writes disabled, callers can read and
 // inspect freely; writes return ErrWritesDisabled without touching the kernel.
 package netops
@@ -16,7 +16,7 @@ import (
 )
 
 // ErrWritesDisabled is returned by every mutating call when AllowWrites=false.
-var ErrWritesDisabled = errors.New("netops writes are disabled — toggle in Settings tab or start with --allow-netops-write")
+var ErrWritesDisabled = errors.New("netops writes are disabled - toggle in Settings tab or start with --allow-netops-write")
 
 // Writer is the entry point for both reads and writes. Construct one per
 // process and pass it around; it has no fields that change after init.

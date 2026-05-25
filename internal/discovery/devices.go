@@ -3,7 +3,7 @@
 // on; active probing (ICMP sweep, mDNS queries) runs on a timer.
 //
 // The inventory is in-memory + periodically flushed to the `devices` table
-// in SQLite. Vendor lookup uses an embedded OUI prefix table — small, no
+// in SQLite. Vendor lookup uses an embedded OUI prefix table - small, no
 // network dependency.
 package discovery
 
@@ -30,18 +30,18 @@ type Device struct {
 
 	// DeviceType is a coarse classifier ("router", "switch", "ap", "phone",
 	// "printer", "server", "workstation", ...). Derived from LLDP/SNMP/OUI
-	// signals — best-effort, never blocks lookup.
+	// signals - best-effort, never blocks lookup.
 	DeviceType string
 
 	// SNMP / LLDP managed-device fields. Populated when the device speaks
 	// LLDP on a directly-connected link, or replies to SNMPv2c GET.
-	SysName     string   // sysName.0 or LLDP system-name TLV
-	SysDescr    string   // sysDescr.0 or LLDP system-description TLV
-	SysObjectID string   // sysObjectID.0 (vendor-rooted OID)
-	SysContact  string   // sysContact.0
-	SysLocation string   // sysLocation.0
-	SysUptime   string   // sysUpTime.0 (formatted as duration)
-	IfCount     int      // ifNumber.0 — interface count
+	SysName     string // sysName.0 or LLDP system-name TLV
+	SysDescr    string // sysDescr.0 or LLDP system-description TLV
+	SysObjectID string // sysObjectID.0 (vendor-rooted OID)
+	SysContact  string // sysContact.0
+	SysLocation string // sysLocation.0
+	SysUptime   string // sysUpTime.0 (formatted as duration)
+	IfCount     int    // ifNumber.0 - interface count
 
 	LLDPChassisID    string   // LLDP Chassis ID TLV (formatted)
 	LLDPPortID       string   // LLDP Port ID TLV (formatted)
@@ -60,7 +60,7 @@ type Inventory struct {
 func NewInventory() *Inventory { return &Inventory{m: make(map[string]*Device)} }
 
 // Observe records or updates a device. Empty fields don't overwrite
-// existing data — that lets ARP scanners contribute MAC without erasing
+// existing data - that lets ARP scanners contribute MAC without erasing
 // hostnames that mDNS discovered.
 func (in *Inventory) Observe(d Device) {
 	if d.IP == "" {
@@ -218,7 +218,7 @@ func mergeUniqString(a, b []string) []string {
 // ipLess orders IPs numerically rather than lexicographically. Treats
 // IPv6 as "after" IPv4 by length.
 func ipLess(a, b string) bool {
-	if (strings.Contains(a, ":") != strings.Contains(b, ":")) {
+	if strings.Contains(a, ":") != strings.Contains(b, ":") {
 		// IPv4 before IPv6
 		return !strings.Contains(a, ":")
 	}

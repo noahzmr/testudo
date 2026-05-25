@@ -18,7 +18,7 @@ import (
 // LLDPListener passively listens for IEEE 802.1AB Link Layer Discovery
 // Protocol frames on every up, non-loopback interface and decodes the
 // TLV stream into Inventory records. LLDP is the highest-signal way to
-// identify directly-connected switches, routers, IP phones and APs —
+// identify directly-connected switches, routers, IP phones and APs -
 // the neighbour announces its own chassis, system name, description and
 // capabilities. No probe traffic is generated.
 //
@@ -68,7 +68,7 @@ func (l *LLDPListener) Run(ctx context.Context) error {
 // 0x88cc and dispatches every received frame to decodeLLDPDU. It returns
 // when ctx is done or when the socket errors fatally.
 func (l *LLDPListener) listenOn(ctx context.Context, ifi net.Interface) {
-	// htons(ethPLLDP) — the kernel expects network byte order on this arg.
+	// htons(ethPLLDP) - the kernel expects network byte order on this arg.
 	proto := uint16((ethPLLDP&0xff)<<8) | uint16(ethPLLDP>>8)
 	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW|unix.SOCK_CLOEXEC, int(proto))
 	if err != nil {
@@ -94,7 +94,7 @@ func (l *LLDPListener) listenOn(ctx context.Context, ifi net.Interface) {
 		}
 		n, _, err := unix.Recvfrom(fd, buf, 0)
 		if err != nil {
-			// EAGAIN/EWOULDBLOCK from the timeout — keep looping.
+			// EAGAIN/EWOULDBLOCK from the timeout - keep looping.
 			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
 				continue
 			}
@@ -103,13 +103,13 @@ func (l *LLDPListener) listenOn(ctx context.Context, ifi net.Interface) {
 		if n < 14 {
 			continue
 		}
-		// Verify ethertype — kernel already filtered by proto bind, but
+		// Verify ethertype - kernel already filtered by proto bind, but
 		// double-checking is cheap and avoids surprises on VLAN-tagged
 		// frames that some drivers expose raw.
 		etype := binary.BigEndian.Uint16(buf[12:14])
 		payload := buf[14:n]
 		if etype == 0x8100 && n >= 18 {
-			// 802.1Q VLAN tag — skip 4 bytes and re-read ethertype.
+			// 802.1Q VLAN tag - skip 4 bytes and re-read ethertype.
 			etype = binary.BigEndian.Uint16(buf[16:18])
 			payload = buf[18:n]
 		}
@@ -127,7 +127,7 @@ func (l *LLDPListener) listenOn(ctx context.Context, ifi net.Interface) {
 		// Pick an IP for inventory keying. Management address > L3 hint
 		// from any addr the neighbour advertised. If none, fall back to
 		// the LLDP chassis ID itself so we still record the device under
-		// a stable key — these rows surface in a separate "L2 neighbours"
+		// a stable key - these rows surface in a separate "L2 neighbours"
 		// pane in the TUI.
 		if len(dev.LLDPMgmtAddrs) > 0 {
 			dev.IP = dev.LLDPMgmtAddrs[0]
@@ -170,7 +170,7 @@ func decodeLLDPDU(p []byte) Device {
 		case 2:
 			d.LLDPPortID = formatLLDPID(v, false)
 		case 3:
-			// TTL — ignored.
+			// TTL - ignored.
 		case 4:
 			d.LLDPPortDesc = string(v)
 		case 5:
@@ -340,4 +340,3 @@ func isPrintable(v []byte) bool {
 	}
 	return strings.ToValidUTF8(string(v), "") == string(v)
 }
-

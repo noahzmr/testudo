@@ -10,9 +10,9 @@
   <header class="topbar">
     <div class="brand">⛯ Testudo</div>
     <div class="session">
-      <span id="session-id">—</span>
+      <span id="session-id">-</span>
       <span class="dot">·</span>
-      <span>uptime <span id="uptime">—</span></span>
+      <span>uptime <span id="uptime">-</span></span>
     </div>
     <nav class="tabs">
       <button data-tab="dashboard" class="tab active">Dashboard</button>
@@ -38,9 +38,9 @@
       <div class="card grade-card">
         <h2>Network Quality</h2>
         <div class="grade-row">
-          <div class="grade-badge" id="grade-badge">—</div>
+          <div class="grade-badge" id="grade-badge">-</div>
           <div class="grade-meta">
-            <div class="grade-score"><span id="grade-score">—</span> / 100</div>
+            <div class="grade-score"><span id="grade-score">-</span> / 100</div>
             <div class="grade-verdict" id="grade-verdict">awaiting probes…</div>
           </div>
         </div>
@@ -48,7 +48,7 @@
       </div>
 
       <div class="card">
-        <h2>Bandwidth — per interface (1Hz, 120s window)</h2>
+        <h2>Bandwidth - per interface (1Hz, 120s window)</h2>
         <div id="bandwidth-list"></div>
       </div>
       <div class="card">
@@ -61,14 +61,14 @@
       </div>
 
       <div class="card">
-        <h2>ICMP — per-target detail</h2>
+        <h2>ICMP - per-target detail</h2>
         <table>
           <thead><tr><th>Target</th><th>Last</th><th>Avg</th><th>P95</th><th>Loss%</th><th>Jitter</th></tr></thead>
           <tbody id="targets-body"></tbody>
         </table>
       </div>
       <div class="card">
-        <h2>DNS — per-resolver detail</h2>
+        <h2>DNS - per-resolver detail</h2>
         <table>
           <thead><tr><th>Name</th><th>Last</th><th>Avg</th><th>Queries</th><th>Failures</th></tr></thead>
           <tbody id="dns-body"></tbody>
@@ -299,7 +299,7 @@
         </p>
         <div class="row">
           <button data-action="history-refresh" class="btn">Refresh</button>
-          <span class="muted" id="history-status">—</span>
+          <span class="muted" id="history-status">-</span>
         </div>
         <table>
           <thead><tr><th>ID</th><th>Started</th><th>Ended</th><th>Duration</th><th>Targets</th><th></th></tr></thead>
@@ -308,8 +308,8 @@
       </div>
 
       <div class="card" id="history-detail-card" hidden>
-        <h2 id="history-detail-title">Session —</h2>
-        <div class="muted" id="history-detail-meta">—</div>
+        <h2 id="history-detail-title">Session -</h2>
+        <div class="muted" id="history-detail-meta">-</div>
 
         <h3>Anomaly timeline</h3>
         <table>
@@ -325,7 +325,7 @@
       </div>
 
       <div class="card" id="history-inspect-card" hidden>
-        <h2 id="history-inspect-title">Snapshot —</h2>
+        <h2 id="history-inspect-title">Snapshot -</h2>
         <div class="row">
           <button data-action="history-inspect-close" class="btn">Close</button>
         </div>
@@ -366,7 +366,7 @@
           <label>interval (s)<input id="s-ipfix-int" type="number"/></label>
           <label>observation domain<input id="s-ipfix-dom" type="number"/></label>
         </div>
-        <div class="muted" id="ipfix-status">status: —</div>
+        <div class="muted" id="ipfix-status">status: -</div>
       </div>
       <div class="row"><button data-action="settings-save" class="btn btn-go">Save settings</button></div>
     </section>

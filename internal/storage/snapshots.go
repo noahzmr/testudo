@@ -42,7 +42,7 @@ func (s *Store) InsertSnapshot(ctx context.Context, sessionID, kind string, payl
 	return err
 }
 
-// SnapshotIndexEntry is one row in the snapshot index — id + kind + ts,
+// SnapshotIndexEntry is one row in the snapshot index - id + kind + ts,
 // without the payload. Used by history views that just need to list what
 // snapshots exist before letting the user inspect a specific row.
 type SnapshotIndexEntry struct {

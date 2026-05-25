@@ -15,7 +15,7 @@ import (
 // are user-tunable via the Settings TUI and persisted to settings.json.
 //
 // AllowNetopsWrite lives here so it gets the same treatment as the numeric
-// thresholds — live-mutable via SettingsStore, survives restarts. The CLI
+// thresholds - live-mutable via SettingsStore, survives restarts. The CLI
 // `--allow-netops-write` flag is a one-shot override at startup.
 type Thresholds struct {
 	PacketLossPct      float64       // alert when single-window loss exceeds this percentage
@@ -41,7 +41,7 @@ type Thresholds struct {
 	GuacamoleTemplate string
 
 	// IPFIX flow export. The exporter (internal/ipfix) reconciles its
-	// live state against these on a 5-second cadence — toggling Enabled
+	// live state against these on a 5-second cadence - toggling Enabled
 	// or rewriting Endpoint mid-session re-dials transparently.
 	IPFIXEnabled     bool   // master switch
 	IPFIXEndpoint    string // "host:port" of the collector (UDP)
@@ -66,7 +66,7 @@ func DefaultThresholds() Thresholds {
 }
 
 type Config struct {
-	// ICMP probe targets — addresses pinged on each tick.
+	// ICMP probe targets - addresses pinged on each tick.
 	ICMPTargets []string
 	// ICMPInterval is the delay between probe rounds.
 	ICMPInterval time.Duration
@@ -95,7 +95,7 @@ type Config struct {
 	// CaptureEnabled toggles AF_PACKET flow capture.
 	CaptureEnabled bool
 	// CaptureIfaces is the explicit set of interfaces to capture on. Empty
-	// means "auto-discover all eligible interfaces" — see capture package.
+	// means "auto-discover all eligible interfaces" - see capture package.
 	CaptureIfaces []string
 	// FlowFlushInterval is how often the in-memory flow aggregator is
 	// upserted into SQLite. Lower = more accurate replay, higher = less I/O.
@@ -154,19 +154,19 @@ func Default() Config {
 	}
 	storage := filepath.Join(home, ".testudo")
 	return Config{
-		ICMPTargets:       []string{"1.1.1.1", "8.8.8.8"},
-		ICMPInterval:      time.Second,
-		ICMPTimeout:       2 * time.Second,
-		DNSNames:          []string{"spiegel.de", "autonubil.de"},
-		DNSInterval:       5 * time.Second,
-		DNSTimeout:        3 * time.Second,
-		StorageDir:        storage,
-		SQLitePath:        filepath.Join(storage, "testudo.db"),
-		SettingsPath:      filepath.Join(storage, "settings.json"),
-		Mode:              "live",
-		CaptureEnabled:    false,
-		FlowFlushInterval: 5 * time.Second,
-		Thresholds:        DefaultThresholds(),
+		ICMPTargets:            []string{"1.1.1.1", "8.8.8.8"},
+		ICMPInterval:           time.Second,
+		ICMPTimeout:            2 * time.Second,
+		DNSNames:               []string{"spiegel.de", "autonubil.de"},
+		DNSInterval:            5 * time.Second,
+		DNSTimeout:             3 * time.Second,
+		StorageDir:             storage,
+		SQLitePath:             filepath.Join(storage, "testudo.db"),
+		SettingsPath:           filepath.Join(storage, "settings.json"),
+		Mode:                   "live",
+		CaptureEnabled:         false,
+		FlowFlushInterval:      5 * time.Second,
+		Thresholds:             DefaultThresholds(),
 		DiscoveryEnabled:       true,
 		DiscoveryActive:        false,
 		DiscoveryInterval:      60 * time.Second,
@@ -174,10 +174,10 @@ func Default() Config {
 		LLDPEnabled:            true,
 		SNMPCommunity:          "public",
 		SNMPTimeout:            time.Second,
-		WebEnabled:        false,
-		WebListen:         "127.0.0.1:8080",
-		SnapshotInterval:  30 * time.Second,
-		PCAPMaxSize:       64 * 1024 * 1024, // 64 MiB per rotated file
+		WebEnabled:             false,
+		WebListen:              "127.0.0.1:8080",
+		SnapshotInterval:       30 * time.Second,
+		PCAPMaxSize:            64 * 1024 * 1024, // 64 MiB per rotated file
 	}
 }
 

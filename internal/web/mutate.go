@@ -31,7 +31,7 @@ func writeOK(w http.ResponseWriter) {
 
 // writeErr surfaces a domain error as 422 Unprocessable Entity. Reserved
 // for "the request was structurally fine but the kernel / netops layer
-// refused it" — most operator-relevant errors land here.
+// refused it" - most operator-relevant errors land here.
 func writeErr(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 }
@@ -73,7 +73,9 @@ func (s *Server) handleCaptureClear(w http.ResponseWriter, r *http.Request) {
 // ---- Interface controls --------------------------------------------
 
 func (s *Server) handleIfaceUp(w http.ResponseWriter, r *http.Request) {
-	var b struct{ Name string `json:"name"` }
+	var b struct {
+		Name string `json:"name"`
+	}
 	if !readJSON(w, r, &b) {
 		return
 	}
@@ -85,7 +87,9 @@ func (s *Server) handleIfaceUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIfaceDown(w http.ResponseWriter, r *http.Request) {
-	var b struct{ Name string `json:"name"` }
+	var b struct {
+		Name string `json:"name"`
+	}
 	if !readJSON(w, r, &b) {
 		return
 	}
@@ -142,7 +146,9 @@ func (s *Server) handleIfaceMTU(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIfaceDHCP(w http.ResponseWriter, r *http.Request) {
-	var b struct{ Name string `json:"name"` }
+	var b struct {
+		Name string `json:"name"`
+	}
 	if !readJSON(w, r, &b) {
 		return
 	}
@@ -187,7 +193,9 @@ func (s *Server) handleRouteAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRouteDel(w http.ResponseWriter, r *http.Request) {
-	var b struct{ CIDR string `json:"cidr"` }
+	var b struct {
+		CIDR string `json:"cidr"`
+	}
 	if !readJSON(w, r, &b) {
 		return
 	}
@@ -262,7 +270,7 @@ func (s *Server) handleTCPDumpStart(w http.ResponseWriter, r *http.Request) {
 		Filter      string `json:"filter"`
 		MaxSizeMB   int    `json:"max_size_mb"`
 		DurationSec int    `json:"duration_sec"`
-		// Filter wizard fields — assembled into BPF if Filter is empty.
+		// Filter wizard fields - assembled into BPF if Filter is empty.
 		Proto   string `json:"proto"`
 		SrcHost string `json:"src_host"`
 		DstHost string `json:"dst_host"`
@@ -295,7 +303,9 @@ func (s *Server) handleTCPDumpStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTCPDumpStop(w http.ResponseWriter, r *http.Request) {
-	var b struct{ ID string `json:"id"` }
+	var b struct {
+		ID string `json:"id"`
+	}
 	if !readJSON(w, r, &b) {
 		return
 	}
@@ -307,7 +317,9 @@ func (s *Server) handleTCPDumpStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTCPDumpRemove(w http.ResponseWriter, r *http.Request) {
-	var b struct{ ID string `json:"id"` }
+	var b struct {
+		ID string `json:"id"`
+	}
 	if !readJSON(w, r, &b) {
 		return
 	}
@@ -326,7 +338,7 @@ func (s *Server) handleTCPDumpRemove(w http.ResponseWriter, r *http.Request) {
 func (s *Server) requireNetops(w http.ResponseWriter, next http.HandlerFunc) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		if s.Engine.Netops() == nil {
-			writeErr(w, fmt.Errorf("netops not available — process lacks CAP_NET_ADMIN"))
+			writeErr(w, fmt.Errorf("netops not available - process lacks CAP_NET_ADMIN"))
 			return
 		}
 		next(rw, r)

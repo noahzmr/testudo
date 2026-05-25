@@ -23,7 +23,7 @@ type LaunchSpec struct {
 // BuildURL renders a Guacamole "#/client/<base64-of-id-type-name>" URL.
 // Guacamole's URL contract uses base64(uri-safe) of a NULL-separated tuple.
 // baseURL is the Guacamole installation root, e.g. "https://guac.example.com".
-// connID is the configured Guacamole connection identifier — Testudo
+// connID is the configured Guacamole connection identifier - Testudo
 // doesn't auto-create connections; the operator must have one set up.
 //
 // Returns ErrNoBase when baseURL is empty so callers can degrade gracefully.

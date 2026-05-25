@@ -196,7 +196,7 @@ func parseIPOrNil(s string) []byte {
 }
 
 // netParseIP is split out so we don't have to drag net into the recs path
-// directly — keeps the test surface small.
+// directly - keeps the test surface small.
 func netParseIP(s string) []byte {
 	return netParseIPImpl(s)
 }

@@ -114,7 +114,7 @@ type IncidentPayload struct {
 	Summary    string
 }
 
-// Subscription is a live bus subscription. Always call Close when done —
+// Subscription is a live bus subscription. Always call Close when done -
 // otherwise the underlying channel stays in the bus's fan-out loop forever
 // and Publish keeps iterating dead subscribers. Bubble Tea code that
 // re-issues commands per message MUST reuse a single Subscription rather
@@ -138,7 +138,7 @@ func (s *Subscription) Close() {
 }
 
 // Bus is a fan-out, non-blocking event bus. Slow subscribers drop events
-// rather than back-pressuring producers — the TUI must never stall capture.
+// rather than back-pressuring producers - the TUI must never stall capture.
 type Bus struct {
 	mu          sync.RWMutex
 	subscribers map[uint64]*Subscription
@@ -161,8 +161,8 @@ func NewBus(bufSize int) *Bus {
 func (b *Bus) Subscribe() *Subscription { return b.subscribeFiltered(0) }
 
 // SubscribeKinds returns a subscription that only receives events matching
-// the given kinds. Filtering happens inside Publish — non-matching events
-// don't even hit the channel — which keeps fast-path producers (capture)
+// the given kinds. Filtering happens inside Publish - non-matching events
+// don't even hit the channel - which keeps fast-path producers (capture)
 // from waking up consumers (analyzers, TUI) that don't care.
 func (b *Bus) SubscribeKinds(kinds ...Kind) *Subscription {
 	var mask uint64
@@ -220,7 +220,7 @@ func (b *Bus) Publish(e Event) {
 }
 
 // Close shuts down every subscriber channel. After Close, Publish is a
-// no-op against closed channels — callers should stop publishing first.
+// no-op against closed channels - callers should stop publishing first.
 func (b *Bus) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()

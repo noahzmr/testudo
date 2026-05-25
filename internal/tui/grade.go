@@ -15,13 +15,13 @@ import (
 // health. A 0-100 score is computed from four sub-scores (loss, RTT,
 // jitter, DNS), each scaled against the operator's configured thresholds.
 type NetworkGrade struct {
-	Score    int     // 0..100
-	Letter   string  // "A+" .. "F"
-	Verdict  string  // human-readable summary ("Excellent", "Degraded", …)
-	Loss     subScore
-	RTT      subScore
-	Jitter   subScore
-	DNS      subScore
+	Score   int    // 0..100
+	Letter  string // "A+" .. "F"
+	Verdict string // human-readable summary ("Excellent", "Degraded", …)
+	Loss    subScore
+	RTT     subScore
+	Jitter  subScore
+	DNS     subScore
 }
 
 type subScore struct {
@@ -29,7 +29,7 @@ type subScore struct {
 	Score int     // 0..100
 	Value float64 // raw measurement (units depend on name)
 	Unit  string
-	OK    bool    // false = below the comfort threshold
+	OK    bool // false = below the comfort threshold
 }
 
 // ComputeGrade combines the live aggregator snapshots with the operator's
@@ -234,7 +234,7 @@ func renderGradeBadge(g NetworkGrade, width int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Center, letterBox, "  ", right)
 }
 
-// renderSubScoreBar produces "LABEL  ▓▓▓▓░░░  value" — a 0..100 horizontal
+// renderSubScoreBar produces "LABEL  ▓▓▓▓░░░  value" - a 0..100 horizontal
 // gauge of one sub-score, with the unit appended.
 func renderSubScoreBar(s subScore, width int) string {
 	if width < 30 {
@@ -253,7 +253,7 @@ func renderSubScoreBar(s subScore, width int) string {
 	label := fmt.Sprintf("%-7s", strings.ToUpper(s.Name))
 	value := fmt.Sprintf("%.1f%s", s.Value, s.Unit)
 	if s.Value == 0 {
-		value = "—"
+		value = "-"
 	}
 	return fmt.Sprintf("  %s %s %s",
 		dimStyle.Render(label),
@@ -282,7 +282,7 @@ func renderSparklineWithLabel(label string, samples []time.Duration, width int) 
 		lbl = lbl[:labelW]
 	}
 	spark := sparkline(values, plotW)
-	last := "—"
+	last := "-"
 	if n := len(samples); n > 0 {
 		last = fmtRTT(samples[n-1])
 	}

@@ -10,7 +10,7 @@ trade off retention against fidelity.
 | 3. Metrics | SQLite | rolling time series | days–weeks | `internal/storage/sqlite.go` |
 | 4. Selective PCAP | filesystem | per-incident files | incident-scoped | `internal/capture/` |
 
-## Layer 1 — Ring buffer
+## Layer 1 - Ring buffer
 
 `capture.RingBuffer` is a fixed-capacity circular buffer of `PacketRecord`s.
 Push overwrites the oldest entry when full; Snapshot returns the buffer in
@@ -20,10 +20,10 @@ chronological order. Used by:
 * analyzers that need a short look-behind window
 * instant replay before a session has been written to disk
 
-The buffer holds defensive copies of payloads — callers own their input
+The buffer holds defensive copies of payloads - callers own their input
 slices.
 
-## Layer 2 — Flow aggregation
+## Layer 2 - Flow aggregation
 
 `flows.Aggregator` collapses packets into bidirectional 5-tuple flows. Each
 flow tracks packets, bytes, both-direction byte counters, first/last seen
@@ -35,7 +35,7 @@ is bounded; the oldest flow is evicted when the table is full.
 nesting. That's what's written to disk in layers 3 and the replay session
 store.
 
-## Layer 3 — Metrics
+## Layer 3 - Metrics
 
 Time-series counters live in SQLite under `storage/metrics/`. Examples:
 
@@ -45,10 +45,10 @@ Time-series counters live in SQLite under `storage/metrics/`. Examples:
 * DNS resolution times (per resolver)
 * alert counts (per severity)
 
-Old buckets are downsampled rather than deleted — operators retain shape
+Old buckets are downsampled rather than deleted - operators retain shape
 forever, exact resolution for the last 30 days (configurable).
 
-## Layer 4 — Selective PCAP
+## Layer 4 - Selective PCAP
 
 PCAP capture is OFF by default. It activates only when an anomaly engine
 trips one of the configured triggers:

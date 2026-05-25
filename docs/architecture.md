@@ -52,10 +52,10 @@ bus is reserved for low-frequency control signals.
 
 ## Module boundaries
 
-* Subsystems never import each other's internals — they exchange typed
+* Subsystems never import each other's internals - they exchange typed
   values (`flows.FlowStats`, `discovery.Device`, `topology.Graph`) or
   events (`events.Event`).
 * Kernel writes funnel through `netops.Writer`, which honours an explicit
   `AllowWrites` flag. The default in production is off.
-* The TUI and Web UI share the same engine handles — they're two
+* The TUI and Web UI share the same engine handles - they're two
   presentations of the same underlying state, not parallel implementations.

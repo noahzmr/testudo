@@ -1,6 +1,6 @@
 // Package storage persists sessions, metric samples, and operational events
 // to SQLite. The schema is created on first use; writes are batched via the
-// caller's normal flow (one INSERT per event) — adequate for Phase 1 volumes.
+// caller's normal flow (one INSERT per event) - adequate for Phase 1 volumes.
 package storage
 
 import (
@@ -293,17 +293,17 @@ func (s *Store) InsertAnomaly(ctx context.Context, sessionID, severity, message 
 
 // FlowRow mirrors a row in the flows table.
 type FlowRow struct {
-	Iface            string
-	AIP, BIP         string
-	APort, BPort     uint16
-	Proto            string
-	Packets, Bytes   uint64
-	BytesAtoB        uint64
-	BytesBtoA        uint64
-	FirstSeen        time.Time
-	LastSeen         time.Time
-	Process          string
-	DNSName          string
+	Iface          string
+	AIP, BIP       string
+	APort, BPort   uint16
+	Proto          string
+	Packets, Bytes uint64
+	BytesAtoB      uint64
+	BytesBtoA      uint64
+	FirstSeen      time.Time
+	LastSeen       time.Time
+	Process        string
+	DNSName        string
 }
 
 // UpsertFlow inserts or updates a flow row. Counters accumulate on conflict.

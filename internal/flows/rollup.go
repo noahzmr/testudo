@@ -11,15 +11,15 @@ import (
 // rolled up under the **non-local** counterpart so the dashboard shows
 // "talking to nas01.lan" rather than "talking to 192.168.1.20".
 type HostRollup struct {
-	Host       string // remote IP (or DNS name when known)
-	DNS        string
-	Country    string // optional — populated when a GeoIP DB is configured
-	IsLAN      bool   // true when the remote is RFC1918 / link-local
-	Bytes      uint64
-	Packets    uint64
-	Flows      int
-	FirstSeen  int64 // unix milli
-	LastSeen   int64
+	Host      string // remote IP (or DNS name when known)
+	DNS       string
+	Country   string // optional - populated when a GeoIP DB is configured
+	IsLAN     bool   // true when the remote is RFC1918 / link-local
+	Bytes     uint64
+	Packets   uint64
+	Flows     int
+	FirstSeen int64 // unix milli
+	LastSeen  int64
 }
 
 // ProcessRollup aggregates every flow owned by one local process.
@@ -46,7 +46,7 @@ type ServiceRollup struct {
 func TopHosts(snap []FlowStats, n int) []HostRollup {
 	agg := map[string]*HostRollup{}
 	for _, f := range snap {
-		// Pick the "remote" endpoint — the one that is NOT a private/LAN IP.
+		// Pick the "remote" endpoint - the one that is NOT a private/LAN IP.
 		// When both endpoints are private (host-to-host LAN traffic) we keep
 		// the lexicographically larger one so the rollup is stable.
 		var remoteIP, remotePort, _ = pickRemote(f.Key.A.IP, f.Key.B.IP)
@@ -85,13 +85,13 @@ func TopHosts(snap []FlowStats, n int) []HostRollup {
 }
 
 // TopProcesses returns the top-N processes by total bytes. Flows without a
-// resolved process name are bucketed under "—" so the row still surfaces.
+// resolved process name are bucketed under "-" so the row still surfaces.
 func TopProcesses(snap []FlowStats, n int) []ProcessRollup {
 	agg := map[string]*ProcessRollup{}
 	for _, f := range snap {
 		name := strings.TrimSpace(f.Process)
 		if name == "" {
-			name = "—"
+			name = "-"
 		}
 		r, ok := agg[name]
 		if !ok {
@@ -114,7 +114,7 @@ func TopProcesses(snap []FlowStats, n int) []ProcessRollup {
 }
 
 // TopServices returns the top-N upper-layer services by total bytes.
-// Flows that didn't match the well-known catalog are bucketed under "—".
+// Flows that didn't match the well-known catalog are bucketed under "-".
 func TopServices(snap []FlowStats, n int) []ServiceRollup {
 	type key struct {
 		Service string
@@ -129,7 +129,7 @@ func TopServices(snap []FlowStats, n int) []ServiceRollup {
 		}
 		svc := f.Service
 		if svc == "" {
-			svc = "—"
+			svc = "-"
 		}
 		k := key{Service: svc, Proto: strings.ToLower(f.Key.Proto), Port: port}
 		r, ok := agg[k]
@@ -167,7 +167,7 @@ func pickRemote(aIP, bIP string) (ip string, port uint16, isLocal bool) {
 	case !aLocal && bLocal:
 		return aIP, 0, false
 	default:
-		// Both local or both remote — pick stably.
+		// Both local or both remote - pick stably.
 		if aIP > bIP {
 			return aIP, 0, aLocal && bLocal
 		}
@@ -176,7 +176,7 @@ func pickRemote(aIP, bIP string) (ip string, port uint16, isLocal bool) {
 }
 
 // isLocalIP reports whether ip falls in an RFC1918 / link-local /
-// loopback range — i.e. it should be treated as "this side" of a flow.
+// loopback range - i.e. it should be treated as "this side" of a flow.
 // Returns true for the nil IP too so unparsable strings don't slip
 // through as "remote".
 func isLocalIP(ip net.IP) bool {

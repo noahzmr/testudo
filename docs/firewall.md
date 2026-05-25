@@ -7,7 +7,7 @@ are gated by `netops.Writer.AllowWrites`.
 |---|---|---|
 | iptables | fallback (read-only) | `internal/netops/firewall_iptables.go` |
 | nftables | default | `internal/netops/firewall.go` |
-| firewalld | roadmap | — |
+| firewalld | roadmap | - |
 
 ## nftables (default)
 
@@ -26,7 +26,7 @@ Shells out to the `iptables` binary and parses `-L -v -n -x` output.
 with their chains, policies, and per-rule packet/byte counters.
 
 `Writer.IptablesAvailable()` returns true iff the binary is on PATH. The
-backend silently no-ops on systems without iptables installed — there's
+backend silently no-ops on systems without iptables installed - there's
 no error, just an empty `IptablesSummary`. This makes it safe to call
 unconditionally from the UI layer.
 
@@ -34,7 +34,7 @@ unconditionally from the UI layer.
 
 The UI prefers nftables when available and falls back to iptables. On
 distributions running iptables-nft compatibility (`iptables` is a symlink
-to `iptables-nft`), both backends return overlapping data — that's a
+to `iptables-nft`), both backends return overlapping data - that's a
 distribution artefact, not a bug.
 
 ## Adding a backend (firewalld)

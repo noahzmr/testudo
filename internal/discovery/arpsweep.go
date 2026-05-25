@@ -13,7 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ARP sweep — proactively populate /proc/net/arp by broadcasting ARP
+// ARP sweep - proactively populate /proc/net/arp by broadcasting ARP
 // requests for every host in every directly-connected IPv4 subnet. ICMP
 // echo gets dropped by a long tail of consumer devices (Windows firewall
 // defaults, IoT silence, "ping-shy" servers); ARP, by contrast, has to

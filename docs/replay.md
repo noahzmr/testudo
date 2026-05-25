@@ -1,7 +1,7 @@
 # Replay
 
 Replay reconstructs a past session: flows, topology, firewall counters,
-NAT state, alerts, and metrics — all timeline-navigable.
+NAT state, alerts, and metrics - all timeline-navigable.
 
 ## Session capture
 
@@ -38,10 +38,10 @@ testudo replay session-2026-05-23-191742
 ```
 
 Inside replay mode the TUI runs against the recorded snapshots instead of
-live state. The same tabs work — flows, topology, firewall, alerts — and
+live state. The same tabs work - flows, topology, firewall, alerts - and
 keyboard bindings (`,` / `.`) step the timeline backwards / forwards.
 
-## What replay can — and can't — show
+## What replay can - and can't - show
 
 Replay can show:
 
@@ -53,7 +53,7 @@ Replay can show:
 
 Replay can't reconstruct anything that wasn't captured. If PCAP wasn't
 triggered, you can see the flow summary but not the wire-level bytes.
-That's the trade-off — full PCAP everywhere would have eaten disk.
+That's the trade-off - full PCAP everywhere would have eaten disk.
 
 ## Incident timelines
 

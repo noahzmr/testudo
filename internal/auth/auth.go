@@ -28,7 +28,7 @@ type User struct {
 }
 
 // Store is the live user table backed by a JSON file. Concurrent use is
-// safe — the lock guards both in-memory and on-disk state.
+// safe - the lock guards both in-memory and on-disk state.
 type Store struct {
 	mu    sync.RWMutex
 	path  string
@@ -58,7 +58,7 @@ func Open(path string) (*Store, error) {
 
 // Bootstrap ensures a default user exists. Returns the freshly-generated
 // password if one was created; empty if a user was already present.
-// Caller is responsible for printing/storing the returned password — it is
+// Caller is responsible for printing/storing the returned password - it is
 // not recoverable after this call returns.
 func (s *Store) Bootstrap(defaultName string) (string, error) {
 	s.mu.Lock()

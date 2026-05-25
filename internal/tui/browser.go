@@ -21,8 +21,8 @@ type BrowserModel struct {
 	width     int
 	height    int
 	loadErr   error
-	openInTUI bool          // set true when user picks a session to replay
-	picked    string        // selected session id
+	openInTUI bool   // set true when user picks a session to replay
+	picked    string // selected session id
 	statusMsg string
 }
 
@@ -91,7 +91,7 @@ func (m BrowserModel) Picked() string { return m.picked }
 
 func (m BrowserModel) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Testudo — Session Browser"))
+	b.WriteString(titleStyle.Render("Testudo - Session Browser"))
 	b.WriteString("\n")
 	b.WriteString(subtitleStyle.Render("↑/↓ navigate · enter replay · r refresh · q quit"))
 	b.WriteString("\n\n")
@@ -101,7 +101,7 @@ func (m BrowserModel) View() string {
 		return b.String()
 	}
 	if len(m.sessions) == 0 {
-		b.WriteString(subtitleStyle.Render("no sessions recorded yet — run `testudo live` first"))
+		b.WriteString(subtitleStyle.Render("no sessions recorded yet - run `testudo live` first"))
 		return b.String()
 	}
 

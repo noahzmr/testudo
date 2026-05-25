@@ -1,10 +1,10 @@
-// history_tab.go — read-only browsing of past sessions and the snapshots
+// history_tab.go - read-only browsing of past sessions and the snapshots
 // captured during them. The tab has three modes:
 //
-//   list    — newest-first session table; ↑/↓/j/k + Enter to drill in.
-//   detail  — picked session's anomaly timeline + snapshot index;
+//   list    - newest-first session table; ↑/↓/j/k + Enter to drill in.
+//   detail  - picked session's anomaly timeline + snapshot index;
 //             cursor + Enter on a snapshot row to inspect.
-//   inspect — pretty-printed JSON of one snapshot, scrolled by the chrome.
+//   inspect - pretty-printed JSON of one snapshot, scrolled by the chrome.
 //
 // Backwards navigation is Esc / Backspace; the cursor on each level is
 // preserved so returning from a detail view lands on the same session row.
@@ -152,7 +152,7 @@ func (t *historyTab) loadSnapshotCmd(id int64) tea.Cmd {
 		}
 		var pretty bytes.Buffer
 		if jerr := json.Indent(&pretty, row.PayloadRaw, "", "  "); jerr != nil {
-			// Payload exists but isn't JSON — show it verbatim so the user
+			// Payload exists but isn't JSON - show it verbatim so the user
 			// can still see what was stored. This shouldn't happen with the
 			// current snapshotter, but the storage layer is schema-agnostic.
 			return historySnapshotLoadedMsg{row: row, pretty: string(row.PayloadRaw)}
@@ -166,7 +166,7 @@ func (t *historyTab) loadSnapshotCmd(id int64) tea.Cmd {
 func (t *historyTab) Update(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
 	case slowTickMsg:
-		// Auto-refresh only the list — detail/inspect are point-in-time
+		// Auto-refresh only the list - detail/inspect are point-in-time
 		// reads the user explicitly drilled into.
 		if t.mode == historyModeList {
 			return t.loadListCmd()
@@ -324,9 +324,9 @@ func (t *historyTab) View(w, h int) string {
 
 func (t *historyTab) viewList(w int) string {
 	visible := t.visibleSessions()
-	title := fmt.Sprintf("History — %d session(s)", len(t.sessions))
+	title := fmt.Sprintf("History - %d session(s)", len(t.sessions))
 	if t.filter != "" {
-		title = fmt.Sprintf("History — %d / %d match `%s`",
+		title = fmt.Sprintf("History - %d / %d match `%s`",
 			len(visible), len(t.sessions), t.filter)
 	}
 	rows := []string{
@@ -340,7 +340,7 @@ func (t *historyTab) viewList(w int) string {
 	}
 	if len(t.sessions) == 0 {
 		rows = append(rows, subtitleStyle.Render(
-			"  no sessions persisted yet — sessions are written on engine start"))
+			"  no sessions persisted yet - sessions are written on engine start"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 	if len(visible) == 0 {
@@ -348,7 +348,7 @@ func (t *historyTab) viewList(w int) string {
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 	for i, s := range visible {
-		ended := "—"
+		ended := "-"
 		dur := "running"
 		if s.EndedAt != nil {
 			ended = s.EndedAt.Local().Format("2006-01-02 15:04:05")
@@ -419,12 +419,12 @@ func (t *historyTab) viewDetail(w int) string {
 
 	// --- snapshot index ---
 	sRows := []string{
-		headerStyle.Render(fmt.Sprintf("Snapshots (%d) — Enter to inspect", len(t.snapIndex))),
+		headerStyle.Render(fmt.Sprintf("Snapshots (%d) - Enter to inspect", len(t.snapIndex))),
 		renderRowWidths([]int{8, 14, 24}, "#", "KIND", "TIMESTAMP"),
 	}
 	if len(t.snapIndex) == 0 {
 		sRows = append(sRows, subtitleStyle.Render(
-			"  no snapshots captured — netops snapshotter may have been disabled"))
+			"  no snapshots captured - netops snapshotter may have been disabled"))
 	} else {
 		for i, e := range t.snapIndex {
 			row := renderRowWidths([]int{8, 14, 24},
@@ -443,7 +443,7 @@ func (t *historyTab) viewDetail(w int) string {
 
 func (t *historyTab) viewInspect(w int) string {
 	var b strings.Builder
-	hdr := "Snapshot — loading…"
+	hdr := "Snapshot - loading…"
 	if t.inspectRow != nil {
 		hdr = fmt.Sprintf("Snapshot #%d · %s · %s",
 			t.inspectRow.ID, t.inspectRow.Kind,

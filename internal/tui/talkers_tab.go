@@ -12,9 +12,9 @@ import (
 
 // talkersTab presents three sniffnet-style rollups in one place:
 //
-//	1. Top hosts        — who am I talking to, how much, LAN or WAN
-//	2. Top processes    — which programs generate the traffic
-//	3. Top services     — which upper-layer protocols dominate
+//  1. Top hosts        - who am I talking to, how much, LAN or WAN
+//  2. Top processes    - which programs generate the traffic
+//  3. Top services     - which upper-layer protocols dominate
 //
 // All three update on every dashboard tick; cursor selects the section
 // (hosts / processes / services) so the user can flip between them with
@@ -77,7 +77,7 @@ func (t *talkersTab) View(w, h int) string {
 		sectionLabel("Processes", len(procs), procsActive),
 		sectionLabel("Services", len(svcs), svcsActive),
 	}
-	b.WriteString(headerStyle.Render("Top talkers — ←/→ switch · 1 hosts · 2 processes · 3 services"))
+	b.WriteString(headerStyle.Render("Top talkers - ←/→ switch · 1 hosts · 2 processes · 3 services"))
 	b.WriteString("\n  ")
 	b.WriteString(strings.Join(hdr, "    "))
 	b.WriteString("\n\n")
@@ -103,7 +103,7 @@ func sectionLabel(name string, count int, active bool) string {
 
 func renderTopHosts(rows []flows.HostRollup) string {
 	if len(rows) == 0 {
-		return subtitleStyle.Render("  no flows yet — start capture (Flows tab → 's')")
+		return subtitleStyle.Render("  no flows yet - start capture (Flows tab → 's')")
 	}
 	widths := []int{4, 30, 8, 12, 10, 8}
 	out := []string{"  " + renderRowWidths(widths,
@@ -127,7 +127,7 @@ func renderTopHosts(rows []flows.HostRollup) string {
 
 func renderTopProcs(rows []flows.ProcessRollup) string {
 	if len(rows) == 0 {
-		return subtitleStyle.Render("  no flows with process info — capture must run as a user that can read /proc/*/fd")
+		return subtitleStyle.Render("  no flows with process info - capture must run as a user that can read /proc/*/fd")
 	}
 	widths := []int{4, 28, 12, 12, 8}
 	out := []string{"  " + renderRowWidths(widths,

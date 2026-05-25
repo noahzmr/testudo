@@ -1,5 +1,5 @@
 ================================================================================
-                  TESTUDO — STANDARD COPYRIGHT HEADER
+                  TESTUDO - STANDARD COPYRIGHT HEADER
 ================================================================================
 
 Every source file contributed to the Testudo project must carry the
@@ -28,7 +28,7 @@ This Source Code Form is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-Branding terms apply — see the NOTICE file at the repository root.
+Branding terms apply - see the NOTICE file at the repository root.
 
 SPDX-License-Identifier: MPL-2.0
 
@@ -47,7 +47,7 @@ This Source Code Form is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-Branding terms apply — see the NOTICE file at the repository root.
+Branding terms apply - see the NOTICE file at the repository root.
 
 SPDX-License-Identifier: MPL-2.0
 */
@@ -68,7 +68,7 @@ SHELL / PYTHON / YAML / TOML  (.sh, .py, .yaml, .yml, .toml, Makefile)
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #
-# Branding terms apply — see the NOTICE file at the repository root.
+# Branding terms apply - see the NOTICE file at the repository root.
 #
 # SPDX-License-Identifier: MPL-2.0
 
@@ -87,7 +87,7 @@ HTML
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-  Branding terms apply — see the NOTICE file at the repository root.
+  Branding terms apply - see the NOTICE file at the repository root.
 
   SPDX-License-Identifier: MPL-2.0
 -->
@@ -107,7 +107,7 @@ CSS
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  *
- * Branding terms apply — see the NOTICE file at the repository root.
+ * Branding terms apply - see the NOTICE file at the repository root.
  *
  * SPDX-License-Identifier: MPL-2.0
  */
@@ -127,7 +127,7 @@ JAVASCRIPT / TYPESCRIPT  (.js, .ts, .mjs, .cjs)
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  *
- * Branding terms apply — see the NOTICE file at the repository root.
+ * Branding terms apply - see the NOTICE file at the repository root.
  *
  * SPDX-License-Identifier: MPL-2.0
  */
@@ -146,7 +146,7 @@ SQL
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 --
--- Branding terms apply — see the NOTICE file at the repository root.
+-- Branding terms apply - see the NOTICE file at the repository root.
 --
 -- SPDX-License-Identifier: MPL-2.0
 
@@ -159,14 +159,14 @@ USAGE RULES
 
 2. The "Created" field is set once, when the file is first added to the
    repository, and never changed. The "Updated" field is bumped on
-   substantive edits — typo fixes, formatting passes, and dependency
+   substantive edits - typo fixes, formatting passes, and dependency
    bumps do not require it.
 
 3. When updating an existing file with a meaningful change, advance the
    "Updated" date to the current date in ISO 8601 form (YYYY-MM-DD).
    Leave the "Created" date untouched.
 
-4. The SPDX-License-Identifier line is mandatory — automated tooling
+4. The SPDX-License-Identifier line is mandatory - automated tooling
    relies on it. Do not remove it when stripping comments for minified
    builds; preserve it in a build-tool license banner instead.
 

@@ -19,11 +19,11 @@ type BandwidthHistory struct {
 	last   map[string]ifSample
 	rx     map[string][]float64 // bytes/sec
 	tx     map[string][]float64
-	// Cumulative — survives Snapshot; useful for "Total RX/TX since
+	// Cumulative - survives Snapshot; useful for "Total RX/TX since
 	// start" summary panels.
 	cumRx map[string]uint64
 	cumTx map[string]uint64
-	// Per-iface "first sample at" — lets the UI distinguish a brand-new
+	// Per-iface "first sample at" - lets the UI distinguish a brand-new
 	// interface from one that's been seen for a while.
 	firstSeen map[string]time.Time
 }
@@ -34,7 +34,7 @@ type ifSample struct {
 }
 
 // NewBandwidthHistory returns a history that keeps `window` samples per
-// interface. 120 covers two minutes of 1Hz data — enough for a smooth chart
+// interface. 120 covers two minutes of 1Hz data - enough for a smooth chart
 // without dragging tens of KB per iface.
 func NewBandwidthHistory(window int) *BandwidthHistory {
 	if window < 8 {
@@ -108,7 +108,7 @@ type BandwidthSnapshot struct {
 }
 
 // Snapshot returns one entry per known interface, sorted by current TX+RX
-// (busiest first — matches sniffnet's "Overview" ordering).
+// (busiest first - matches sniffnet's "Overview" ordering).
 func (b *BandwidthHistory) Snapshot() []BandwidthSnapshot {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

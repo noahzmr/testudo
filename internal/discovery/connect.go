@@ -50,11 +50,11 @@ var ConnectionPorts = []uint16{
 // DeviceConnections is the per-device summary of what we found.
 type DeviceConnections struct {
 	IP        string
-	OpenPorts []uint16        // sorted ascending
+	OpenPorts []uint16          // sorted ascending
 	Protocols []ConnectionProto // distinct, in canonical order
 }
 
-// ProtocolsForPorts is the pure-function variant — given a sorted port
+// ProtocolsForPorts is the pure-function variant - given a sorted port
 // list, return the distinct protocols that map to them. The TUI uses this
 // to render the "ssh · rdp · vnc" badge on device rows without having to
 // re-scan.

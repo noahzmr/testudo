@@ -8,7 +8,7 @@ import (
 
 // FirewallSummary describes one nftables table/chain pair, plus a per-rule
 // hit/byte counter snapshot. We don't attempt to fully render nftables
-// expressions — that's an entire DSL — just the operational telemetry that
+// expressions - that's an entire DSL - just the operational telemetry that
 // matters to most operators (rule counters and chain hook info).
 type FirewallSummary struct {
 	Tables []TableInfo
@@ -110,5 +110,5 @@ func hookName(h nftables.ChainHook) string {
 	case *nftables.ChainHookIngress:
 		return "ingress"
 	}
-	return "—"
+	return "-"
 }

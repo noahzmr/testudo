@@ -1,4 +1,4 @@
-// Testudo web UI — single-page app with full feature parity to the TUI.
+// Testudo web UI - single-page app with full feature parity to the TUI.
 // All mutations POST JSON to /api/<feature>/<verb>; the snapshot endpoint
 // returns the unified state that drives every read view.
 (function () {
@@ -208,7 +208,7 @@
         const protos = (r && r.protocols) || [];
         showToast(protos.length
           ? btn.dataset.ip + ' offers ' + protos.map(p => p.toUpperCase()).join(' · ')
-          : btn.dataset.ip + ' — no connection ports open');
+          : btn.dataset.ip + ' - no connection ports open');
         break;
       }
       case 'probe-run': {
@@ -231,7 +231,7 @@
         showToast('settings saved');
         break;
 
-      // History tab — read-only browse of past sessions.
+      // History tab - read-only browse of past sessions.
       case 'history-refresh':
         await loadHistory();
         break;
@@ -283,7 +283,7 @@
     return v.toFixed(i === 0 ? 0 : 1) + ' ' + u[i];
   }
   function fmtUs(us) {
-    if (!us) return '—';
+    if (!us) return '-';
     if (us < 1000) return us + 'µs';
     return (us / 1000).toFixed(1) + 'ms';
   }
@@ -317,10 +317,10 @@
   // ---- Renderers (one per pane) ----
   function renderGrade(g) {
     const badge = document.getElementById('grade-badge');
-    badge.textContent = g.letter || '—';
+    badge.textContent = g.letter || '-';
     badge.className = 'grade-badge ' + gradeLetter(g.score || 0);
     document.getElementById('grade-score').textContent = g.score || 0;
-    document.getElementById('grade-verdict').textContent = g.verdict || '—';
+    document.getElementById('grade-verdict').textContent = g.verdict || '-';
     const bars = document.getElementById('grade-bars');
     const rows = [
       ['Loss',   g.loss_score,   g.score],
@@ -380,7 +380,7 @@
         + '<td>' + h.packets + '</td>'
         + '<td>' + h.flows + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="6" class="muted">no flows yet — start capture</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">no flows yet - start capture</td></tr>';
 
     document.getElementById('talkers-procs-body').innerHTML = (procs || []).map((p, i) =>
       '<tr>'
@@ -397,7 +397,7 @@
       + '<td>' + (i + 1) + '</td>'
       + '<td>' + escape(s.service) + '</td>'
       + '<td>' + escape((s.proto || '').toUpperCase()) + '</td>'
-      + '<td>' + (s.port || '—') + '</td>'
+      + '<td>' + (s.port || '-') + '</td>'
       + '<td>' + fmtBytes(s.bytes) + '</td>'
       + '<td>' + s.packets + '</td>'
       + '<td>' + s.flows + '</td>'
@@ -414,7 +414,7 @@
     }
     el.innerHTML = names.map(name => {
       const vals = series[name];
-      const last = vals.length ? vals[vals.length - 1].toFixed(1) + 'ms' : '—';
+      const last = vals.length ? vals[vals.length - 1].toFixed(1) + 'ms' : '-';
       return '<div class="spark"><span class="spark-label">' + escape(name) + '</span>'
         + spark(vals, color)
         + '<span class="spark-value">' + last + '</span></div>';
@@ -458,11 +458,11 @@
       '<tr>'
       + '<td>' + escape(f.proto.toUpperCase()) + '</td>'
       + '<td>' + escape(f.iface) + '</td>'
-      + '<td>' + escape(f.process || '—') + '</td>'
+      + '<td>' + escape(f.process || '-') + '</td>'
       + '<td>' + escape(f.a) + '</td>'
       + '<td>' + escape(f.b) + '</td>'
-      + '<td>' + escape(f.service || '—') + '</td>'
-      + '<td>' + escape(f.dns || '—') + '</td>'
+      + '<td>' + escape(f.service || '-') + '</td>'
+      + '<td>' + escape(f.dns || '-') + '</td>'
       + '<td>' + f.packets + '</td>'
       + '<td>' + fmtBytes(f.bytes) + '</td>'
       + '</tr>'
@@ -472,10 +472,10 @@
       '<tr>'
       + '<td>' + escape(f.proto.toUpperCase()) + '</td>'
       + '<td>' + escape(f.iface) + '</td>'
-      + '<td>' + escape(f.process || '—') + '</td>'
+      + '<td>' + escape(f.process || '-') + '</td>'
       + '<td>' + escape(f.a) + '</td>'
       + '<td>' + escape(f.b) + '</td>'
-      + '<td>' + escape(f.service || '—') + '</td>'
+      + '<td>' + escape(f.service || '-') + '</td>'
       + '<td>' + f.packets + '</td>'
       + '<td>' + fmtBytes(f.bytes) + '</td>'
       + '</tr>'
@@ -486,7 +486,7 @@
     document.getElementById('devices-body').innerHTML = (rows || []).map(d => {
       const ports = (d.open_ports || []).length
         ? (d.open_ports || []).map(p => '<code>' + p + '</code>').join(' ')
-        : '<span class="muted">—</span>';
+        : '<span class="muted">-</span>';
       const connectBtns = (d.protocols || []).map(p =>
         '<a class="btn btn-small connect" target="_blank" rel="noopener"'
         + ' href="/api/connect?host=' + encodeURIComponent(d.ip)
@@ -497,8 +497,8 @@
       const ip = escape(d.ip);
       return '<tr>'
         + '<td><b>' + ip + '</b></td>'
-        + '<td>' + escape(d.hostname || '—') + '</td>'
-        + '<td>' + escape(d.vendor || '—') + '</td>'
+        + '<td>' + escape(d.hostname || '-') + '</td>'
+        + '<td>' + escape(d.vendor || '-') + '</td>'
         + '<td>' + ports + '</td>'
         + '<td>' + connectBtns + '</td>'
         + '<td>'
@@ -524,7 +524,7 @@
     for (const p of candidates) {
       if (open.includes(p)) return p;
     }
-    // Fallback: any port that's open and not strictly mapped — empty so
+    // Fallback: any port that's open and not strictly mapped - empty so
     // the connect builder uses its protocol default.
     return '';
   }
@@ -561,7 +561,7 @@
       '<tr>'
       + '<td>' + escape(r.family) + '</td>'
       + '<td>' + escape(r.dst) + '</td>'
-      + '<td>' + escape(r.gateway || '—') + '</td>'
+      + '<td>' + escape(r.gateway || '-') + '</td>'
       + '<td>' + escape(r.iface) + '</td>'
       + '<td>' + escape(r.proto) + '</td>'
       + '<td>' + r.metric + '</td>'
@@ -576,15 +576,15 @@
       return '<tr>'
         + '<td>' + escape(r.chain) + '</td>'
         + '<td>' + escape(r.action.toUpperCase()) + '</td>'
-        + '<td>' + escape(r.proto.toUpperCase() || '—') + '</td>'
-        + '<td>' + (r.port || '—') + '</td>'
-        + '<td>' + escape(r.in_iface || '—') + '</td>'
-        + '<td>' + escape(r.out_iface || '—') + '</td>'
-        + '<td>' + escape(r.src || '—') + '</td>'
-        + '<td>' + escape(r.dst || '—') + '</td>'
+        + '<td>' + escape(r.proto.toUpperCase() || '-') + '</td>'
+        + '<td>' + (r.port || '-') + '</td>'
+        + '<td>' + escape(r.in_iface || '-') + '</td>'
+        + '<td>' + escape(r.out_iface || '-') + '</td>'
+        + '<td>' + escape(r.src || '-') + '</td>'
+        + '<td>' + escape(r.dst || '-') + '</td>'
         + '<td><button class="btn btn-small btn-danger" data-action="fw-del" data-rule="' + dataRule + '">del</button></td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="9" class="muted">no managed rules — add one above</td></tr>';
+    }).join('') || '<tr><td colspan="9" class="muted">no managed rules - add one above</td></tr>';
 
     const sysRows = [];
     (system || []).forEach(t => {
@@ -630,7 +630,7 @@
         + '<td title="' + escape(j.output_path) + '"><code>' + escape(shortenMid(j.output_path, 40)) + '</code></td>'
         + '<td>' + stopBtn + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="7" class="muted">no captures yet — start one above</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">no captures yet - start one above</td></tr>';
   }
 
   function renderAlerts(rows) {
@@ -657,7 +657,7 @@
 
   function renderIPFIX(view) {
     const el = document.getElementById('ipfix-status');
-    if (!view) { el.textContent = 'status: —'; return; }
+    if (!view) { el.textContent = 'status: -'; return; }
     let line = view.enabled ? 'enabled' : 'disabled';
     if (view.dialed) line += ' · dialed ' + view.endpoint;
     if (view.last_send) line += ' · last send ' + view.last_send;
@@ -715,7 +715,7 @@
     return h + 'h ' + (m % 60) + 'm';
   }
   function shortID(s) {
-    if (!s) return '—';
+    if (!s) return '-';
     return s.length > 12 ? s.slice(0, 8) + '…' : s;
   }
 
@@ -735,7 +735,7 @@
         return '<tr>'
           + '<td><code>' + escapeHTML(shortID(s.id)) + '</code></td>'
           + '<td>' + escapeHTML(s.started_at || '') + '</td>'
-          + '<td>' + escapeHTML(s.ended_at || '—') + '</td>'
+          + '<td>' + escapeHTML(s.ended_at || '-') + '</td>'
           + '<td>' + escapeHTML(fmtDuration(s.duration_ms)) + '</td>'
           + '<td>' + escapeHTML(targets) + '</td>'
           + '<td><button class="btn" data-action="history-open" data-id="'
@@ -769,7 +769,7 @@
         '<b>started:</b> ' + escapeHTML(d.started_at) +
         ' &nbsp; <b>ended:</b> ' + escapeHTML(d.ended_at || '(running)') +
         ' &nbsp; <b>duration:</b> ' + escapeHTML(fmtDuration(d.duration_ms)) +
-        ' &nbsp; <b>targets:</b> ' + escapeHTML((d.targets || []).join(', ') || '—') +
+        ' &nbsp; <b>targets:</b> ' + escapeHTML((d.targets || []).join(', ') || '-') +
         ' &nbsp; <b>counts:</b> ' + (d.anomalies || []).length + ' anomalies · '
         + (d.snapshots || []).length + ' snapshots';
 
@@ -804,7 +804,7 @@
     const title = document.getElementById('history-inspect-title');
     const body = document.getElementById('history-inspect-body');
     card.hidden = false;
-    title.textContent = 'Snapshot #' + id + ' — loading…';
+    title.textContent = 'Snapshot #' + id + ' - loading…';
     body.textContent = '';
     try {
       const r = await api('/api/session/snapshot?id=' + encodeURIComponent(id));
@@ -824,8 +824,8 @@
     try {
       const snap = await api('/api/snapshot');
       if (!snap) return;
-      document.getElementById('session-id').textContent = snap.session || '—';
-      document.getElementById('uptime').textContent = snap.uptime || '—';
+      document.getElementById('session-id').textContent = snap.session || '-';
+      document.getElementById('uptime').textContent = snap.uptime || '-';
       renderGrade(snap.grade || {});
       renderBandwidth(snap.bandwidth || []);
       renderTalkers(snap.top_hosts, snap.top_processes, snap.top_services);

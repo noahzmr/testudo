@@ -83,14 +83,14 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 	}
 }
 
-func (e *Engine) Bus() *events.Bus                { return e.bus }
-func (e *Engine) Aggregator() *metrics.Aggregator { return e.agg }
+func (e *Engine) Bus() *events.Bus                     { return e.bus }
+func (e *Engine) Aggregator() *metrics.Aggregator      { return e.agg }
 func (e *Engine) Bandwidth() *metrics.BandwidthHistory { return e.bw }
-func (e *Engine) Flows() *flows.Aggregator        { return e.flowAgg }
-func (e *Engine) DNSCache() *flows.DNSCache       { return e.dnsCache }
-func (e *Engine) ProcMatcher() *flows.ProcMatcher { return e.procMatch }
-func (e *Engine) Tagger() *flows.Tagger           { return e.tagger }
-func (e *Engine) Ring() *capture.RingBuffer       { return e.ring }
+func (e *Engine) Flows() *flows.Aggregator             { return e.flowAgg }
+func (e *Engine) DNSCache() *flows.DNSCache            { return e.dnsCache }
+func (e *Engine) ProcMatcher() *flows.ProcMatcher      { return e.procMatch }
+func (e *Engine) Tagger() *flows.Tagger                { return e.tagger }
+func (e *Engine) Ring() *capture.RingBuffer            { return e.ring }
 func (e *Engine) TCPDump() *capture.TCPDumpManager {
 	if e.tcpdump == nil {
 		e.tcpdump = capture.NewTCPDumpManager(
@@ -143,7 +143,7 @@ func (e *Engine) Start(parent context.Context) error {
 }
 
 // startBandwidthPoller samples kernel interface counters once per second
-// and feeds the BandwidthHistory. Cheap — netlink LinkList + iface byte
+// and feeds the BandwidthHistory. Cheap - netlink LinkList + iface byte
 // counters; the result drives the dashboard's live bandwidth chart.
 func (e *Engine) startBandwidthPoller(ctx context.Context) {
 	if e.netops == nil || e.bw == nil {
@@ -201,7 +201,7 @@ func (e *Engine) startIPFIX(ctx context.Context) {
 func (e *Engine) IPFIX() *ipfix.Manager { return e.ipfixMgr }
 
 // StartCapture spawns the capture multi-iface worker plus its companion
-// loops (flow flusher, /proc refresher, decorator). Idempotent — returns
+// loops (flow flusher, /proc refresher, decorator). Idempotent - returns
 // nil when capture is already running.
 //
 // Pass an empty ifaces slice to use auto-discovery (the default in cfg).
@@ -378,7 +378,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 }
 
 // startCollectorsNonCapture starts the always-on collectors (ICMP, DNS).
-// Capture is intentionally NOT started here — its lifecycle is driven by
+// Capture is intentionally NOT started here - its lifecycle is driven by
 // StartCapture / StopCapture so the TUI can toggle it at runtime.
 func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 	cs := []collectors.Collector{
@@ -415,7 +415,7 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 func (e *Engine) startAnalyzers(ctx context.Context) {
 	// Each analyzer subscribes only to the event kinds it consumes. Without
 	// kind filtering, capture's per-packet stream would wake every analyzer
-	// just to discard the event — pure overhead at scale.
+	// just to discard the event - pure overhead at scale.
 	type analyzerSpec struct {
 		a     analyzers.Analyzer
 		kinds []events.Kind
@@ -471,7 +471,7 @@ func (e *Engine) startIncidentEngine(ctx context.Context) {
 
 // flowFlusherLoop writes the in-memory flow table to SQLite on a fixed
 // cadence. Per-packet writes would crush I/O; periodic upsert preserves
-// replay fidelity at a fraction of the cost. Runs until ctx ends — the
+// replay fidelity at a fraction of the cost. Runs until ctx ends - the
 // caller owns the goroutine lifecycle.
 func (e *Engine) flowFlusherLoop(ctx context.Context) {
 	interval := e.cfg.FlowFlushInterval
@@ -502,7 +502,7 @@ func (e *Engine) flushFlows(ctx context.Context) {
 		_ = e.store.UpsertFlow(ctx, e.sessionID, storage.FlowRow{
 			Iface: f.Key.Iface,
 			AIP:   f.Key.A.IP, APort: f.Key.A.Port,
-			BIP:   f.Key.B.IP, BPort: f.Key.B.Port,
+			BIP: f.Key.B.IP, BPort: f.Key.B.Port,
 			Proto:     sum.Protocol,
 			Packets:   f.Packets,
 			Bytes:     f.Bytes,
@@ -586,7 +586,7 @@ func joinPorts(ports []uint16) string {
 
 // procRefresherLoop repopulates the proc-socket index so DecorateFlows can
 // attach process names without scanning /proc on every render tick. Refresh
-// is *expensive* — it readlinks every fd of every /proc/<pid> — so we run
+// is *expensive* - it readlinks every fd of every /proc/<pid> - so we run
 // it at a slow cadence. Per-render flow correlation reads the cached map
 // under a short RLock and never touches the filesystem.
 func (e *Engine) procRefresherLoop(ctx context.Context) {
@@ -605,7 +605,7 @@ func (e *Engine) procRefresherLoop(ctx context.Context) {
 
 // DecoratedFlows returns a defensively-copied slice of the most-recent flow
 // snapshot with process / DNS / service correlation applied. The result is
-// cached and refreshed on a slow ticker — render code can call this at any
+// cached and refreshed on a slow ticker - render code can call this at any
 // rate without paying for /proc reads or service lookups on the hot path.
 func (e *Engine) DecoratedFlows(limit int) []flows.FlowStats {
 	e.flowsCacheMu.RLock()
@@ -622,7 +622,7 @@ func (e *Engine) DecoratedFlows(limit int) []flows.FlowStats {
 
 // flowDecoratorLoop periodically rebuilds the DecoratedFlows cache from the
 // live aggregator. One decorate per second covers the dashboard and the
-// Flows tab — every TUI render after that reads the cached slice.
+// Flows tab - every TUI render after that reads the cached slice.
 func (e *Engine) flowDecoratorLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -646,7 +646,7 @@ func (e *Engine) flowDecoratorLoop(ctx context.Context) {
 
 // startMetricsAndStorageConsumer subscribes to the metric-bearing event
 // kinds (latency, DNS, packet-loss, anomalies). Flow updates are NOT on
-// this list — capture writes the flow aggregator directly to avoid
+// this list - capture writes the flow aggregator directly to avoid
 // running every packet through the channel fan-out.
 func (e *Engine) startMetricsAndStorageConsumer(ctx context.Context) {
 	sub := e.bus.SubscribeKinds(

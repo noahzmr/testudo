@@ -14,7 +14,7 @@ import (
 // the per-session snapshots table. These rows are what replay reads back to
 // reconstruct subsystem state at any timestamp in the session window.
 //
-// All snapshots are JSON-encoded — the storage layer is schema-agnostic
+// All snapshots are JSON-encoded - the storage layer is schema-agnostic
 // (one column holds whichever subsystem struct).
 func (e *Engine) startSnapshotter(ctx context.Context) {
 	if e.netops == nil {

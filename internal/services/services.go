@@ -1,5 +1,5 @@
 // Package services maps well-known L4 ports to service names. The table is
-// intentionally small and curated — IANA has ~6000 entries, but a TUI
+// intentionally small and curated - IANA has ~6000 entries, but a TUI
 // operator cares about the ~50 protocols that drive 95% of typical traffic.
 // Extend at will; the lookup is O(1).
 package services

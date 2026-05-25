@@ -20,7 +20,9 @@ func (s *Server) handleDeviceScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var b struct{ IP string `json:"ip"` }
+	var b struct {
+		IP string `json:"ip"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -54,7 +56,7 @@ type scanResponse struct {
 // handleConnect builds the launch URL for a host+protocol+port triple and
 // 303-redirects the browser to it. The URL is taken from:
 //
-//  1. GuacamoleTemplate when set — operator-supplied pattern with
+//  1. GuacamoleTemplate when set - operator-supplied pattern with
 //     {host}, {port}, {proto} placeholders, e.g.
 //     `https://guac.example.com/#/client/?host={host}&protocol={proto}&port={port}`
 //  2. Otherwise, native URI scheme:
@@ -63,7 +65,7 @@ type scanResponse struct {
 //     The browser hands these to the system's registered URL handler
 //     (PuTTY / OpenSSH / mstsc / xfreerdp / TightVNC etc.).
 //
-// Either way Testudo acts as the *launchpad* — the user always clicks one
+// Either way Testudo acts as the *launchpad* - the user always clicks one
 // thing in the device row, regardless of how the underlying session is
 // brokered.
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {

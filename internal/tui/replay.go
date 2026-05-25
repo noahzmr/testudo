@@ -164,7 +164,7 @@ func (m ReplayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m ReplayModel) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Testudo — Replay"))
+	b.WriteString(titleStyle.Render("Testudo - Replay"))
 	b.WriteString("\n")
 	b.WriteString(subtitleStyle.Render(fmt.Sprintf("session %s · ↑/↓ scroll · pgup/pgdn · q quit", m.sessionID)))
 	b.WriteString("\n\n")
@@ -188,7 +188,7 @@ func (m ReplayModel) View() string {
 
 func (m ReplayModel) renderSummary() string {
 	var rows []string
-	rows = append(rows, headerStyle.Render("Targets — aggregated stats"))
+	rows = append(rows, headerStyle.Render("Targets - aggregated stats"))
 	rows = append(rows, renderRow("TARGET", "SENT", "LOSS%", "AVG", "P95", "MIN", "MAX"))
 	if m.agg == nil {
 		return strings.Join(rows, "\n")
@@ -203,7 +203,7 @@ func (m ReplayModel) renderSummary() string {
 		))
 	}
 	rows = append(rows, "")
-	rows = append(rows, headerStyle.Render("DNS — aggregated stats"))
+	rows = append(rows, headerStyle.Render("DNS - aggregated stats"))
 	rows = append(rows, renderRow("NAME", "QUERIES", "FAILURES", "AVG"))
 	for _, d := range m.agg.SnapshotDNS() {
 		rows = append(rows, renderRow(
@@ -218,7 +218,7 @@ func (m ReplayModel) renderSummary() string {
 
 func (m ReplayModel) renderFlowsBox() string {
 	var rows []string
-	rows = append(rows, headerStyle.Render(fmt.Sprintf("Flows — %d captured", len(m.flows))))
+	rows = append(rows, headerStyle.Render(fmt.Sprintf("Flows - %d captured", len(m.flows))))
 	if len(m.flows) == 0 {
 		rows = append(rows, subtitleStyle.Render("  (capture was not enabled for this session)"))
 		return strings.Join(rows, "\n")
@@ -249,7 +249,7 @@ func (m ReplayModel) renderFlowsBox() string {
 
 func (m ReplayModel) renderTimeline() string {
 	var rows []string
-	rows = append(rows, headerStyle.Render(fmt.Sprintf("Timeline — %d events", len(m.timeline))))
+	rows = append(rows, headerStyle.Render(fmt.Sprintf("Timeline - %d events", len(m.timeline))))
 	if len(m.timeline) == 0 {
 		rows = append(rows, subtitleStyle.Render("  (no samples recorded)"))
 		return strings.Join(rows, "\n")

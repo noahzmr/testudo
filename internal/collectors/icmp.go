@@ -131,7 +131,7 @@ func listenICMP() (*icmp.PacketConn, string, error) {
 		return c, "udp4", nil
 	}
 	return nil, "", errors.New(
-		"icmp socket unavailable — grant CAP_NET_RAW with `sudo setcap cap_net_raw=+ep ./testudo` " +
+		"icmp socket unavailable - grant CAP_NET_RAW with `sudo setcap cap_net_raw=+ep ./testudo` " +
 			"or enable datagram mode with `sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'`",
 	)
 }

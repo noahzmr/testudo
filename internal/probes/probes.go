@@ -30,11 +30,11 @@ const (
 
 // Request is the input to a probe execution.
 type Request struct {
-	Kind   Kind
-	Target string        // ip/host/cidr depending on kind
-	Port   uint16        // for TCP/UDP
-	Bytes  int           // for throughput (target bytes to transfer)
-	Hops   int           // for traceroute (max hops)
+	Kind    Kind
+	Target  string        // ip/host/cidr depending on kind
+	Port    uint16        // for TCP/UDP
+	Bytes   int           // for throughput (target bytes to transfer)
+	Hops    int           // for traceroute (max hops)
 	Timeout time.Duration // per-attempt deadline; 0 = sensible default
 }
 
@@ -42,13 +42,13 @@ type Request struct {
 // useful metric for most probes; Detail carries human-readable extras
 // (route hops, throughput Mbps, error message, …).
 type Result struct {
-	Kind     Kind
-	OK       bool
-	Latency  time.Duration
-	Detail   string
-	Mbps     float64
-	Hops     []TraceHop
-	Err      string
+	Kind    Kind
+	OK      bool
+	Latency time.Duration
+	Detail  string
+	Mbps    float64
+	Hops    []TraceHop
+	Err     string
 }
 
 // TraceHop is one entry in a traceroute result.
@@ -59,7 +59,7 @@ type TraceHop struct {
 }
 
 // Run executes the probe described by r and returns the result. Returns
-// nil only on programmer error — operational failures live inside Result.
+// nil only on programmer error - operational failures live inside Result.
 //
 // Panics inside an individual probe are caught and surfaced as a normal
 // Result with Err set. This is a deliberate isolation: a probe runs from
@@ -122,7 +122,7 @@ func runICMP(ctx context.Context, r Request) *Result {
 		return res
 	}
 	var dst net.Addr = &net.IPAddr{IP: addr.IP}
-	// Try as UDP4 too in case raw is unavailable — we don't actually know
+	// Try as UDP4 too in case raw is unavailable - we don't actually know
 	// which mode ListenPacket gave us. We'll just try and switch on error.
 	start := time.Now()
 	if _, err := conn.WriteTo(b, dst); err != nil {
@@ -161,7 +161,7 @@ func runTCP(ctx context.Context, r Request) *Result {
 	return res
 }
 
-// runUDP doesn't tell us if the *service* is up — UDP has no handshake —
+// runUDP doesn't tell us if the *service* is up - UDP has no handshake -
 // but it does tell us the path works and the kernel didn't return ICMP
 // port-unreachable inside Timeout.
 func runUDP(ctx context.Context, r Request) *Result {
@@ -182,7 +182,7 @@ func runUDP(ctx context.Context, r Request) *Result {
 	// Best-effort: try to read a response, but treat no-response as OK.
 	buf := make([]byte, 1500)
 	if _, err := conn.Read(buf); err != nil {
-		// No response is normal for UDP — most servers don't reply to garbage.
+		// No response is normal for UDP - most servers don't reply to garbage.
 		res.OK = true
 		res.Latency = time.Since(start)
 		res.Detail = "udp write succeeded; no response (typical)"
@@ -222,7 +222,7 @@ func runDNS(ctx context.Context, r Request) *Result {
 //     → fall back to the Cloudflare speedtest endpoint
 //
 // The third case matters because the TUI shares a single `target` field
-// across all probe kinds, defaulting to "1.1.1.1" — which makes sense for
+// across all probe kinds, defaulting to "1.1.1.1" - which makes sense for
 // ICMP but is useless for an HTTP throughput test. Without this fallback
 // the probe failed with `unsupported protocol scheme ""`.
 func runThroughput(ctx context.Context, r Request) *Result {
@@ -290,7 +290,7 @@ func pickThroughputURL(target, fallback string, bytes int) string {
 	if net.ParseIP(t) != nil {
 		return fallback
 	}
-	// Hostname — assume the user typed e.g. "speed.cloudflare.com" and
+	// Hostname - assume the user typed e.g. "speed.cloudflare.com" and
 	// wants to hit the conventional path. Falls back if the host doesn't
 	// actually serve /__down, which is fine: the user can paste a full URL.
 	return fmt.Sprintf("https://%s/__down?bytes=%d", t, bytes)
@@ -310,11 +310,11 @@ func pickThroughputURL(target, fallback string, bytes int) string {
 //   - One defer Close, not two. The icmp.PacketConn and its inner
 //     ipv4.PacketConn share the same fd; closing it twice is not portable.
 //
-//   - peer is always *net.IPAddr for an `ip4:icmp` listener — its String()
+//   - peer is always *net.IPAddr for an `ip4:icmp` listener - its String()
 //     returns just the IP. The old stripPort() helper would chop IPv6
 //     addresses at the last colon. Use peer.String() directly.
 //
-//   - r.Timeout is a per-probe budget (default 3s) — using it as the
+//   - r.Timeout is a per-probe budget (default 3s) - using it as the
 //     per-hop read deadline meant a non-responsive hop wasted 3s and 16
 //     hops × 3s = 48s, longer than the TUI's outer 25s context. We use a
 //     much tighter 800ms per hop and honor ctx.Done() between hops.

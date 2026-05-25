@@ -12,23 +12,23 @@ import (
 // snapshot is the JSON shape consumed by the SPA. Keep field names stable;
 // the JS reads them by name.
 type snapshot struct {
-	Session    string             `json:"session"`
-	Uptime     string             `json:"uptime"`
-	Grade      gradeView          `json:"grade"`
-	Capture    captureView        `json:"capture"`
-	Targets    []targetView       `json:"targets"`
-	DNS        []dnsView          `json:"dns"`
-	Flows      []flowView         `json:"flows"`
-	Devices    []deviceView       `json:"devices"`
-	Ifaces     []ifaceView        `json:"ifaces"`
-	Routes     []routeView        `json:"routes"`
-	Firewall   []firewallTable    `json:"firewall"`
-	FilterRules []filterRuleView  `json:"filter_rules"`
-	NAT        []natView          `json:"nat"`
-	Anomalies  []anomalyView      `json:"anomalies"`
-	Thresholds thresholdsView     `json:"thresholds"`
-	TCPDump    []tcpdumpView      `json:"tcpdump"`
-	IPFIX      ipfixView          `json:"ipfix"`
+	Session       string               `json:"session"`
+	Uptime        string               `json:"uptime"`
+	Grade         gradeView            `json:"grade"`
+	Capture       captureView          `json:"capture"`
+	Targets       []targetView         `json:"targets"`
+	DNS           []dnsView            `json:"dns"`
+	Flows         []flowView           `json:"flows"`
+	Devices       []deviceView         `json:"devices"`
+	Ifaces        []ifaceView          `json:"ifaces"`
+	Routes        []routeView          `json:"routes"`
+	Firewall      []firewallTable      `json:"firewall"`
+	FilterRules   []filterRuleView     `json:"filter_rules"`
+	NAT           []natView            `json:"nat"`
+	Anomalies     []anomalyView        `json:"anomalies"`
+	Thresholds    thresholdsView       `json:"thresholds"`
+	TCPDump       []tcpdumpView        `json:"tcpdump"`
+	IPFIX         ipfixView            `json:"ipfix"`
 	LatencySeries map[string][]float64 `json:"latency_series"`
 	DNSSeries     map[string][]float64 `json:"dns_series"`
 	Bandwidth     []bandwidthView      `json:"bandwidth"`
@@ -92,13 +92,13 @@ type deviceView struct {
 	OpenPorts  []uint16 `json:"open_ports"`
 	Protocols  []string `json:"protocols"`
 
-	SysName     string   `json:"sys_name,omitempty"`
-	SysDescr    string   `json:"sys_descr,omitempty"`
-	SysObjectID string   `json:"sys_object_id,omitempty"`
-	SysContact  string   `json:"sys_contact,omitempty"`
-	SysLocation string   `json:"sys_location,omitempty"`
-	SysUptime   string   `json:"sys_uptime,omitempty"`
-	IfCount     int      `json:"if_count,omitempty"`
+	SysName     string `json:"sys_name,omitempty"`
+	SysDescr    string `json:"sys_descr,omitempty"`
+	SysObjectID string `json:"sys_object_id,omitempty"`
+	SysContact  string `json:"sys_contact,omitempty"`
+	SysLocation string `json:"sys_location,omitempty"`
+	SysUptime   string `json:"sys_uptime,omitempty"`
+	IfCount     int    `json:"if_count,omitempty"`
 
 	LLDPChassisID    string   `json:"lldp_chassis_id,omitempty"`
 	LLDPPortID       string   `json:"lldp_port_id,omitempty"`
@@ -109,13 +109,13 @@ type deviceView struct {
 }
 
 type ifaceView struct {
-	Name     string   `json:"name"`
-	Up       bool     `json:"up"`
-	MTU      int      `json:"mtu"`
-	HW       string   `json:"hw"`
-	Addrs    []string `json:"addrs"`
-	RxBytes  uint64   `json:"rx_bytes"`
-	TxBytes  uint64   `json:"tx_bytes"`
+	Name    string   `json:"name"`
+	Up      bool     `json:"up"`
+	MTU     int      `json:"mtu"`
+	HW      string   `json:"hw"`
+	Addrs   []string `json:"addrs"`
+	RxBytes uint64   `json:"rx_bytes"`
+	TxBytes uint64   `json:"tx_bytes"`
 }
 
 type routeView struct {
@@ -128,8 +128,8 @@ type routeView struct {
 }
 
 type firewallTable struct {
-	Family string `json:"family"`
-	Name   string `json:"name"`
+	Family string          `json:"family"`
+	Name   string          `json:"name"`
 	Chains []firewallChain `json:"chains"`
 }
 
@@ -196,17 +196,17 @@ type tcpdumpView struct {
 }
 
 type ipfixView struct {
-	Enabled  bool   `json:"enabled"`
-	Endpoint string `json:"endpoint"`
-	IntervalSec int  `json:"interval_sec"`
-	LastSend string `json:"last_send"`
-	LastErr  string `json:"last_err"`
-	Dialed   bool   `json:"dialed"`
+	Enabled     bool   `json:"enabled"`
+	Endpoint    string `json:"endpoint"`
+	IntervalSec int    `json:"interval_sec"`
+	LastSend    string `json:"last_send"`
+	LastErr     string `json:"last_err"`
+	Dialed      bool   `json:"dialed"`
 }
 
 type bandwidthView struct {
 	Iface     string    `json:"iface"`
-	Rx        []float64 `json:"rx"`         // bytes/sec, oldest → newest
+	Rx        []float64 `json:"rx"` // bytes/sec, oldest → newest
 	Tx        []float64 `json:"tx"`
 	CurrentRx float64   `json:"current_rx"`
 	CurrentTx float64   `json:"current_tx"`
@@ -249,8 +249,8 @@ func (s *Server) buildSnapshot() snapshot {
 	cfg := eng.Config()
 
 	snap := snapshot{
-		Session: eng.SessionID(),
-		Uptime:  time.Since(startedAt).Truncate(time.Second).String(),
+		Session:       eng.SessionID(),
+		Uptime:        time.Since(startedAt).Truncate(time.Second).String(),
 		LatencySeries: map[string][]float64{},
 		DNSSeries:     map[string][]float64{},
 	}
@@ -266,7 +266,7 @@ func (s *Server) buildSnapshot() snapshot {
 			LossPct:   t.LossPct,
 			JitterMs:  t.JitterMs,
 		})
-		// Per-target rolling sample series — front end renders these as
+		// Per-target rolling sample series - front end renders these as
 		// sparklines so the dashboard mirrors the TUI.
 		samples := eng.Aggregator().LatencySamples(t.Target)
 		if len(samples) > 0 {
@@ -281,7 +281,7 @@ func (s *Server) buildSnapshot() snapshot {
 	for _, d := range dnsList {
 		snap.DNS = append(snap.DNS, dnsView{
 			Name: d.Name, LastUs: d.LastLatency.Microseconds(),
-			AvgUs: d.AvgLatency.Microseconds(),
+			AvgUs:   d.AvgLatency.Microseconds(),
 			Queries: d.Queries, Failures: d.Failures,
 		})
 		samples := eng.Aggregator().DNSSamples(d.Name)
@@ -294,7 +294,7 @@ func (s *Server) buildSnapshot() snapshot {
 		}
 	}
 
-	// Network quality grade — same algorithm the TUI uses, exposed as JSON
+	// Network quality grade - same algorithm the TUI uses, exposed as JSON
 	// so the front end doesn't need to duplicate the scoring logic.
 	th := cfg.Thresholds
 	if eng.Settings() != nil {
@@ -318,7 +318,7 @@ func (s *Server) buildSnapshot() snapshot {
 		})
 	}
 
-	// Devices from inventory — enriched with the connection-protocol
+	// Devices from inventory - enriched with the connection-protocol
 	// classification (SSH / RDP / VNC / HTTP / HTTPS / Telnet) so the web
 	// UI can render one-click "Connect via …" buttons per row.
 	if inv := eng.Inventory(); inv != nil {
@@ -350,7 +350,7 @@ func (s *Server) buildSnapshot() snapshot {
 		}
 	}
 
-	// netops snapshots — silently empty when netops unavailable.
+	// netops snapshots - silently empty when netops unavailable.
 	if nw := eng.Netops(); nw != nil {
 		if ifs, err := nw.ListIfaces(); err == nil {
 			for _, i := range ifs {
@@ -407,7 +407,7 @@ func (s *Server) buildSnapshot() snapshot {
 				OutputPath: j.OutputPath, Name: j.Name, State: j.State,
 				StartedAt: j.StartedAt.Format(time.RFC3339),
 				EndedAt:   ifEndedAt(j),
-				Bytes: j.Bytes, ExitErr: j.ExitErr,
+				Bytes:     j.Bytes, ExitErr: j.ExitErr,
 			})
 		}
 	}
@@ -416,9 +416,9 @@ func (s *Server) buildSnapshot() snapshot {
 	if bw := eng.Bandwidth(); bw != nil {
 		for _, s := range bw.Snapshot() {
 			snap.Bandwidth = append(snap.Bandwidth, bandwidthView{
-				Iface: s.Iface,
-				Rx: append([]float64(nil), s.RxBytesPerS...),
-				Tx: append([]float64(nil), s.TxBytesPerS...),
+				Iface:     s.Iface,
+				Rx:        append([]float64(nil), s.RxBytesPerS...),
+				Tx:        append([]float64(nil), s.TxBytesPerS...),
 				CurrentRx: s.CurrentRx, CurrentTx: s.CurrentTx,
 				PeakRx: s.PeakRx, PeakTx: s.PeakTx,
 				CumRx: s.CumRx, CumTx: s.CumTx,
@@ -453,14 +453,14 @@ func (s *Server) buildSnapshot() snapshot {
 		snap.IPFIX = ipfixView{
 			Enabled: st.Enabled, Endpoint: st.Endpoint,
 			IntervalSec: int(st.Interval / time.Second),
-			LastErr: st.LastErr, Dialed: st.Dialed,
+			LastErr:     st.LastErr, Dialed: st.Dialed,
 		}
 		if !st.LastSend.IsZero() {
 			snap.IPFIX.LastSend = st.LastSend.Format(time.RFC3339)
 		}
 	}
 
-	// Anomalies — recent in-DB tail for this session.
+	// Anomalies - recent in-DB tail for this session.
 	if rows, err := s.Engine.Store().AnomaliesBySession(context.Background(), eng.SessionID()); err == nil {
 		for _, a := range rows {
 			snap.Anomalies = append(snap.Anomalies, anomalyView{

@@ -1,5 +1,5 @@
 ================================================================================
-                            TESTUDO — NOTICE
+                            TESTUDO - NOTICE
 ================================================================================
 
 Project:    Testudo
@@ -10,7 +10,7 @@ Updated:    2026-05-24
 
 This product includes software developed by Noah Zeumer and the Testudo
 contributors. The source code is licensed under the Mozilla Public
-License, Version 2.0 — see the LICENSE file for full terms.
+License, Version 2.0 - see the LICENSE file for full terms.
 
 This NOTICE file documents additional branding terms that apply
 alongside the source-code license. The two are deliberately separate:
@@ -55,13 +55,13 @@ elements. They are licensed only on the terms set out in this NOTICE.
 You are free, without separate permission, to:
 
   (a) fork the repository and retain the Testudo name and banner so
-      long as the fork remains a fork — meaning it tracks the upstream
+      long as the fork remains a fork - meaning it tracks the upstream
       project, reasonably acknowledges that relationship, and presents
       itself as a derivative of Testudo rather than a new product;
 
-  (b) reference the name "Testudo" in factual, descriptive contexts —
+  (b) reference the name "Testudo" in factual, descriptive contexts -
       documentation, blog posts, comparison tables, talks, academic
-      work, or compatibility statements — without prior approval;
+      work, or compatibility statements - without prior approval;
 
   (c) distribute unmodified or minimally modified builds of Testudo
       under the original name, provided this NOTICE file accompanies
@@ -119,7 +119,7 @@ name (as Section 3(a) requires), you must:
   (e) remove the Testudo ASCII banner and replace it with your own
       identity;
   (f) retain a short factual notice such as "Derived from Testudo by
-      Noah Zeumer — https://github.com/noahzmr/testudo" in your project's
+      Noah Zeumer - https://github.com/noahzmr/testudo" in your project's
       documentation, README, or about screen;
   (g) retain the copyright headers from any Testudo source files you
       reuse, as MPL-2.0 requires.
@@ -197,7 +197,7 @@ convenience and subordinate to the binding text above:
   some other thing's identity, and don't claim you wrote it.
 
   If you change it enough that it isn't Testudo anymore, give it a
-  different name — and the code itself stays MPL-2.0 either way.
+  different name - and the code itself stays MPL-2.0 either way.
 
 --------------------------------------------------------------------------------
 9. CONTACT

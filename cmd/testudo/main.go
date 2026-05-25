@@ -1,4 +1,4 @@
-// Testudo — terminal-native network quality observatory.
+// Testudo - terminal-native network quality observatory.
 //
 // Subcommands:
 //
@@ -89,7 +89,7 @@ func usage() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  live              start live capture + TUI (default)")
-	fmt.Println("  web               start the HTTP UI (no TUI) — see flags with `web --help`")
+	fmt.Println("  web               start the HTTP UI (no TUI) - see flags with `web --help`")
 	fmt.Println("  sessions          interactive session browser")
 	fmt.Println("  replay <id>       open a past session in the replay TUI")
 	fmt.Println("  ifaces            list capturable interfaces")
@@ -208,7 +208,7 @@ func cmdSessions(args []string) error {
 	if picked == "" {
 		return nil
 	}
-	// User chose a session — chain into the replay TUI.
+	// User chose a session - chain into the replay TUI.
 	return tui.RunReplay(ctx, tui.NewReplay(store, picked))
 }
 
@@ -220,7 +220,7 @@ func cmdReplay(args []string) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return fmt.Errorf("replay requires a session ID — run `testudo sessions` to browse them")
+		return fmt.Errorf("replay requires a session ID - run `testudo sessions` to browse them")
 	}
 	sessionID := fs.Arg(0)
 	cfg.SQLitePath = *dbPath

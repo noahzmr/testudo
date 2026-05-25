@@ -19,7 +19,7 @@ import (
 )
 
 // cmdUser handles `testudo user passwd` and `testudo user list`.
-// Password input is read from a terminal prompt (no echo support yet —
+// Password input is read from a terminal prompt (no echo support yet -
 // echo-suppress on TTYs requires golang.org/x/term, which we'd rather not
 // pull in for a one-shot. The user can pipe via stdin.)
 func cmdUser(args []string) error {
@@ -97,7 +97,7 @@ func cmdWeb(args []string) error {
 	if pw, err := users.Bootstrap("testudo"); err != nil {
 		return err
 	} else if pw != "" {
-		fmt.Fprintf(os.Stderr, "⚠ first run — created default user 'testudo' with password: %s\n", pw)
+		fmt.Fprintf(os.Stderr, "⚠ first run - created default user 'testudo' with password: %s\n", pw)
 		fmt.Fprintln(os.Stderr, "  rotate with: testudo user passwd")
 	}
 
@@ -129,7 +129,7 @@ func cmdWeb(args []string) error {
 // --lldp also listens for LLDP frames for the duration of --wait.
 func cmdDiscover(args []string) error {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
-	active := fs.Bool("active", false, "run active probes (ARP sweep, ICMP, mDNS, SNMP) — needs CAP_NET_RAW")
+	active := fs.Bool("active", false, "run active probes (ARP sweep, ICMP, mDNS, SNMP) - needs CAP_NET_RAW")
 	lldp := fs.Bool("lldp", true, "listen for LLDP frames from directly-connected neighbours")
 	community := fs.String("snmp-community", "public", "SNMPv2c read community (empty disables SNMP)")
 	wait := fs.Duration("wait", 6*time.Second, "wait for scans / LLDP listening to complete")
@@ -244,7 +244,7 @@ func firstNonEmpty(a, b string) string {
 
 func dashIfEmpty(s string) string {
 	if s == "" {
-		return "—"
+		return "-"
 	}
 	return s
 }

@@ -9,7 +9,7 @@ import (
 
 // ResolvConfPath is the canonical resolver config. On systemd-resolved
 // systems this is a symlink to /run/systemd/resolve/stub-resolv.conf, in
-// which case writes won't behave the way operators expect — we leave the
+// which case writes won't behave the way operators expect - we leave the
 // detection to the caller.
 const ResolvConfPath = "/etc/resolv.conf"
 
@@ -38,7 +38,7 @@ func (w *Writer) ListDNSServers() ([]string, error) {
 // SetDNSServers rewrites /etc/resolv.conf with the supplied list. Preserves
 // any `search`/`domain`/`options` lines that were already present.
 // Caveat: on systemd-resolved systems, /etc/resolv.conf is a symlink to a
-// stub — writes either fail (read-only) or are clobbered moments later.
+// stub - writes either fail (read-only) or are clobbered moments later.
 // Caller is expected to surface that error to the operator.
 func (w *Writer) SetDNSServers(servers []string) error {
 	if !w.AllowWrites {

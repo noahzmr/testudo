@@ -16,7 +16,7 @@ import (
 )
 
 // FilterSpec is the structured form a BPF expression. Every field is
-// optional — empty fields are skipped. Build() renders the canonical
+// optional - empty fields are skipped. Build() renders the canonical
 // "<clause> and <clause> ..." string accepted by tcpdump and libpcap.
 type FilterSpec struct {
 	Proto     string // "tcp" / "udp" / "icmp" / "" (any)
@@ -52,7 +52,7 @@ func (f FilterSpec) Build() string {
 	return strings.Join(parts, " and ")
 }
 
-// TCPDumpJob is the public snapshot of one capture — running or completed.
+// TCPDumpJob is the public snapshot of one capture - running or completed.
 // Safe to copy.
 type TCPDumpJob struct {
 	ID         string
@@ -75,7 +75,7 @@ type runningJob struct {
 }
 
 // TCPDumpManager orchestrates tcpdump subprocesses. Safe for concurrent use.
-// Each TCPDump session is a child process — Testudo doesn't link libpcap, it
+// Each TCPDump session is a child process - Testudo doesn't link libpcap, it
 // drives the standard tcpdump binary. That keeps us portable, capability-
 // agnostic, and lets operators reuse the resulting .pcap with any tool.
 type TCPDumpManager struct {
@@ -107,7 +107,7 @@ func TCPDumpAvailable() bool {
 func (m *TCPDumpManager) Start(iface, name, filter string, maxSizeMB int, duration time.Duration) (TCPDumpJob, error) {
 	if !TCPDumpAvailable() {
 		return TCPDumpJob{}, errors.New(
-			"tcpdump not on PATH — install it (apt install tcpdump) or run testudo as a user that can see it")
+			"tcpdump not on PATH - install it (apt install tcpdump) or run testudo as a user that can see it")
 	}
 	if strings.TrimSpace(iface) == "" {
 		return TCPDumpJob{}, errors.New("interface required")
@@ -220,7 +220,7 @@ func (m *TCPDumpManager) Stop(id string) error {
 }
 
 // List returns a chronological snapshot: history first (oldest→newest),
-// then currently-running jobs. Each entry is a value copy — safe to render
+// then currently-running jobs. Each entry is a value copy - safe to render
 // without locking.
 func (m *TCPDumpManager) List() []TCPDumpJob {
 	m.mu.Lock()
