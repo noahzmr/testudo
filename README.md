@@ -272,7 +272,7 @@ A layered probe pipeline runs alongside discovery and capture so latency, loss, 
 ### Interface & Wireless Health
 
 - **Per-interface stability** - polls every non-loopback interface every 5 s, emits anomalies on UP/RUNNING transitions, growing `Rx/TxErrors`, growing `Rx/TxDropped`, and collision growth.
-- **WiFi signal & retries** - reads `/proc/net/wireless` and cross-references `/sys/class/net/*/wireless` (kernel-canonical wireless flag) so unassociated radios still surface as "unassoc" rather than silently disappearing.
+- **WiFi monitoring (nl80211 native)** - talks nl80211 over netlink directly via `github.com/mdlayher/wifi`, so the collector works on every modern driver without the `iw` userspace package and without root on most distros. Surfaces per-radio **SSID**, **BSSID**, **channel + frequency + width** (incl. 6 GHz Wi-Fi 6E), **band**, **TX/RX bitrate** (Mbit/s), **signal + signal average + noise floor + SNR**, **TX power**, **link quality**, station-level **RX/TX bytes/packets**, **retries**, **TX failures**, **beacon loss**, and **connected-since**. The `iw` shell-out and `/proc/net/wireless` remain as automatic fallbacks for unusual drivers, with the source labelled inline ("nl80211" / "iw" / "proc") so the operator knows which backend filled each card. Anomalies fire on low signal, lost association, growing retries, growing TX failures, and growing beacon loss. Unassociated radios still appear in the iface table so they don't silently disappear.
 - **L2 monitor** - per-interface multicast/broadcast burst detection (catches ARP storms, runaway mDNS) and ARP-table churn (IP→MAC reassignment surfaces IP conflicts or rogue devices).
 
 ### Per-Device LAN Analytics
@@ -760,7 +760,7 @@ Testudo ships with intelligent defaults. Every threshold is live-tunable from th
 | `BufferbloatDuration`         | 10 s         | Length of the loaded phase                                                                 |
 | `IfaceHealthEnabled`          | true         | Per-interface error / drop / link-state monitor                                            |
 | `IfaceHealthInterval`         | 5 s          | Poll cadence                                                                               |
-| `WiFiEnabled`                 | true         | Per-WiFi-interface signal / retries                                                        |
+| `WiFiEnabled`                 | true         | Per-radio WiFi snapshot via nl80211 (SSID/BSSID/channel/bitrate/station counters)          |
 | `WiFiInterval`                | 10 s         | Poll cadence                                                                               |
 | `WiFiMinSignal`               | -75 dBm      | "Weak signal" anomaly threshold                                                            |
 | `L2Enabled`                   | true         | Multicast/broadcast burst detection + ARP-table churn                                      |
