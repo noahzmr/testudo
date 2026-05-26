@@ -18,7 +18,7 @@ import (
 //
 // All three update on every dashboard tick; cursor selects the section
 // (hosts / processes / services) so the user can flip between them with
-// ←/→ without leaving the tab.
+// ←/=> without leaving the tab.
 type talkersTab struct {
 	eng     *engine.Engine
 	rows    []flows.FlowStats
@@ -32,7 +32,7 @@ func (t *talkersTab) ShortKey() string { return "" } // accessed via `:talk`; nu
 func (t *talkersTab) Init() tea.Cmd    { return nil }
 func (t *talkersTab) HelpHints() []KeyHint {
 	return []KeyHint{
-		{Key: "←/→ · h/l", Desc: "switch between hosts / processes / services"},
+		{Key: "←/=> · h/l", Desc: "switch between hosts / processes / services"},
 		{Key: "1 · 2 · 3", Desc: "jump directly to a section"},
 	}
 }
@@ -77,7 +77,7 @@ func (t *talkersTab) View(w, h int) string {
 		sectionLabel("Processes", len(procs), procsActive),
 		sectionLabel("Services", len(svcs), svcsActive),
 	}
-	b.WriteString(headerStyle.Render("Top talkers - ←/→ switch · 1 hosts · 2 processes · 3 services"))
+	b.WriteString(headerStyle.Render("Top talkers - ←/=> switch · 1 hosts · 2 processes · 3 services"))
 	b.WriteString("\n  ")
 	b.WriteString(strings.Join(hdr, "    "))
 	b.WriteString("\n\n")
@@ -103,7 +103,7 @@ func sectionLabel(name string, count int, active bool) string {
 
 func renderTopHosts(rows []flows.HostRollup) string {
 	if len(rows) == 0 {
-		return subtitleStyle.Render("  no flows yet - start capture (Flows tab → 's')")
+		return subtitleStyle.Render("  no flows yet - start capture (Flows tab => 's')")
 	}
 	widths := []int{4, 30, 8, 12, 10, 8}
 	out := []string{"  " + renderRowWidths(widths,

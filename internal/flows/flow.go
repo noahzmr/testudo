@@ -53,7 +53,7 @@ type FlowStats struct {
 	// Cross-subsystem correlation tags populated by the engine's correlator.
 	// Empty when the relevant subsystem hasn't observed this flow.
 	FirewallChain string // e.g. "INPUT/ACCEPT" or "FORWARD/DROP"
-	NATMapping    string // e.g. "DNAT 192.168.1.10:443 → 10.0.0.5:443"
+	NATMapping    string // e.g. "DNAT 192.168.1.10:443 => 10.0.0.5:443"
 	RouteVia      string // e.g. "10.0.0.1 dev eth0"
 }
 

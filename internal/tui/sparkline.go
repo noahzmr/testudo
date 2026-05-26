@@ -116,8 +116,8 @@ func barChart(labels []string, values []float64, width int) string {
 	return b.String()
 }
 
-// heatmapShades is the ramp used by the packet-loss heatmap: light → dark
-// as loss climbs from 0% → 100%. Picked from Unicode shading blocks so the
+// heatmapShades is the ramp used by the packet-loss heatmap: light => dark
+// as loss climbs from 0% => 100%. Picked from Unicode shading blocks so the
 // glyphs line up with sparkline().
 var heatmapShades = []rune{' ', '░', '▒', '▓', '█'}
 

@@ -76,11 +76,11 @@ func ComputeGrade(targets []metrics.TargetStats, dns []metrics.DNSStats, th conf
 	}
 }
 
-// scoreFromMetric maps a measurement → 0..100 where:
+// scoreFromMetric maps a measurement => 0..100 where:
 //
-//	value = 0          → 100 (perfect)
-//	value = threshold  → 50  (operator comfort line)
-//	value ≥ 2×threshold → 0  (worst case for the score)
+//	value = 0          => 100 (perfect)
+//	value = threshold  => 50  (operator comfort line)
+//	value ≥ 2×threshold => 0  (worst case for the score)
 //
 // Returns a neutral 100 when no data has been collected yet so the dashboard
 // doesn't open red on first paint.

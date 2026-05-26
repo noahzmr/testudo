@@ -21,7 +21,7 @@ const (
 	ProtoHTTPS  ConnectionProto = "https"
 )
 
-// ServicePortMap is the curated map of ports → connection protocols. Used
+// ServicePortMap is the curated map of ports => connection protocols. Used
 // by the scan-and-connect feature to suggest "click here to SSH / RDP / …"
 // from any device row. Ports outside this map are still tracked as open but
 // don't get a one-click action.

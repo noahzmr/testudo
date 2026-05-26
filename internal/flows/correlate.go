@@ -23,7 +23,7 @@ type DNSCache struct {
 
 func NewDNSCache() *DNSCache { return &DNSCache{ips: make(map[string]string)} }
 
-// Record adds (name → resolved IP) mappings. We index by IP because that's
+// Record adds (name => resolved IP) mappings. We index by IP because that's
 // what a packet carries.
 func (c *DNSCache) Record(name string, ips []string) {
 	c.mu.Lock()
@@ -48,7 +48,7 @@ func (c *DNSCache) Lookup(ip string) string {
 }
 
 // ProcMatcher reads /proc/net/{tcp,tcp6,udp,udp6} and /proc/*/fd to map
-// (proto, local-ip, local-port) → process name. Refresh() is cheap enough
+// (proto, local-ip, local-port) => process name. Refresh() is cheap enough
 // to call once per render tick; the cost is bounded by the number of
 // established sockets, not by total processes.
 type ProcMatcher struct {
@@ -129,7 +129,7 @@ func Decorate(stats []FlowStats, dns *DNSCache, proc *ProcMatcher) []FlowStats {
 // untagged - empty strings - so callers can distinguish "no data" from "no
 // match".
 type Tagger struct {
-	// FirewallByFlow maps a canonical "proto|srcIP:srcPort→dstIP:dstPort"
+	// FirewallByFlow maps a canonical "proto|srcIP:srcPort=>dstIP:dstPort"
 	// key to a chain/verdict label, e.g. "INPUT/ACCEPT".
 	FirewallByFlow map[string]string
 	// NATByEndpoint maps a "proto|ip:port" key to a NAT mapping label.
@@ -157,7 +157,7 @@ func (t *Tagger) Tag(stats []FlowStats) []FlowStats {
 	out := make([]FlowStats, len(stats))
 	for i, f := range stats {
 		out[i] = f
-		key := f.Key.Proto + "|" + f.Key.A.String() + "→" + f.Key.B.String()
+		key := f.Key.Proto + "|" + f.Key.A.String() + "=>" + f.Key.B.String()
 		if v := t.FirewallByFlow[key]; v != "" {
 			out[i].FirewallChain = v
 		}

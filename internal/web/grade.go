@@ -35,7 +35,7 @@ func computeGradeView(targets []metrics.TargetStats, dns []metrics.DNSStats, th 
 	}
 }
 
-// subScore maps a measurement → 0..100 against a comfort threshold.
+// subScore maps a measurement => 0..100 against a comfort threshold.
 // See tui/grade.go for the same logic.
 func subScore(value, threshold float64) int {
 	if threshold <= 0 {

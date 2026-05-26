@@ -223,7 +223,7 @@ func (m ReplayModel) renderFlowsBox() string {
 		rows = append(rows, subtitleStyle.Render("  (capture was not enabled for this session)"))
 		return strings.Join(rows, "\n")
 	}
-	rows = append(rows, renderRow("PROTO", "A", "B", "PKTS", "BYTES", "A→B", "B→A"))
+	rows = append(rows, renderRow("PROTO", "A", "B", "PKTS", "BYTES", "A=>B", "B=>A"))
 	limit := 8
 	if len(m.flows) < limit {
 		limit = len(m.flows)

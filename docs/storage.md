@@ -3,12 +3,12 @@
 Testudo deliberately avoids permanently storing every packet. Four layers
 trade off retention against fidelity.
 
-| Layer | Medium | Capacity | Retention | Implemented in |
-|---|---|---|---|---|
-| 1. Ring buffer | RAM | bounded by capacity | seconds | `internal/capture/ringbuffer.go` |
-| 2. Flow aggregation | RAM | `maxKeep` flows (LRU) | minutes | `internal/flows/flow.go` |
-| 3. Metrics | SQLite | rolling time series | days–weeks | `internal/storage/sqlite.go` |
-| 4. Selective PCAP | filesystem | per-incident files | incident-scoped | `internal/capture/` |
+| Layer               | Medium     | Capacity              | Retention       | Implemented in                   |
+| ------------------- | ---------- | --------------------- | --------------- | -------------------------------- |
+| 1. Ring buffer      | RAM        | bounded by capacity   | seconds         | `internal/capture/ringbuffer.go` |
+| 2. Flow aggregation | RAM        | `maxKeep` flows (LRU) | minutes         | `internal/flows/flow.go`         |
+| 3. Metrics          | SQLite     | rolling time series   | days–weeks      | `internal/storage/sqlite.go`     |
+| 4. Selective PCAP   | filesystem | per-incident files    | incident-scoped | `internal/capture/`              |
 
 ## Layer 1 - Ring buffer
 

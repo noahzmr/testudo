@@ -191,7 +191,7 @@ func (t *dashboardTab) View(w, h int) string {
 	rows = append(rows, renderRowWidths([]int{8, 10, 24, 24, 10, 12},
 		"PROTO", "IFACE", "A", "B", "PKTS", "BYTES"))
 	if len(t.flows) == 0 {
-		rows = append(rows, subtitleStyle.Render("  enable capture (Flows tab → 's') to populate flow data"))
+		rows = append(rows, subtitleStyle.Render("  enable capture (Flows tab => 's') to populate flow data"))
 	} else {
 		for _, f := range t.flows {
 			label := f.Key.B.String()
@@ -353,7 +353,7 @@ func (t *flowsTab) visibleCount() int {
 }
 func (t *flowsTab) View(w, h int) string {
 	widths := []int{6, 10, 18, 26, 8, 10, 14, 16, 10}
-	headers := []string{"PROTO", "IFACE", "PROCESS", "A → B", "PKTS", "BYTES", "DNS", "AGE", "BYTE A→B"}
+	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "PKTS", "BYTES", "DNS", "AGE", "BYTE A=>B"}
 	// Apply filter once per render.
 	visible := t.rows
 	if t.filter != "" {
@@ -405,7 +405,7 @@ func (t *flowsTab) View(w, h int) string {
 	}
 	for i, f := range visible {
 		age := time.Since(f.LastSeen).Truncate(100 * time.Millisecond)
-		ab := f.Key.A.String() + " → " + f.Key.B.String()
+		ab := f.Key.A.String() + " => " + f.Key.B.String()
 		dns := f.DNSName
 		if dns == "" {
 			dns = "-"
@@ -1167,10 +1167,10 @@ func (t *natTab) View(w, h int) string {
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 	widths := []int{6, 8, 8, 18, 8}
-	rows = append(rows, renderRowWidths(widths, "PROTO", "WAN", "→", "LAN IP", "LAN PORT"))
+	rows = append(rows, renderRowWidths(widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT"))
 	for i, pf := range t.forwards {
 		row := renderRowWidths(widths,
-			strings.ToUpper(pf.Proto), fmt.Sprintf("%d", pf.WANPort), "→",
+			strings.ToUpper(pf.Proto), fmt.Sprintf("%d", pf.WANPort), "=>",
 			pf.LANIP, fmt.Sprintf("%d", pf.LANPort))
 		if i == t.cursor {
 			rows = append(rows, selectedRowStyle.Render(row))
@@ -1313,7 +1313,7 @@ func (t *settingsTab) rows() []thresholdRow {
 		{label: "IPFIX flow export", value: bool01(th.IPFIXEnabled), unit: "", isBool: true,
 			apply: func(t *config.Thresholds, v float64) { t.IPFIXEnabled = v != 0 }},
 		{label: "IPFIX collector endpoint", isString: true, stringValue: th.IPFIXEndpoint,
-			stringHint:  "host:port (UDP); e.g. collector.opsanio.io:4739",
+			stringHint:  "host:port (UDP); e.g. ipfix.opsanio-customer-domain.exanio.net",
 			applyString: func(t *config.Thresholds, v string) { t.IPFIXEndpoint = v }},
 		{label: "IPFIX export interval", value: float64(th.IPFIXIntervalSec), unit: "s", stepBig: 30, stepSmall: 5,
 			apply: func(t *config.Thresholds, v float64) {

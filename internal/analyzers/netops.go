@@ -43,7 +43,7 @@ func (p *netopsPoller) run(ctx context.Context, bus *events.Bus) error {
 // the last interval exceeds the threshold.
 type FirewallDropDetector struct {
 	Interval  time.Duration
-	Threshold uint64 // drops per interval before WARN; 4× → CRIT
+	Threshold uint64 // drops per interval before WARN; 4× => CRIT
 
 	mu       sync.Mutex
 	lastDrop uint64
@@ -326,8 +326,8 @@ func readDevCounters() map[string]ifaceCounter {
 // crosses warning / critical thresholds.
 type NATExhaustionDetector struct {
 	Interval  time.Duration
-	WarnRatio float64 // 0.80 → WARN at 80%
-	CritRatio float64 // 0.95 → CRIT at 95%
+	WarnRatio float64 // 0.80 => WARN at 80%
+	CritRatio float64 // 0.95 => CRIT at 95%
 
 	mu       sync.Mutex
 	lastFire time.Time

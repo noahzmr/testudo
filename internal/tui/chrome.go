@@ -469,7 +469,7 @@ func (a *App) renderHelp(width, height int) string {
 	for _, title := range titles {
 		al := seen[title]
 		sort.Strings(al)
-		lines = append(lines, helpKey.Render(":"+al[0])+helpDesc.Render("→ "+title+"  ("+strings.Join(al, ", ")+")"))
+		lines = append(lines, helpKey.Render(":"+al[0])+helpDesc.Render("=> "+title+"  ("+strings.Join(al, ", ")+")"))
 	}
 	lines = append(lines, helpKey.Render(":q")+helpDesc.Render("quit"))
 	lines = append(lines, "")

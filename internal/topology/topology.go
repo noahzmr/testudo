@@ -76,7 +76,7 @@ func (b *Builder) Build(devices []discovery.Device, fls []flows.FlowStats) Graph
 				nodeIndex[ip] = len(nodes) - 1
 			}
 		}
-		// Direction A→B: bytes that flowed from A to B.
+		// Direction A=>B: bytes that flowed from A to B.
 		if f.BytesAtoB > 0 {
 			k := edgeKey(f.Key.A.IP, f.Key.B.IP, f.Key.Iface, f.Key.Proto)
 			e, ok := edgeMap[k]
@@ -90,7 +90,7 @@ func (b *Builder) Build(devices []discovery.Device, fls []flows.FlowStats) Graph
 				e.LastSeen = f.LastSeen
 			}
 		}
-		// Direction B→A.
+		// Direction B=>A.
 		if f.BytesBtoA > 0 {
 			k := edgeKey(f.Key.B.IP, f.Key.A.IP, f.Key.Iface, f.Key.Proto)
 			e, ok := edgeMap[k]

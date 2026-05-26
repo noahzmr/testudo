@@ -215,11 +215,11 @@ func runDNS(ctx context.Context, r Request) *Result {
 // and reports the average throughput.
 //
 // Target resolution, in order of preference:
-//  1. r.Target already has http:// or https:// → use it as-is
-//  2. r.Target is a bare hostname (e.g. "speed.cloudflare.com") → use
+//  1. r.Target already has http:// or https:// => use it as-is
+//  2. r.Target is a bare hostname (e.g. "speed.cloudflare.com") => use
 //     https://<target>/__down?bytes=N
 //  3. r.Target is empty, looks like an IP, or otherwise unusable as a URL
-//     → fall back to the Cloudflare speedtest endpoint
+//     => fall back to the Cloudflare speedtest endpoint
 //
 // The third case matters because the TUI shares a single `target` field
 // across all probe kinds, defaulting to "1.1.1.1" - which makes sense for

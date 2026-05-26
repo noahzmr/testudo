@@ -1,26 +1,39 @@
 # Architecture
 
 Testudo is organised as a set of loosely-coupled subsystems that communicate
-through an in-process event bus. The data plane (packet capture → flow
+through an in-process event bus. The data plane (packet capture => flow
 aggregation) bypasses the bus to stay fast; the control plane (anomalies,
 lifecycle, alerts) rides on it.
 
 ## Subsystem map
 
-```text
-                        ┌──────────────┐
-                        │  collectors  │  ICMP / DNS / mDNS probes
-                        └──────┬───────┘
-                               │ events
-   ┌──────────┐                ▼
-   │  capture │──► flows ─► analyzers ─► incidents (alerts)
-   └──────────┘     │            │
-                    ▼            ▼
-                topology      metrics ──► storage (SQLite)
-                    │
-                    └──► TUI / Web
+```mermaid
+flowchart TD
+    collectors["collectors<br/><sub>ICMP / DNS / mDNS probes</sub>"]
+    capture[capture]
+    flows[flows]
+    analyzers[analyzers]
+    incidents["incidents<br/><sub>(alerts)</sub>"]
+    topology[topology]
+    metrics[metrics]
+    storage[("storage<br/>SQLite")]
+    ui["TUI / Web"]
+    netops[netops]
 
-                netops ◄── TUI / Web (gated by Writer.AllowWrites)
+    collectors -- events --> flows
+    capture --> flows
+    flows --> analyzers
+    analyzers --> incidents
+    flows --> topology
+    analyzers --> metrics
+    metrics --> storage
+
+    flows --> ui
+    topology --> ui
+    incidents --> ui
+    storage --> ui
+
+    ui -. "gated by Writer.AllowWrites" .-> netops
 ```
 
 ## Data flow
@@ -39,8 +52,8 @@ lifecycle, alerts) rides on it.
 
 ## Storage layers
 
-See [storage.md](storage.md). Briefly: ring buffer (RAM, seconds) → flow
-aggregation (RAM, minutes) → SQLite metrics (disk, days) → selective PCAP
+See [storage.md](storage.md). Briefly: ring buffer (RAM, seconds) => flow
+aggregation (RAM, minutes) => SQLite metrics (disk, days) => selective PCAP
 (disk, incident-scoped).
 
 ## Why the event bus skips packets

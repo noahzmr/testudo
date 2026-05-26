@@ -74,7 +74,7 @@ func (b *BandwidthHistory) Update(name string, rx, tx uint64) {
 	if dt <= 0 {
 		return
 	}
-	// Kernel counters are monotonic, but link state changes (down → up)
+	// Kernel counters are monotonic, but link state changes (down => up)
 	// can reset them. Clamp negative deltas to 0 rather than overflowing.
 	var dRx, dTx float64
 	if rx >= prev.rx {

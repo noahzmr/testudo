@@ -3,11 +3,11 @@
 Testudo ships with two firewall backends. Both are read-capable; writes
 are gated by `netops.Writer.AllowWrites`.
 
-| Backend | Status | Implementation |
-|---|---|---|
-| iptables | fallback (read-only) | `internal/netops/firewall_iptables.go` |
-| nftables | default | `internal/netops/firewall.go` |
-| firewalld | roadmap | - |
+| Backend   | Status               | Implementation                         |
+| --------- | -------------------- | -------------------------------------- |
+| iptables  | fallback (read-only) | `internal/netops/firewall_iptables.go` |
+| nftables  | default              | `internal/netops/firewall.go`          |
+| firewalld | roadmap              | -                                      |
 
 ## nftables (default)
 

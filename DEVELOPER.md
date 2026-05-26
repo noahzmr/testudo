@@ -68,7 +68,7 @@ internal/
   netops/            netlink + nftables + iptables (firewall, route, NAT, iface, dns)
   probes/            probe runner used by the `probe` CLI command
   replay/            replay engine + session storage
-  services/          well-known port → service mapping
+  services/          well-known port => service mapping
   storage/           SQLite layer
   topology/          passive topology graph builder
   tui/               Bubbletea TUI
@@ -87,13 +87,14 @@ reason to expose an API surface.
 
 ## 4. Architecture in 60 Seconds
 
-```text
-collectors ──► event bus ──► engine ──► subsystems
-   capture ─────────────────► flow aggregator ─► UI / replay
-                                    │
-                                    └─► topology builder
-   netops (read)  ◄──── TUI / Web
-   netops (write) ◄──── Settings.AllowWrites guard
+```mermaid
+flowchart LR
+    collectors[collectors] -- events --> bus[event bus] --> engine --> subsystems
+    capture --> flowAgg[flow aggregator] --> ui["UI / replay"]
+    flowAgg --> topo[topology builder]
+
+    ui -- read --> netopsR[netops]
+    ui -- "write (Settings.AllowWrites guard)" --> netopsW[netops]
 ```
 
 Key invariants:
@@ -101,8 +102,8 @@ Key invariants:
 1. **Packets never hit the event bus.** Capture writes directly into the flow
    aggregator. The bus carries operational signals (anomalies, lifecycle), not
    data-plane volume.
-2. **Storage is layered.** Live ring buffer → flow aggregation → metrics in
-   SQLite → selective PCAP. Each layer summarises the one above it.
+2. **Storage is layered.** Live ring buffer => flow aggregation => metrics in
+   SQLite => selective PCAP. Each layer summarises the one above it.
 3. **Writes are gated.** Every mutating `netops` call goes through `Writer`,
    which short-circuits to `ErrWritesDisabled` unless `AllowWrites=true`.
 4. **Subsystems are isolated.** No subsystem imports another's package

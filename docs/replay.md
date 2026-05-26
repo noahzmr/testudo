@@ -11,16 +11,16 @@ id is the start timestamp in `session-YYYY-MM-DD-HHMMSS` form.
 
 Snapshot cadence is configurable in Settings. Defaults:
 
-| State | Cadence |
-|---|---|
-| flow summaries | 5s |
-| topology graph | 30s |
-| firewall counters | 30s |
-| route table | on change |
-| NAT rules | on change |
-| metrics | continuous |
-| alerts | on emit |
-| PCAP | on incident only |
+| State             | Cadence          |
+| ----------------- | ---------------- |
+| flow summaries    | 5s               |
+| topology graph    | 30s              |
+| firewall counters | 30s              |
+| route table       | on change        |
+| NAT rules         | on change        |
+| metrics           | continuous       |
+| alerts            | on emit          |
+| PCAP              | on incident only |
 
 ## Listing sessions
 

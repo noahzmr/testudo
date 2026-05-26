@@ -168,7 +168,7 @@ func (m *TCPDumpManager) Start(iface, name, filter string, maxSizeMB int, durati
 	return job.pub, nil
 }
 
-// wait reaps the child process and moves the job from `jobs` → `history`
+// wait reaps the child process and moves the job from `jobs` => `history`
 // with the final state.
 func (m *TCPDumpManager) wait(id string, job *runningJob) {
 	err := job.cmd.Wait()
@@ -219,7 +219,7 @@ func (m *TCPDumpManager) Stop(id string) error {
 	return nil
 }
 
-// List returns a chronological snapshot: history first (oldest→newest),
+// List returns a chronological snapshot: history first (oldest=>newest),
 // then currently-running jobs. Each entry is a value copy - safe to render
 // without locking.
 func (m *TCPDumpManager) List() []TCPDumpJob {

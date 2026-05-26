@@ -19,7 +19,7 @@ issued by `internal/topology/`. Scans, when needed, come from
 * `Nodes []Node` - one per IP we've ever seen, sorted by IP. Nodes that
   appear in flows but not in discovery are still added (with only IP and
   last-seen populated).
-* `Edges []Edge` - directed (src→dst) per interface and protocol, sorted
+* `Edges []Edge` - directed (src=>dst) per interface and protocol, sorted
   by total bytes descending.
 
 Each edge accumulates bytes and packets across every flow that matched
@@ -37,7 +37,7 @@ free.
 * Not a network map in the SNMP / LLDP sense - it's a flow-derived view.
   A device that doesn't talk doesn't appear in edges (it still appears
   in nodes if discovery saw it).
-* Not authoritative for direction. A flow's "A → B" direction is chosen
+* Not authoritative for direction. A flow's "A => B" direction is chosen
   by lexicographic ordering of the endpoints, then split into BytesAtoB
   and BytesBtoA. The topology builder treats those as two directed edges.
 * Not transitive. We don't infer "host X reaches subnet Y via router Z"

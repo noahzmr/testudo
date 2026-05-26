@@ -206,7 +206,7 @@ type ipfixView struct {
 
 type bandwidthView struct {
 	Iface     string    `json:"iface"`
-	Rx        []float64 `json:"rx"` // bytes/sec, oldest → newest
+	Rx        []float64 `json:"rx"` // bytes/sec, oldest => newest
 	Tx        []float64 `json:"tx"`
 	CurrentRx float64   `json:"current_rx"`
 	CurrentTx float64   `json:"current_tx"`

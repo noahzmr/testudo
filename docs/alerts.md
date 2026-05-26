@@ -5,22 +5,22 @@ maintains a deduplicated, severity-ranked list for the UI and replay.
 
 ## Severity levels
 
-| Level | Meaning |
-|---|---|
-| INFO | informational |
-| WARN | degraded condition |
-| ERROR | operational issue |
+| Level    | Meaning            |
+| -------- | ------------------ |
+| INFO     | informational      |
+| WARN     | degraded condition |
+| ERROR    | operational issue  |
 | CRITICAL | severe degradation |
 
 ## Default thresholds
 
-| Metric | Default | Configurable in |
-|---|---|---|
-| Packet loss | 2% | Settings → Anomaly thresholds |
-| DNS latency | 120ms | Settings → Anomaly thresholds |
-| RTT | 150ms | Settings → Anomaly thresholds |
-| Jitter | 20ms | Settings → Anomaly thresholds |
-| Retransmissions | 5% | Settings → Anomaly thresholds |
+| Metric          | Default | Configurable in                |
+| --------------- | ------- | ------------------------------ |
+| Packet loss     | 2%      | Settings => Anomaly thresholds |
+| DNS latency     | 120ms   | Settings => Anomaly thresholds |
+| RTT             | 150ms   | Settings => Anomaly thresholds |
+| Jitter          | 20ms    | Settings => Anomaly thresholds |
+| Retransmissions | 5%      | Settings => Anomaly thresholds |
 
 Thresholds are evaluated per metric on the analyzer tick. Crossing a
 threshold raises an event with the appropriate severity; the incidents

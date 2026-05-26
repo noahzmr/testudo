@@ -127,7 +127,7 @@ func Open(path string) (*Store, error) {
 // migration adds a step here; steps are idempotent so running them on a
 // fresh DB is a no-op.
 func migrate(db *sql.DB) error {
-	// Phase 2 → Phase 3: flows gained iface/process/dns_name columns and the
+	// Phase 2 => Phase 3: flows gained iface/process/dns_name columns and the
 	// primary key changed to include iface. SQLite can't alter a PK in-place,
 	// so we drop the old table and let the schema DDL recreate it. The cost
 	// is losing historical flow rows; per-target metrics/anomalies survive.

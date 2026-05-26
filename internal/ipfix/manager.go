@@ -125,7 +125,7 @@ func (m *Manager) reconcile() {
 		return
 	}
 	m.exporter = exp
-	log.Printf("ipfix: exporter ready → %s every %s", target.Endpoint, target.Interval)
+	log.Printf("ipfix: exporter ready => %s every %s", target.Endpoint, target.Interval)
 }
 
 // maybeExport sends one IPFIX message when the configured interval has
