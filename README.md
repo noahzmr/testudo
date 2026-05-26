@@ -256,9 +256,34 @@ Create and remove port forwards, inspect NAT and masquerading rules, and observe
 └─────────────────────────────────────────────────────┘
 ```
 
+### Active Probing
+
+A layered probe pipeline runs alongside discovery and capture so latency, loss, and service-health signal keep flowing even when packet capture is off:
+
+- **External ICMP & DNS** - the baseline. Configurable targets and names; single-sample RTT and resolution latency feed the live aggregator.
+- **Internal DNS** - queries LAN resolvers directly (not via the stub) so a slow `systemd-resolved` upstream is visible separately from external slowness. Upstreams are auto-detected from `/etc/resolv.conf` *and* `/run/systemd/resolve/resolv.conf`; the loopback stub `127.0.0.53` is skipped.
+- **Top talkers** - tracks the busiest LAN hosts from the flow table and probes them on a 30 s rotation. Each tick fires both an ICMP echo and a TCP connect to the host's busiest observed service port - so "host pings but service is down" surfaces immediately.
+- **LAN reachability** - pings every entry in the discovery inventory every 60 s. Works *without* flow capture, giving you per-host RTT for the whole known LAN.
+- **HTTP endpoints** - GET with `httptrace` against configured URLs (or auto-derived `https://<name>/` for each entry in `DNSNames`). Reports TTFB plus a status-code-class severity (5xx → ERROR, 4xx → INFO).
+- **TLS certificate expiry** - dials each `host:port` on a 6-hour cadence, reads the leaf cert's `NotAfter`. WARN inside 14 days, CRITICAL inside 3. The single most common preventable outage.
+- **Continuous traceroute** - per-target trace on a 5-minute cadence. Raises anomalies on hop-set changes (route flap detection) and emits per-hop RTT events.
+- **Bufferbloat probe** - off by default, gated by `--bufferbloat`. Each run takes a 3 s idle ping baseline, saturates the link with a throughput download for `BufferbloatDuration`, and reports the loaded-vs-idle RTT delta. Severity ladder: 30 / 100 / 300 ms → INFO / WARN / ERROR.
+
+### Interface & Wireless Health
+
+- **Per-interface stability** - polls every non-loopback interface every 5 s, emits anomalies on UP/RUNNING transitions, growing `Rx/TxErrors`, growing `Rx/TxDropped`, and collision growth.
+- **WiFi signal & retries** - reads `/proc/net/wireless` and cross-references `/sys/class/net/*/wireless` (kernel-canonical wireless flag) so unassociated radios still surface as "unassoc" rather than silently disappearing.
+- **L2 monitor** - per-interface multicast/broadcast burst detection (catches ARP storms, runaway mDNS) and ARP-table churn (IP→MAC reassignment surfaces IP conflicts or rogue devices).
+
+### Per-Device LAN Analytics
+
+- **Per-device bandwidth history** - rolling 10-min × 5 s buckets per LAN host, derived from the live flow aggregator. Renders as a TX sparkline next to each row in the Devices tab.
+- **LAN ↔ LAN matrix** - east-west traffic by host pair, sorted by bytes. New section in the Talkers tab; the diagnostic for "the LAN feels slow."
+- **Chatter anomaly** - per-device TX baseline (median over the last 5 min) with a 3× alert threshold and 5-min cooldown. Catches exfil patterns, runaway containers, looped services. Suppressed for devices below 1 KB/s baseline to avoid noise.
+
 ### Anomaly Detection & Alerting
 
-A continuous analysis engine watches latency, jitter, packet loss, DNS timing, retransmissions, firewall drops, route instability, bandwidth spikes, and NAT exhaustion. Anomalies are routed to a four-level severity ladder.
+A continuous analysis engine watches latency, jitter, packet loss, DNS timing, retransmissions, firewall drops, route instability, bandwidth spikes, NAT exhaustion, per-device chatter, link-state flaps, interface error counters, ARP-table churn, multicast bursts, and TLS cert expiry. Anomalies are routed to a four-level severity ladder.
 
 | Level    | Meaning            |
 | -------- | ------------------ |
@@ -346,6 +371,7 @@ The TUI is the canonical interface. The web UI is the same data, the same engine
 | Alerts     | Live alert log with severity filter and free-text search                                  |
 | History    | Read-only browse of past sessions persisted to SQLite; anomaly timeline + snapshots       |
 | Settings   | Live-tunable thresholds, netops & integrations, **IPFIX flow export** (e.g. to opsanio)   |
+| Health     | Live results of every probe collector: top talkers, internal DNS, HTTP, TLS certs, traceroute, bufferbloat, interfaces, WiFi |
 
 Modal configuration is supported in both UIs for firewall rules, NAT rules, port forwarding, interface configuration, route configuration, and alert configuration.
 
@@ -639,6 +665,9 @@ testudo <subcommand> [flags]
 | `--iface=<csv>`           | auto-discover              | Capture only on the named interfaces (e.g. `wlp1s0,wg0`)                                |
 | `--exclude-iface=<csv>`   | none                       | Skip the named interfaces during auto-discovery                                         |
 | `--allow-netops-write`    | off                        | Permit route/interface/NAT writes from the TUI                                          |
+| `--bufferbloat`           | off                        | Enable the bufferbloat probe (saturates link periodically to measure loaded-RTT delta)  |
+| `--bufferbloat-target`    | first ICMP target          | Ping target during the bufferbloat probe                                                |
+| `--bufferbloat-interval`  | `1h`                       | Gap between bufferbloat runs                                                            |
 | `--listen=<addr>`         | `127.0.0.1:8080`           | Web UI listen address (`web` subcommand)                                                |
 | `--active`                | off                        | Active discovery - ARP broadcast sweep + ICMP sweep + mDNS query + SNMPv2c (`discover`) |
 | `--lldp`                  | on                         | Passive LLDP listener for directly-connected neighbours (`discover`)                    |
@@ -705,6 +734,41 @@ Testudo ships with intelligent defaults. Every threshold is live-tunable from th
 | `SNMPCommunity`          | `public` | SNMPv2c read community; empty string disables SNMP probing entirely                       |
 | `SNMPTimeout`            | 1 s      | Per-host SNMP UDP/161 deadline                                                            |
 
+### Active Probes & Health
+
+| Setting                       | Default      | Description                                                                                |
+| ----------------------------- | ------------ | ------------------------------------------------------------------------------------------ |
+| `TopTalkersEnabled`           | true         | Periodically probe top-N LAN talkers (ICMP + TCP to the busiest observed service port)     |
+| `TopTalkersInterval`          | 30 s         | Top-talkers probe cadence                                                                  |
+| `TopTalkersMaxHosts`          | 5            | Hard cap on simultaneously probed hosts                                                    |
+| `LANReachEnabled`             | true         | Continuous ICMP to every device in the discovery inventory                                 |
+| `LANReachInterval`            | 60 s         | Inventory ping cadence                                                                     |
+| `DNSInternalEnabled`          | true         | Probe LAN resolvers directly (not via the stub)                                            |
+| `DNSInternalServers`          | auto         | Explicit resolver list; empty = parse `/etc/resolv.conf` + `/run/systemd/resolve/resolv.conf` |
+| `HTTPEndpoints`               | auto         | URLs to GET; empty = derived `https://<name>/` per `DNSNames`                              |
+| `HTTPInterval`                | 30 s         | HTTP probe cadence                                                                         |
+| `HTTPTimeout`                 | 5 s          | Per-endpoint deadline                                                                      |
+| `TLSCertTargets`              | auto         | `host:port` list; empty = `<name>:443` per `DNSNames`                                      |
+| `TLSCertInterval`             | 6 h          | Cert-expiry check cadence                                                                  |
+| `TLSCertWarnDays`             | 14           | Days remaining that fire WARN                                                              |
+| `TLSCertCritDays`             | 3            | Days remaining that fire CRITICAL                                                          |
+| `TracerouteEnabled`           | true         | Continuous traceroute per target                                                           |
+| `TracerouteInterval`          | 5 min        | Trace cadence                                                                              |
+| `TracerouteHops`              | 16           | Max hops per trace                                                                         |
+| `BufferbloatEnabled`          | false        | Saturate link + measure loaded-RTT delta (heavy; toggle via `--bufferbloat`)               |
+| `BufferbloatInterval`         | 1 h          | Gap between runs                                                                           |
+| `BufferbloatDuration`         | 10 s         | Length of the loaded phase                                                                 |
+| `IfaceHealthEnabled`          | true         | Per-interface error / drop / link-state monitor                                            |
+| `IfaceHealthInterval`         | 5 s          | Poll cadence                                                                               |
+| `WiFiEnabled`                 | true         | Per-WiFi-interface signal / retries                                                        |
+| `WiFiInterval`                | 10 s         | Poll cadence                                                                               |
+| `WiFiMinSignal`               | -75 dBm      | "Weak signal" anomaly threshold                                                            |
+| `L2Enabled`                   | true         | Multicast/broadcast burst detection + ARP-table churn                                      |
+| `L2Interval`                  | 10 s         | Sample cadence                                                                             |
+| `L2MulticastThreshold`        | 1000 pkts    | Per-tick burst threshold                                                                   |
+| `DeviceChatterEnabled`        | true         | Per-LAN-device TX-rate anomaly                                                             |
+| `DeviceChatterFactor`         | 3.0          | Multiplier above the 5-min baseline that fires WARN                                        |
+
 ### Integrations
 
 | Setting        | Default | Description                         |
@@ -736,8 +800,14 @@ The dashboard's most prominent element is a single **letter grade** (A+ through 
 │   │  A  │    Very good                                │
 │   └─────┘                                             │
 │                                                       │
-│   Loss   0.1 %   ok   ▏  RTT     18 ms    ok          │
-│   Jitter 4 ms    ok   ▏  DNS     22 ms    ok          │
+│   LOSS    ████████████████  0.1%                      │
+│   RTT     ███████████████░  18ms                      │
+│   JITTER  ████████████████  4ms                       │
+│   DNS     ███████████████░  22ms                      │
+│   LAN     ████████████████  1ms                       │
+│   HTTP    ██████████████░░  120ms                     │
+│   STAB    ████████████████  0.0%                      │
+│   WIFI    █████████████░░░  -65dBm                    │
 │                                                       │
 └───────────────────────────────────────────────────────┘
 ```
@@ -748,12 +818,27 @@ Four live measurements, each pulled from the metrics aggregator. Every measureme
 
 | Sub-score       | Weight | What it measures                                          |
 | --------------- | ------ | --------------------------------------------------------- |
-| **Packet loss** | 40 %   | Average loss percentage across configured ICMP targets    |
-| **RTT**         | 30 %   | Average round-trip latency across configured ICMP targets |
-| **Jitter**      | 15 %   | Rolling RTT variation across configured ICMP targets      |
-| **DNS latency** | 15 %   | Average resolution time across configured DNS resolvers   |
+| **Packet loss** | 20 %   | Average loss percentage across WAN-side targets (external ICMP + WAN top-talker probes) |
+| **RTT**         | 15 %   | Average round-trip latency across WAN-side targets        |
+| **Jitter**      | 10 %   | Rolling RTT variation across WAN-side targets             |
+| **DNS latency** | 10 %   | Average resolution time across external + internal resolvers |
+| **LAN**         | 15 %   | Reachability to LAN-side hosts (RFC1918 IPs and `.lan` / `.local` / `.home` / `.internal` hostnames) - blends LAN loss and LAN RTT |
+| **HTTP**        | 10 %   | Configured / auto-derived HTTP endpoints - blends failure rate and TTFB |
+| **Stab**        | 10 %   | Per-interface error / drop ratio across all non-loopback interfaces (`RxErrors+TxErrors+RxDropped+TxDropped` vs total packets) |
+| **WiFi**        | 10 %   | Average signal level (dBm) across associated wireless interfaces; -60 dBm = 100, -90 dBm = 0 (linear) |
 
-Loss carries the biggest weight because it's the most visceral kind of degradation - a video call that pixelates or a download that stalls almost always starts with loss. Jitter weighs least because real-world links jitter a little even when nothing is wrong.
+Loss / RTT / Jitter still anchor the grade because those are what users *feel*, but the grade is no longer blind to the rest of the stack: a slow LAN host, a 5xx HTTP endpoint, a flapping NIC, or a wireless radio at the edge of coverage all surface immediately. Each sub-score returns a **neutral 100** when its data source is empty, so a box without WiFi or without HTTP endpoints configured doesn't pay a penalty for it.
+
+### Target classification
+
+Because the metrics aggregator stores every probe result under the same `(target, RTT)` shape, the grade has to *route* each target into the right sub-score so HTTP TTFB doesn't pollute the ICMP RTT number and an offline LAN host doesn't drag WAN loss:
+
+| Pattern                                                       | Routed to             |
+| ------------------------------------------------------------- | --------------------- |
+| `http://…` / `https://…`                                      | **HTTP**              |
+| RFC1918 / link-local IP, or `*.lan/.local/.home/.internal`    | **LAN**               |
+| `trace:…`, `wifi:…`, `bufferbloat:…` (synthetic probe targets) | excluded - own scoring |
+| Everything else                                               | **Loss / RTT / Jitter (WAN)** |
 
 ### How a measurement becomes a sub-score
 
@@ -875,14 +960,15 @@ testudo/
 | `internal/web`                    | HTTP UI, embedded assets, sessions, snapshot endpoint               |
 | `internal/engine`                 | Lifecycle orchestrator - wires all subsystems together              |
 | `internal/events`                 | Non-blocking fan-out event bus, four-level severity                 |
-| `internal/collectors`             | ICMP and DNS probes                                                 |
+| `internal/collectors`             | ICMP, DNS (external + internal), HTTP-endpoint, TLS-cert, top-talkers (ICMP + TCP), LAN-reachability, traceroute, bufferbloat, WiFi, iface-health, L2 (multicast burst + ARP churn) probes |
 | `internal/capture`                | Multi-interface AF_PACKET capture                                   |
-| `internal/flows`                  | Interface-tagged five-tuple aggregator, correlators                 |
+| `internal/flows`                  | Interface-tagged five-tuple aggregator, correlators, per-device bandwidth history, LAN host-to-host matrix |
 | `internal/firewall`               | iptables / nftables observation and management                      |
 | `internal/nat`                    | NAT rule management and port-forward bookkeeping                    |
 | `internal/routes`                 | Routing table observation and management                            |
 | `internal/discovery`              | ARP, ICMP, mDNS scanner with device inventory                       |
-| `internal/alerts`                 | Anomaly detector pipeline, severity escalation, alert log           |
+| `internal/analyzers`              | Anomaly detectors - packet loss, latency spike, jitter, DNS burst, firewall drops, route instability, bandwidth spike, NAT exhaustion, retransmissions, per-device chatter |
+| `internal/alerts`                 | Severity escalation, alert log                                      |
 | `internal/replay`                 | Session reconstruction from persisted events                        |
 | `internal/storage`                | SQLite persistence (sessions, samples, flows, anomalies, incidents) |
 | `internal/integrations/sentry`    | Optional panic/error reporting                                      |

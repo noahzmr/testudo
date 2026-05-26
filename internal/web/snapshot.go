@@ -5,8 +5,10 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/capture"
+	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/flows"
+	"github.com/noahzmr/testudo/internal/netops"
 )
 
 // snapshot is the JSON shape consumed by the SPA. Keep field names stable;
@@ -35,16 +37,63 @@ type snapshot struct {
 	TopHosts      []hostRollupView     `json:"top_hosts"`
 	TopProcesses  []procRollupView     `json:"top_processes"`
 	TopServices   []serviceRollupView  `json:"top_services"`
+	WiFi          []wifiView           `json:"wifi"`
+}
+
+// wifiView is the per-interface wireless snapshot the dashboard
+// renders into a dedicated card. Mirrors collectors.WiFiSnapshot but
+// uses JSON-friendly types (timestamps as RFC3339, no time.Time).
+type wifiView struct {
+	Iface        string  `json:"iface"`
+	HWAddr       string  `json:"hw_addr"`
+	PhyType      string  `json:"phy_type"`
+	SSID         string  `json:"ssid"`
+	BSSID        string  `json:"bssid"`
+	Frequency    int     `json:"frequency_mhz"`
+	Channel      int     `json:"channel"`
+	ChannelWMHz  int     `json:"channel_width_mhz"`
+	Band         string  `json:"band"`
+	Signal       float64 `json:"signal_dbm"`
+	SignalAvg    float64 `json:"signal_avg_dbm"`
+	Noise        float64 `json:"noise_dbm"`
+	TXBitrateM   float64 `json:"tx_bitrate_mbps"`
+	RXBitrateM   float64 `json:"rx_bitrate_mbps"`
+	TXPower      float64 `json:"tx_power_dbm"`
+	LinkQuality  float64 `json:"link_quality"`
+	LinkMax      int     `json:"link_quality_max"`
+	Retries      uint64  `json:"retries"`
+	BeaconLoss   uint64  `json:"beacon_loss"`
+	TxFailed     uint64  `json:"tx_failed"`
+	RxBytes      uint64  `json:"rx_bytes"`
+	TxBytes      uint64  `json:"tx_bytes"`
+	RxPackets    uint64  `json:"rx_packets"`
+	TxPackets    uint64  `json:"tx_packets"`
+	Associated   bool    `json:"associated"`
+	ConnectedFor string  `json:"connected_for"`
+	Source       string  `json:"source"`
 }
 
 type gradeView struct {
 	Score   int    `json:"score"`
 	Letter  string `json:"letter"`
 	Verdict string `json:"verdict"`
-	Loss    int    `json:"loss_score"`
-	RTT     int    `json:"rtt_score"`
-	Jitter  int    `json:"jitter_score"`
-	DNS     int    `json:"dns_score"`
+	// HasData mirrors NetworkGrade.HasData in the TUI: false when every
+	// sub-score is still "no data", so the front end can switch the
+	// badge into a violet placeholder rather than rendering an
+	// inflated "A+" derived from a neutral fallback.
+	HasData bool `json:"has_data"`
+	Loss    int  `json:"loss_score"`
+	RTT     int  `json:"rtt_score"`
+	Jitter  int  `json:"jitter_score"`
+	DNS     int  `json:"dns_score"`
+	LAN     int  `json:"lan_score"`
+	HTTP    int  `json:"http_score"`
+	Stab    int  `json:"stab_score"`
+	WiFi    int  `json:"wifi_score"`
+	// NoData lists the sub-score names that have not yet produced a
+	// measurement (e.g. ["WiFi", "HTTP"]). The dashboard renders these
+	// bars violet and excludes them from the overall grade.
+	NoData []string `json:"no_data"`
 }
 
 type captureView struct {
@@ -109,13 +158,22 @@ type deviceView struct {
 }
 
 type ifaceView struct {
-	Name    string   `json:"name"`
-	Up      bool     `json:"up"`
-	MTU     int      `json:"mtu"`
-	HW      string   `json:"hw"`
-	Addrs   []string `json:"addrs"`
-	RxBytes uint64   `json:"rx_bytes"`
-	TxBytes uint64   `json:"tx_bytes"`
+	Name       string   `json:"name"`
+	Up         bool     `json:"up"`
+	Running    bool     `json:"running"`
+	MTU        int      `json:"mtu"`
+	HW         string   `json:"hw"`
+	Addrs      []string `json:"addrs"`
+	RxBytes    uint64   `json:"rx_bytes"`
+	TxBytes    uint64   `json:"tx_bytes"`
+	RxPackets  uint64   `json:"rx_packets"`
+	TxPackets  uint64   `json:"tx_packets"`
+	RxErrors   uint64   `json:"rx_errors"`
+	TxErrors   uint64   `json:"tx_errors"`
+	RxDropped  uint64   `json:"rx_dropped"`
+	TxDropped  uint64   `json:"tx_dropped"`
+	Collisions uint64   `json:"collisions"`
+	IsWireless bool     `json:"is_wireless"`
 }
 
 type routeView struct {
@@ -300,7 +358,17 @@ func (s *Server) buildSnapshot() snapshot {
 	if eng.Settings() != nil {
 		th = eng.Settings().Snapshot()
 	}
-	snap.Grade = computeGradeView(targets, dnsList, th)
+	var ifs []netops.IfaceInfo
+	if nw := eng.Netops(); nw != nil {
+		ifs, _ = nw.ListIfaces()
+	}
+	// WiFi snapshot is sampled once and reused for both the grade
+	// (signal sub-score) and the dashboard / iface rendering below.
+	var wifiSnap []collectors.WiFiSnapshot
+	if wc := eng.WiFi(); wc != nil {
+		wifiSnap = wc.Snapshot()
+	}
+	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, th)
 
 	// Capture status.
 	snap.Capture = captureView{
@@ -350,13 +418,47 @@ func (s *Server) buildSnapshot() snapshot {
 		}
 	}
 
+	// Reuse the wifiSnap captured above for the grade so we don't
+	// re-poll /proc + run iw for every snapshot request.
+	wifiByIface := map[string]bool{}
+	{
+		for _, w := range wifiSnap {
+			wifiByIface[w.Iface] = true
+			view := wifiView{
+				Iface: w.Iface, HWAddr: w.HWAddr, PhyType: w.PhyType,
+				SSID: w.SSID, BSSID: w.BSSID,
+				Frequency: w.Frequency, Channel: w.Channel,
+				ChannelWMHz: w.ChannelWMHz, Band: w.Band,
+				Signal: w.Signal, SignalAvg: w.SignalAvg, Noise: w.Noise,
+				TXBitrateM: w.TXBitrateM, RXBitrateM: w.RXBitrateM,
+				TXPower: w.TXPower,
+				LinkQuality: w.LinkQuality, LinkMax: w.LinkMax,
+				Retries: w.Retries, BeaconLoss: w.BeaconLoss, TxFailed: w.TxFailed,
+				RxBytes: w.RxBytes, TxBytes: w.TxBytes,
+				RxPackets: w.RxPackets, TxPackets: w.TxPackets,
+				Associated: w.Associated, Source: w.Source,
+			}
+			if !w.ConnectedAt.IsZero() {
+				view.ConnectedFor = time.Since(w.ConnectedAt).Truncate(time.Second).String()
+			}
+			snap.WiFi = append(snap.WiFi, view)
+		}
+	}
+
 	// netops snapshots - silently empty when netops unavailable.
 	if nw := eng.Netops(); nw != nil {
 		if ifs, err := nw.ListIfaces(); err == nil {
 			for _, i := range ifs {
 				snap.Ifaces = append(snap.Ifaces, ifaceView{
-					Name: i.Name, Up: i.Up && i.Running, MTU: i.MTU, HW: i.HWAddr,
-					Addrs: i.Addrs, RxBytes: i.RxBytes, TxBytes: i.TxBytes,
+					Name: i.Name, Up: i.Up && i.Running, Running: i.Running,
+					MTU: i.MTU, HW: i.HWAddr,
+					Addrs:   i.Addrs,
+					RxBytes: i.RxBytes, TxBytes: i.TxBytes,
+					RxPackets: i.RxPackets, TxPackets: i.TxPackets,
+					RxErrors: i.RxErrors, TxErrors: i.TxErrors,
+					RxDropped: i.RxDropped, TxDropped: i.TxDropped,
+					Collisions: i.Collisions,
+					IsWireless: wifiByIface[i.Name],
 				})
 			}
 		}

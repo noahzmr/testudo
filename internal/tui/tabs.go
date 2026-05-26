@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/engine"
@@ -74,7 +75,15 @@ func (t *dashboardTab) View(w, h int) string {
 	var b strings.Builder
 
 	// --- Grade panel ------------------------------------------------------
-	grade := ComputeGrade(t.targets, t.dns, t.eng.Settings().Snapshot())
+	var ifaces []netops.IfaceInfo
+	if nw := t.eng.Netops(); nw != nil {
+		ifaces, _ = nw.ListIfaces()
+	}
+	var wifi []collectors.WiFiSnapshot
+	if wc := t.eng.WiFi(); wc != nil {
+		wifi = wc.Snapshot()
+	}
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, t.eng.Settings().Snapshot())
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -84,6 +93,10 @@ func (t *dashboardTab) View(w, h int) string {
 		renderSubScoreBar(grade.RTT, w),
 		renderSubScoreBar(grade.Jitter, w),
 		renderSubScoreBar(grade.DNS, w),
+		renderSubScoreBar(grade.LAN, w),
+		renderSubScoreBar(grade.HTTP, w),
+		renderSubScoreBar(grade.Stab, w),
+		renderSubScoreBar(grade.WiFi, w),
 	}
 	if len(t.targets) == 0 && len(t.dns) == 0 {
 		gradeRows = append(gradeRows, "",
@@ -115,11 +128,17 @@ func (t *dashboardTab) View(w, h int) string {
 	b.WriteString("\n")
 
 	// --- Live charts ------------------------------------------------------
+	// Filter out synthetic latency entries that other collectors write into
+	// the aggregator (traceroute hops + end-to-end, wifi signal encoded as
+	// negative RTT, bufferbloat idle/loaded pairs). Those have their own
+	// Health-tab sections; rendering them here produced one near-identical
+	// sparkline per hop.
+	icmpTargets := filterICMPTargets(t.targets)
 	chartRows := []string{headerStyle.Render("ICMP latency (rolling samples)")}
-	if len(t.targets) == 0 {
+	if len(icmpTargets) == 0 {
 		chartRows = append(chartRows, subtitleStyle.Render("  …awaiting first probe"))
 	} else {
-		for _, tg := range t.targets {
+		for _, tg := range icmpTargets {
 			samples := t.eng.Aggregator().LatencySamples(tg.Target)
 			chartRows = append(chartRows,
 				renderSparklineWithLabel(tg.Target, samples, w))
@@ -142,13 +161,16 @@ func (t *dashboardTab) View(w, h int) string {
 	b.WriteString("\n")
 
 	// --- Detail tables ----------------------------------------------------
+	// innerW is the width available inside boxStyle (border 2 + pad 2).
+	innerW := w - 4
+	icmpWidths := []int{16, 10, 10, 10, 10, 10}
 	rows := []string{headerStyle.Render("ICMP - per-target detail")}
-	rows = append(rows, renderRowWidths([]int{16, 10, 10, 10, 10, 10},
+	rows = append(rows, renderTableRow(innerW, icmpWidths,
 		"TARGET", "LAST", "AVG", "P95", "LOSS%", "JITTER"))
-	if len(t.targets) == 0 {
+	if len(icmpTargets) == 0 {
 		rows = append(rows, subtitleStyle.Render("  …awaiting first probe"))
 	} else {
-		for _, tg := range t.targets {
+		for _, tg := range icmpTargets {
 			lossStyled := okStyle.Render(fmt.Sprintf("%.1f%%", tg.LossPct))
 			switch {
 			case tg.LossPct >= 8:
@@ -156,7 +178,7 @@ func (t *dashboardTab) View(w, h int) string {
 			case tg.LossPct >= 2:
 				lossStyled = warnStyle.Render(fmt.Sprintf("%.1f%%", tg.LossPct))
 			}
-			rows = append(rows, renderRowWidths([]int{16, 10, 10, 10, 10, 10},
+			rows = append(rows, renderTableRow(innerW, icmpWidths,
 				tg.Target, fmtRTT(tg.LastRTT), fmtRTT(tg.AvgRTT), fmtRTT(tg.P95RTT),
 				lossStyled, fmt.Sprintf("%.1fms", tg.JitterMs)))
 		}
@@ -167,8 +189,9 @@ func (t *dashboardTab) View(w, h int) string {
 	// DNS detail table - same shape as the legacy dashboard, restored
 	// because the sparkline above only shows latency over time, not the
 	// query/failure counters operators rely on.
+	dnsWidths := []int{20, 10, 10, 10, 10}
 	dnsDetail := []string{headerStyle.Render("DNS - per-resolver detail")}
-	dnsDetail = append(dnsDetail, renderRowWidths([]int{20, 10, 10, 10, 10},
+	dnsDetail = append(dnsDetail, renderTableRow(innerW, dnsWidths,
 		"NAME", "LAST", "AVG", "QUERIES", "FAIL"))
 	if len(t.dns) == 0 {
 		dnsDetail = append(dnsDetail, subtitleStyle.Render("  …awaiting first query"))
@@ -178,7 +201,7 @@ func (t *dashboardTab) View(w, h int) string {
 			if d.Failures > 0 {
 				failStyled = warnStyle.Render(fmt.Sprintf("%d", d.Failures))
 			}
-			dnsDetail = append(dnsDetail, renderRowWidths([]int{20, 10, 10, 10, 10},
+			dnsDetail = append(dnsDetail, renderTableRow(innerW, dnsWidths,
 				d.Name, fmtRTT(d.LastLatency), fmtRTT(d.AvgLatency),
 				fmt.Sprintf("%d", d.Queries), failStyled))
 		}
@@ -187,8 +210,9 @@ func (t *dashboardTab) View(w, h int) string {
 	b.WriteString("\n")
 
 	// Flows preview
+	flowsWidths := []int{8, 10, 24, 24, 10, 12}
 	rows = []string{headerStyle.Render("Top flows (last 5 by recency)")}
-	rows = append(rows, renderRowWidths([]int{8, 10, 24, 24, 10, 12},
+	rows = append(rows, renderTableRow(innerW, flowsWidths,
 		"PROTO", "IFACE", "A", "B", "PKTS", "BYTES"))
 	if len(t.flows) == 0 {
 		rows = append(rows, subtitleStyle.Render("  enable capture (Flows tab => 's') to populate flow data"))
@@ -198,7 +222,7 @@ func (t *dashboardTab) View(w, h int) string {
 			if f.DNSName != "" {
 				label = f.DNSName + " (" + f.Key.B.String() + ")"
 			}
-			rows = append(rows, renderRowWidths([]int{8, 10, 24, 24, 10, 12},
+			rows = append(rows, renderTableRow(innerW, flowsWidths,
 				strings.ToUpper(f.Key.Proto), f.Key.Iface,
 				f.Key.A.String(), label,
 				fmt.Sprintf("%d", f.Packets), fmtBytes(f.Bytes)))
@@ -352,6 +376,8 @@ func (t *flowsTab) visibleCount() int {
 	return n
 }
 func (t *flowsTab) View(w, h int) string {
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
 	widths := []int{6, 10, 18, 26, 8, 10, 14, 16, 10}
 	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "PKTS", "BYTES", "DNS", "AGE", "BYTE A=>B"}
 	// Apply filter once per render.
@@ -385,7 +411,7 @@ func (t *flowsTab) View(w, h int) string {
 	}
 	rows := []string{
 		headerStyle.Render(title),
-		renderRowWidths(widths, headers...),
+		renderTableRow(innerW, widths, headers...),
 	}
 	if len(t.rows) == 0 {
 		hint := "  no flows captured - press 's' to start capture (or 'i' to pick interfaces)"
@@ -414,7 +440,7 @@ func (t *flowsTab) View(w, h int) string {
 		if proc == "" {
 			proc = "-"
 		}
-		row := renderRowWidths(widths,
+		row := renderTableRow(innerW, widths,
 			strings.ToUpper(f.Key.Proto), f.Key.Iface, proc, ab,
 			fmt.Sprintf("%d", f.Packets), fmtBytes(f.Bytes), dns,
 			fmt.Sprintf("%s ago", age), fmtBytes(f.BytesAtoB))
@@ -616,8 +642,10 @@ func (t *ifacesTab) View(w, h int) string {
 		rows = append(rows, errStyle.Render("  "+t.err.Error()))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
 	widths := []int{14, 6, 8, 8, 18, 30, 12, 12}
-	rows = append(rows, renderRowWidths(widths,
+	rows = append(rows, renderTableRow(innerW, widths,
 		"NAME", "INDEX", "MTU", "STATE", "HWADDR", "ADDRS", "RX", "TX"))
 	for i, ifi := range t.infos {
 		state := "DOWN"
@@ -629,7 +657,7 @@ func (t *ifacesTab) View(w, h int) string {
 			state = "DORM"
 			stateStyle = warnStyle
 		}
-		row := renderRowWidths(widths,
+		row := renderTableRow(innerW, widths,
 			ifi.Name, fmt.Sprintf("%d", ifi.Index), fmt.Sprintf("%d", ifi.MTU),
 			stateStyle.Render(state), ifi.HWAddr, strings.Join(ifi.Addrs, ","),
 			fmtBytes(ifi.RxBytes), fmtBytes(ifi.TxBytes),
@@ -740,15 +768,17 @@ func (t *routesTab) View(w, h int) string {
 		rows = append(rows, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
 	widths := []int{6, 22, 18, 12, 12, 10, 8}
-	rows = append(rows, renderRowWidths(widths,
+	rows = append(rows, renderTableRow(innerW, widths,
 		"FAMILY", "DST", "GATEWAY", "IFACE", "PROTO", "SCOPE", "METRIC"))
 	for i, r := range t.routes {
 		gw := r.Gateway
 		if gw == "" {
 			gw = "-"
 		}
-		row := renderRowWidths(widths,
+		row := renderTableRow(innerW, widths,
 			r.Family, r.Dst, gw, r.Iface, r.Protocol, r.Scope,
 			fmt.Sprintf("%d", r.Metric))
 		if i == t.cursor {
@@ -979,11 +1009,15 @@ func (t *firewallTab) View(w, h int) string {
 		return boxStyle.Render(strings.Join(out, "\n"))
 	}
 
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) with a 2-char row
+	// marker / indent, the actual table width is w - 6.
+	innerW := w - 6
+
 	// Managed section first. Cursor index 0..len(managed)-1 falls here.
 	mw := []int{8, 7, 6, 6, 8, 8, 18, 18}
 	if len(t.managed) > 0 {
 		out = append(out, headerStyle.Render("Testudo-managed rules (editable)"))
-		out = append(out, "  "+renderRowWidths(mw,
+		out = append(out, "  "+renderTableRow(innerW, mw,
 			"CHAIN", "ACTION", "PROTO", "PORT", "IN", "OUT", "SRC", "DST"))
 	}
 	sysHeaderShown := false
@@ -993,7 +1027,7 @@ func (t *firewallTab) View(w, h int) string {
 		switch r.kind {
 		case firewallRowManaged:
 			fr := t.managed[r.managedIdx]
-			rendered = renderRowWidths(mw,
+			rendered = renderTableRow(innerW, mw,
 				fr.Chain,
 				strings.ToUpper(fr.Action),
 				orDash(strings.ToUpper(fr.Proto)),
@@ -1007,11 +1041,11 @@ func (t *firewallTab) View(w, h int) string {
 			if !sysHeaderShown {
 				out = append(out, "")
 				out = append(out, headerStyle.Render("System nftables chains (read-only)"))
-				out = append(out, "  "+renderRowWidths(sysWidths,
+				out = append(out, "  "+renderTableRow(innerW, sysWidths,
 					"FAMILY", "TABLE", "CHAIN", "HOOK", "TYPE", "RULES"))
 				sysHeaderShown = true
 			}
-			rendered = renderRowWidths(sysWidths,
+			rendered = renderTableRow(innerW, sysWidths,
 				r.sysFamily, r.sysTable, r.sysChain, r.sysHook, r.sysType,
 				fmt.Sprintf("%d", r.sysRules))
 		}
@@ -1166,10 +1200,12 @@ func (t *natTab) View(w, h int) string {
 		rows = append(rows, dimStyle.Render("  press 'a' to add · or CLI: testudo nat add tcp 8080 192.168.1.10:80"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
 	widths := []int{6, 8, 8, 18, 8}
-	rows = append(rows, renderRowWidths(widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT"))
+	rows = append(rows, renderTableRow(innerW, widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT"))
 	for i, pf := range t.forwards {
-		row := renderRowWidths(widths,
+		row := renderTableRow(innerW, widths,
 			strings.ToUpper(pf.Proto), fmt.Sprintf("%d", pf.WANPort), "=>",
 			pf.LANIP, fmt.Sprintf("%d", pf.LANPort))
 		if i == t.cursor {
@@ -1432,8 +1468,10 @@ func (t *settingsTab) View(w, h int) string {
 	rows := []string{
 		headerStyle.Render("Settings - ↑/↓ row · +/- adjust · enter/space edit · auto-saves"),
 	}
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
 	widths := []int{28, 36, 8}
-	rows = append(rows, renderRowWidths(widths, "SETTING", "VALUE", "UNIT"))
+	rows = append(rows, renderTableRow(innerW, widths, "SETTING", "VALUE", "UNIT"))
 	thRows := t.rows()
 	for i, r := range thRows {
 		var valStr string
@@ -1457,7 +1495,7 @@ func (t *settingsTab) View(w, h int) string {
 		default:
 			valStr = fmt.Sprintf("%.2f", r.value)
 		}
-		row := renderRowWidths(widths, r.label, valStr, r.unit)
+		row := renderTableRow(innerW, widths, r.label, valStr, r.unit)
 		if i == t.cursor {
 			rows = append(rows, selectedRowStyle.Render(row))
 		} else {
@@ -1670,9 +1708,12 @@ func (t *devicesTab) View(w, h int) string {
 		rows = append(rows, subtitleStyle.Render("  no devices yet - enable active discovery (--discover-active) or press 's' on a known IP"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
-	widths := []int{16, 18, 10, 16, 20, 8}
-	rows = append(rows, renderRowWidths(widths,
-		"IP", "HOSTNAME", "TYPE", "VENDOR", "PROTOCOLS", "LAST"))
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
+	widths := []int{16, 18, 10, 16, 18, 14, 8}
+	rows = append(rows, renderTableRow(innerW, widths,
+		"IP", "HOSTNAME", "TYPE", "VENDOR", "PROTOCOLS", "BW (10m TX)", "LAST"))
+	bw := t.eng.DeviceBandwidth()
 	for i, d := range t.devices {
 		age := time.Since(d.LastSeen).Truncate(time.Second)
 		protos := discovery.ProtocolsForPorts(d.OpenPorts)
@@ -1686,9 +1727,20 @@ func (t *devicesTab) View(w, h int) string {
 		} else {
 			protoCell = okStyle.Render(protoCell)
 		}
-		row := renderRowWidths(widths,
+		bwCell := dimStyle.Render("-")
+		if bw != nil {
+			s := bw.Snapshot(d.IP)
+			if s.TotalTX > 0 || s.TotalRX > 0 {
+				vals := make([]float64, len(s.TX))
+				for k, v := range s.TX {
+					vals[k] = float64(v)
+				}
+				bwCell = sparkline(vals, 12)
+			}
+		}
+		row := renderTableRow(innerW, widths,
 			d.IP, dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
-			dashIfEmpty(d.Vendor), protoCell,
+			dashIfEmpty(d.Vendor), protoCell, bwCell,
 			fmt.Sprintf("%s ago", age))
 		if i == t.cursor {
 			rows = append(rows, selectedRowStyle.Render(row))
@@ -1837,6 +1889,8 @@ func (t *probesTab) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (t *probesTab) View(w, h int) string {
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
 	var rows []string
 	rows = append(rows, headerStyle.Render("Probes - ↑/↓ select · enter run · t edit target"))
 	rows = append(rows, dimStyle.Render(fmt.Sprintf("  target: %s   port: %s", t.target, t.port)))
@@ -1858,13 +1912,13 @@ func (t *probesTab) View(w, h int) string {
 		rows = append(rows, subtitleStyle.Render("  no results yet"))
 	} else {
 		widths := []int{10, 12, 22, 8, 12, 40}
-		rows = append(rows, renderRowWidths(widths, "TIME", "KIND", "TARGET", "OK", "LATENCY", "DETAIL"))
+		rows = append(rows, renderTableRow(innerW, widths, "TIME", "KIND", "TARGET", "OK", "LATENCY", "DETAIL"))
 		for _, r := range t.results {
 			ok := okStyle.Render("yes")
 			if !r.ok {
 				ok = errStyle.Render("no")
 			}
-			rows = append(rows, renderRowWidths(widths,
+			rows = append(rows, renderTableRow(innerW, widths,
 				r.ts.Format("15:04:05"), r.kind, r.target, ok,
 				r.latency.Truncate(time.Microsecond).String(), r.detail))
 		}

@@ -80,6 +80,16 @@ type Config struct {
 	// DNSTimeout is the per-query deadline.
 	DNSTimeout time.Duration
 
+	// DNSInternalEnabled turns on the internal-resolver probe. It sends
+	// DNSNames directly to LAN DNS servers (not via the stub) so the
+	// operator can tell whether the internal resolver is healthy
+	// independently of any local caching layer.
+	DNSInternalEnabled bool
+	// DNSInternalServers is the explicit list of LAN resolvers to probe.
+	// When empty, /etc/resolv.conf is parsed each tick and any non-loopback
+	// RFC1918 / link-local nameserver is picked up automatically.
+	DNSInternalServers []string
+
 	// StorageDir holds the SQLite file and per-session artifacts.
 	StorageDir string
 	// SQLitePath is the absolute path to the metrics database.
@@ -126,6 +136,85 @@ type Config struct {
 	// SNMPTimeout is the per-host UDP/161 deadline.
 	SNMPTimeout time.Duration
 
+	// TopTalkersEnabled turns on the internal top-talkers prober. It ranks
+	// the live flow table by bytes, filters to RFC1918 / link-local hosts,
+	// and pings the top MaxHosts at TopTalkersInterval so the operator
+	// gets latency/loss numbers for the busiest internal hosts without
+	// having to list them in ICMPTargets manually.
+	TopTalkersEnabled  bool
+	TopTalkersInterval time.Duration
+	TopTalkersTimeout  time.Duration
+	TopTalkersMaxHosts int
+
+	// IfaceHealthEnabled turns on the per-interface health monitor. It
+	// polls every interface on IfaceHealthInterval and emits an anomaly
+	// on link-state transitions or growing error / drop counters.
+	IfaceHealthEnabled  bool
+	IfaceHealthInterval time.Duration
+
+	// HTTPEndpoints is a list of URLs to GET on each tick. The collector
+	// reports TTFB, TLS handshake time, and status-code class. Empty
+	// disables the collector entirely.
+	HTTPEndpoints []string
+	HTTPInterval  time.Duration
+	HTTPTimeout   time.Duration
+
+	// TLSCertTargets is a list of "host:port" pairs whose certificate
+	// expiry is checked on TLSCertInterval. WARN fires inside
+	// TLSCertWarnDays, CRITICAL inside TLSCertCritDays.
+	TLSCertTargets  []string
+	TLSCertInterval time.Duration
+	TLSCertWarnDays int
+	TLSCertCritDays int
+
+	// TracerouteEnabled turns on the continuous traceroute collector.
+	// Each target is traced every TracerouteInterval; hop set changes
+	// and per-hop RTT spikes raise anomalies.
+	TracerouteEnabled  bool
+	TracerouteTargets  []string
+	TracerouteInterval time.Duration
+	TracerouteHops     int
+
+	// Bufferbloat probing saturates the link with HTTP downloads while
+	// measuring RTT to BufferbloatTarget, and reports the loaded-vs-idle
+	// RTT delta. Heavy and invasive - default disabled.
+	BufferbloatEnabled  bool
+	BufferbloatInterval time.Duration
+	BufferbloatTarget   string
+	BufferbloatLoadURL  string // empty = cloudflare default
+	BufferbloatDuration time.Duration
+
+	// WiFi monitoring publishes a rich per-radio snapshot (SSID,
+	// BSSID, channel, frequency, bitrate, TX power, noise, station
+	// counters) on WiFiInterval. The collector enumerates wireless
+	// NICs via /sys/class/net/<iface>/wireless and prefers the `iw`
+	// userspace tool for nl80211 data, falling back to
+	// /proc/net/wireless when iw is not installed. Anomalies fire on
+	// low signal, lost association, growing retries / TX failures /
+	// beacon loss.
+	WiFiEnabled   bool
+	WiFiInterval  time.Duration
+	WiFiMinSignal float64
+
+	// LANReachEnabled turns on continuous ICMP probing of every device
+	// in the discovery inventory. Slow cadence by default (1×/min) so
+	// total LAN ping load stays under 1 pps on a typical home network.
+	LANReachEnabled  bool
+	LANReachInterval time.Duration
+
+	// L2Enabled turns on L2 monitoring: per-iface multicast/broadcast
+	// burst detection and ARP-table churn (IP-conflict / rogue device
+	// signal).
+	L2Enabled            bool
+	L2Interval           time.Duration
+	L2MulticastThreshold uint64
+
+	// DeviceChatterEnabled turns on the per-device baseline anomaly.
+	// Reads from the in-memory DeviceBandwidth aggregator, so it
+	// requires capture to be running to be useful.
+	DeviceChatterEnabled bool
+	DeviceChatterFactor  float64
+
 	// WebEnabled toggles the embedded HTTP UI.
 	WebEnabled bool
 	// WebListen is the bind address for the HTTP UI (host:port).
@@ -160,6 +249,7 @@ func Default() Config {
 		DNSNames:               []string{"spiegel.de", "autonubil.de"},
 		DNSInterval:            5 * time.Second,
 		DNSTimeout:             3 * time.Second,
+		DNSInternalEnabled:     true,
 		StorageDir:             storage,
 		SQLitePath:             filepath.Join(storage, "testudo.db"),
 		SettingsPath:           filepath.Join(storage, "settings.json"),
@@ -174,6 +264,34 @@ func Default() Config {
 		LLDPEnabled:            true,
 		SNMPCommunity:          "public",
 		SNMPTimeout:            time.Second,
+		TopTalkersEnabled:      true,
+		TopTalkersInterval:     30 * time.Second,
+		TopTalkersTimeout:      2 * time.Second,
+		TopTalkersMaxHosts:     5,
+		IfaceHealthEnabled:     true,
+		IfaceHealthInterval:    5 * time.Second,
+		HTTPInterval:           30 * time.Second,
+		HTTPTimeout:            5 * time.Second,
+		TLSCertInterval:        6 * time.Hour,
+		TLSCertWarnDays:        14,
+		TLSCertCritDays:        3,
+		TracerouteEnabled:      true,
+		TracerouteInterval:     5 * time.Minute,
+		TracerouteHops:         16,
+		BufferbloatEnabled:     false,
+		BufferbloatInterval:    time.Hour,
+		BufferbloatTarget:      "1.1.1.1",
+		BufferbloatDuration:    10 * time.Second,
+		WiFiEnabled:            true,
+		WiFiInterval:           10 * time.Second,
+		WiFiMinSignal:          -75.0,
+		LANReachEnabled:        true,
+		LANReachInterval:       60 * time.Second,
+		L2Enabled:              true,
+		L2Interval:             10 * time.Second,
+		L2MulticastThreshold:   1000,
+		DeviceChatterEnabled:   true,
+		DeviceChatterFactor:    3.0,
 		WebEnabled:             false,
 		WebListen:              "127.0.0.1:8080",
 		SnapshotInterval:       30 * time.Second,

@@ -26,17 +26,23 @@ type Writer struct {
 
 // IfaceInfo is a denormalised view of one network interface.
 type IfaceInfo struct {
-	Name      string
-	Index     int
-	MTU       int
-	Up        bool
-	Running   bool
-	HWAddr    string
-	Addrs     []string
-	TxBytes   uint64
-	RxBytes   uint64
-	TxPackets uint64
-	RxPackets uint64
+	Name       string
+	Index      int
+	MTU        int
+	Up         bool
+	Running    bool
+	HWAddr     string
+	Addrs      []string
+	TxBytes    uint64
+	RxBytes    uint64
+	TxPackets  uint64
+	RxPackets  uint64
+	RxErrors   uint64
+	TxErrors   uint64
+	RxDropped  uint64
+	TxDropped  uint64
+	Collisions uint64
+	Multicast  uint64
 }
 
 // ListIfaces returns every interface known to the kernel, sorted by name.
@@ -59,6 +65,10 @@ func (w *Writer) ListIfaces() ([]IfaceInfo, error) {
 		if s := attrs.Statistics; s != nil {
 			info.TxBytes, info.RxBytes = s.TxBytes, s.RxBytes
 			info.TxPackets, info.RxPackets = s.TxPackets, s.RxPackets
+			info.RxErrors, info.TxErrors = s.RxErrors, s.TxErrors
+			info.RxDropped, info.TxDropped = s.RxDropped, s.TxDropped
+			info.Collisions = s.Collisions
+			info.Multicast = s.Multicast
 		}
 		// Addresses (IPv4 + IPv6).
 		if addrs, err := netlink.AddrList(l, netlink.FAMILY_ALL); err == nil {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Shared styles. Bumping any of these globally re-skins the whole TUI.
@@ -73,12 +74,56 @@ func renderRowWidths(widths []int, cells ...string) string {
 	return strings.Join(out, "")
 }
 
+// renderTableRow is the width-aware row renderer. When totalWidth exceeds
+// the sum of declared cell widths (including the trailing PaddingRight
+// from cellStyle), the surplus is added to the widest column - so the
+// table stretches into the available terminal space without disturbing
+// fixed-width numeric columns. Callers that don't know their total width
+// can use renderRowWidths instead.
+func renderTableRow(totalWidth int, widths []int, cells ...string) string {
+	if totalWidth <= 0 || len(widths) == 0 {
+		return renderRowWidths(widths, cells...)
+	}
+	// cellStyle adds 2 spaces of trailing padding to each rendered cell.
+	// Account for that when computing the natural total width so the
+	// surplus calculation matches what the terminal actually sees.
+	const cellPad = 2
+	declared := 0
+	flexIdx := 0
+	for i, w := range widths {
+		declared += w + cellPad
+		if w > widths[flexIdx] {
+			flexIdx = i
+		}
+	}
+	if totalWidth > declared {
+		adjusted := make([]int, len(widths))
+		copy(adjusted, widths)
+		adjusted[flexIdx] += totalWidth - declared
+		widths = adjusted
+	}
+	return renderRowWidths(widths, cells...)
+}
+
+// padOrTrim renders s into exactly w visible cells, padding with spaces
+// or truncating with an ellipsis as needed. ANSI-aware so styled cells
+// (errStyle/warnStyle/...) keep their colours through truncation.
 func padOrTrim(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
 	visible := lipgloss.Width(s)
-	if visible >= w {
+	if visible == w {
 		return s
 	}
-	return s + strings.Repeat(" ", w-visible)
+	if visible < w {
+		return s + strings.Repeat(" ", w-visible)
+	}
+	// Over-wide: reserve one cell for the ellipsis when there's room.
+	if w >= 2 {
+		return ansi.Truncate(s, w-1, "") + "…"
+	}
+	return ansi.Truncate(s, w, "")
 }
 
 func fmtRTT(d time.Duration) string {
@@ -162,3 +207,4 @@ const tuiBanner = `      ___
 (_,\/ \_/ \
   \ \_/_\_/>
   /_/  /_/`
+

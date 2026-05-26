@@ -317,18 +317,30 @@
   // ---- Renderers (one per pane) ----
   function renderGrade(g) {
     const badge = document.getElementById('grade-badge');
-    badge.textContent = g.letter || '-';
-    badge.className = 'grade-badge ' + gradeLetter(g.score || 0);
-    document.getElementById('grade-score').textContent = g.score || 0;
+    const hasData = g.has_data !== false;
+    badge.textContent = hasData ? (g.letter || '-') : '?';
+    badge.className = 'grade-badge ' + (hasData ? gradeLetter(g.score || 0) : 'nodata');
+    document.getElementById('grade-score').textContent = hasData ? (g.score || 0) : 'no data';
     document.getElementById('grade-verdict').textContent = g.verdict || '-';
     const bars = document.getElementById('grade-bars');
+    // Sub-scores listed in g.no_data produced no measurements yet -
+    // render them violet so the operator can see they were excluded
+    // from the overall grade instead of contributing a fake 100.
+    const noData = new Set(g.no_data || []);
     const rows = [
-      ['Loss',   g.loss_score,   g.score],
-      ['RTT',    g.rtt_score,    g.score],
-      ['Jitter', g.jitter_score, g.score],
-      ['DNS',    g.dns_score,    g.score],
+      ['Loss',   g.loss_score],
+      ['RTT',    g.rtt_score],
+      ['Jitter', g.jitter_score],
+      ['DNS',    g.dns_score],
     ];
     bars.innerHTML = rows.map(([label, score]) => {
+      if (noData.has(label)) {
+        return '<div class="grade-bar">'
+          + '<span>' + escape(label) + '</span>'
+          + '<div class="grade-bar-track"><div class="grade-bar-fill" style="width:100%;background:var(--accent-violet)"></div></div>'
+          + '<span class="grade-bar-value" style="color:var(--accent-violet)">no data</span>'
+          + '</div>';
+      }
       const color = score >= 85 ? '#3fb950'
                  : score >= 70 ? '#d29922'
                  : score >= 60 ? '#db6d28'
@@ -529,7 +541,48 @@
     return '';
   }
 
-  function renderIfaces(rows) {
+  // wifiBadge renders a per-interface mini-status used in the iface
+  // table. Wireless rows show signal/SSID inline; non-wireless rows
+  // render a dim "-" so the column doesn't shift width.
+  function wifiBadge(iface, wifiByIface) {
+    const w = wifiByIface[iface];
+    if (!w) return '<span class="muted">-</span>';
+    if (!w.associated) return '<span class="status-pill warn">unassoc</span>';
+    let sigClass = 'on';
+    if (w.signal_dbm < -85) sigClass = 'off';
+    else if (w.signal_dbm < -75) sigClass = 'warn';
+    const sig = w.signal_dbm ? Math.round(w.signal_dbm) + 'dBm' : 'assoc';
+    const ssid = w.ssid ? ' · ' + escape(w.ssid) : '';
+    return '<span class="status-pill ' + sigClass + '">' + sig + '</span>' + ssid;
+  }
+
+  // ifaceTypeBadge classifies the interface so an operator can tell at
+  // a glance whether they are looking at a wireless / loopback /
+  // virtual / wired NIC. The heuristic is name-based (the kernel
+  // doesn't expose a "type" field on the link itself) but matches
+  // every standard udev naming scheme we have seen.
+  function ifaceTypeBadge(i) {
+    if (i.is_wireless) return '<span class="iface-type wifi">wifi</span>';
+    const n = i.name;
+    if (n === 'lo') return '<span class="iface-type lo">loopback</span>';
+    if (/^(docker|br-|virbr|veth|cni|flannel|cilium|kube)/.test(n)) {
+      return '<span class="iface-type virt">container</span>';
+    }
+    if (/^(tun|tap|wg|gre|sit|ipsec|nordlynx)/.test(n)) {
+      return '<span class="iface-type vpn">tunnel</span>';
+    }
+    if (/^(en|eth)/.test(n)) return '<span class="iface-type wired">wired</span>';
+    if (/^(wl|wlan)/.test(n)) return '<span class="iface-type wifi">wifi</span>';
+    return '<span class="iface-type virt">virtual</span>';
+  }
+
+  function fmtCount(n) {
+    return n > 0 ? '<b class="warn">' + n + '</b>' : String(n || 0);
+  }
+
+  function renderIfaces(rows, wifi) {
+    const wifiByIface = {};
+    (wifi || []).forEach(w => { wifiByIface[w.iface] = w; });
     document.getElementById('ifaces-body').innerHTML = (rows || []).map(i => {
       const state = i.up
         ? '<span class="status-pill on">UP</span>'
@@ -538,11 +591,17 @@
       return '<tr>'
         + '<td><b>' + n + '</b></td>'
         + '<td>' + state + '</td>'
+        + '<td>' + ifaceTypeBadge(i) + '</td>'
         + '<td>' + i.mtu + '</td>'
-        + '<td>' + escape(i.hw) + '</td>'
+        + '<td class="mono">' + escape(i.hw) + '</td>'
         + '<td>' + (i.addrs || []).map(escape).join(', ') + '</td>'
         + '<td>' + fmtBytes(i.rx_bytes) + '</td>'
         + '<td>' + fmtBytes(i.tx_bytes) + '</td>'
+        + '<td>' + fmtCount(i.rx_errors) + '</td>'
+        + '<td>' + fmtCount(i.tx_errors) + '</td>'
+        + '<td>' + fmtCount((i.rx_dropped || 0) + (i.tx_dropped || 0)) + '</td>'
+        + '<td>' + fmtCount(i.collisions) + '</td>'
+        + '<td>' + wifiBadge(i.name, wifiByIface) + '</td>'
         + '<td>'
         + '<button class="btn btn-small" data-action="iface-up" data-name="' + n + '">up</button> '
         + '<button class="btn btn-small" data-action="iface-down" data-name="' + n + '">down</button> '
@@ -553,7 +612,73 @@
         + '<button class="btn btn-small" data-action="iface-static" data-name="' + n + '">static</button>'
         + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="8" class="muted">no interfaces visible</td></tr>';
+    }).join('') || '<tr><td colspan="14" class="muted">no interfaces visible</td></tr>';
+  }
+
+  // renderWiFi renders one card per wireless interface on the
+  // Dashboard. Empty when the host has no wifi NICs, otherwise the
+  // operator sees SSID / BSSID / channel / signal / bitrate /
+  // station-level counters for every radio the collector reports.
+  function renderWiFi(rows) {
+    const host = document.getElementById('wifi-list');
+    if (!host) return;
+    if (!rows || rows.length === 0) {
+      host.innerHTML = '<div class="muted">no wireless interfaces detected (no NICs under /sys/class/net/*/wireless)</div>';
+      return;
+    }
+    host.innerHTML = rows.map(w => {
+      const headerClass = w.associated ? 'wifi-card' : 'wifi-card idle';
+      const sigClass = !w.associated || w.signal_dbm === 0 ? 'muted'
+        : (w.signal_dbm < -85 ? 'err' : (w.signal_dbm < -75 ? 'warn' : 'ok'));
+      const lines = [];
+      lines.push('<div class="wifi-head"><b>' + escape(w.iface) + '</b> '
+        + (w.associated
+            ? '<span class="status-pill on">associated</span>'
+            : '<span class="status-pill warn">unassociated</span>')
+        + ' <span class="muted">' + escape(w.hw_addr || '-') + '</span>'
+        + (w.source ? ' <span class="muted">(' + escape(w.source) + ')</span>' : '')
+        + '</div>');
+      if (!w.associated) {
+        lines.push('<div class="muted">radio is up but not joined to an AP — no SSID / channel / bitrate data</div>');
+        return '<div class="' + headerClass + '">' + lines.join('') + '</div>';
+      }
+      lines.push('<dl class="wifi-grid">');
+      lines.push('<dt>SSID</dt><dd>' + escape(w.ssid || '(unknown)') + '</dd>');
+      lines.push('<dt>BSSID</dt><dd class="mono">' + escape(w.bssid || '-') + '</dd>');
+      if (w.frequency_mhz > 0) {
+        const ch = w.channel_width_mhz > 0
+          ? (w.channel + ' (' + w.channel_width_mhz + ' MHz wide)')
+          : String(w.channel);
+        lines.push('<dt>Channel</dt><dd>' + escape(ch) + ' · ' + w.frequency_mhz + ' MHz · ' + escape(w.band) + '</dd>');
+      }
+      const sigParts = [];
+      if (w.signal_dbm) sigParts.push('<span class="' + sigClass + '">' + Math.round(w.signal_dbm) + ' dBm</span>');
+      if (w.signal_avg_dbm && w.signal_avg_dbm !== w.signal_dbm) sigParts.push('avg ' + Math.round(w.signal_avg_dbm));
+      if (w.noise_dbm) sigParts.push('noise ' + Math.round(w.noise_dbm) + ' · SNR ' + Math.round(w.signal_dbm - w.noise_dbm) + ' dB');
+      lines.push('<dt>Signal</dt><dd>' + sigParts.join(' · ') + '</dd>');
+      if (w.tx_bitrate_mbps > 0 || w.rx_bitrate_mbps > 0) {
+        lines.push('<dt>Bitrate</dt><dd>tx ' + w.tx_bitrate_mbps.toFixed(1) + ' Mbit/s · rx ' + w.rx_bitrate_mbps.toFixed(1) + ' Mbit/s</dd>');
+      }
+      if (w.tx_power_dbm > 0) {
+        lines.push('<dt>TX power</dt><dd>' + w.tx_power_dbm.toFixed(1) + ' dBm</dd>');
+      }
+      if (w.link_quality > 0) {
+        const max = w.link_quality_max || 70;
+        const pct = Math.round(w.link_quality / max * 100);
+        lines.push('<dt>Quality</dt><dd>' + w.link_quality + '/' + max + ' (' + pct + '%)</dd>');
+      }
+      lines.push('<dt>Counters</dt><dd>retries ' + (w.retries || 0)
+        + ' · tx-failed ' + fmtCount(w.tx_failed)
+        + ' · beacon-loss ' + fmtCount(w.beacon_loss) + '</dd>');
+      if (w.rx_bytes + w.tx_bytes > 0) {
+        lines.push('<dt>Station</dt><dd>rx ' + fmtBytes(w.rx_bytes) + ' (' + w.rx_packets + ' pkts) · tx ' + fmtBytes(w.tx_bytes) + ' (' + w.tx_packets + ' pkts)</dd>');
+      }
+      if (w.connected_for) {
+        lines.push('<dt>Up since</dt><dd>' + escape(w.connected_for) + ' ago</dd>');
+      }
+      lines.push('</dl>');
+      return '<div class="' + headerClass + '">' + lines.join('') + '</div>';
+    }).join('');
   }
 
   function renderRoutes(rows) {
@@ -835,7 +960,8 @@
       renderDNS(snap.dns);
       renderFlows(snap.flows);
       renderDevices(snap.devices);
-      renderIfaces(snap.ifaces);
+      renderIfaces(snap.ifaces, snap.wifi);
+      renderWiFi(snap.wifi);
       renderRoutes(snap.routes);
       renderFirewall(snap.filter_rules, snap.firewall);
       renderNAT(snap.nat);

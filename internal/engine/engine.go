@@ -32,6 +32,7 @@ type Engine struct {
 	agg       *metrics.Aggregator
 	bw        *metrics.BandwidthHistory
 	flowAgg   *flows.Aggregator
+	deviceBW  *flows.DeviceBandwidth
 	dnsCache  *flows.DNSCache
 	procMatch *flows.ProcMatcher
 	tagger    *flows.Tagger
@@ -43,6 +44,7 @@ type Engine struct {
 	incidents *incidents.Engine
 	inventory *discovery.Inventory
 	store     *storage.Store
+	wifi      *collectors.WiFiCollector
 	sessionID string
 
 	// flowsCache holds the most recent decorated-flow snapshot. The TUI
@@ -72,6 +74,7 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 		agg:       metrics.NewAggregator(),
 		bw:        metrics.NewBandwidthHistory(120),
 		flowAgg:   flows.NewAggregator(),
+		deviceBW:  flows.NewDeviceBandwidth(5*time.Second, 120),
 		dnsCache:  flows.NewDNSCache(),
 		procMatch: flows.NewProcMatcher(),
 		tagger:    flows.NewTagger(),
@@ -87,6 +90,7 @@ func (e *Engine) Bus() *events.Bus                     { return e.bus }
 func (e *Engine) Aggregator() *metrics.Aggregator      { return e.agg }
 func (e *Engine) Bandwidth() *metrics.BandwidthHistory { return e.bw }
 func (e *Engine) Flows() *flows.Aggregator             { return e.flowAgg }
+func (e *Engine) DeviceBandwidth() *flows.DeviceBandwidth { return e.deviceBW }
 func (e *Engine) DNSCache() *flows.DNSCache            { return e.dnsCache }
 func (e *Engine) ProcMatcher() *flows.ProcMatcher      { return e.procMatch }
 func (e *Engine) Tagger() *flows.Tagger                { return e.tagger }
@@ -105,6 +109,12 @@ func (e *Engine) Inventory() *discovery.Inventory { return e.inventory }
 func (e *Engine) Store() *storage.Store           { return e.store }
 func (e *Engine) SessionID() string               { return e.sessionID }
 func (e *Engine) Config() config.Config           { return e.cfg }
+
+// WiFi returns the WiFi collector so the TUI / Web UI can read the
+// rich per-interface snapshot (SSID, BSSID, frequency, bitrate,
+// txpower, etc.). Returns nil when WiFi monitoring is disabled in
+// config — callers must nil-check before invoking Snapshot.
+func (e *Engine) WiFi() *collectors.WiFiCollector { return e.wifi }
 
 // Start begins capture. The session row is created immediately; collectors
 // and analyzers run in background goroutines until Stop is called.
@@ -139,7 +149,33 @@ func (e *Engine) Start(parent context.Context) error {
 	}
 	e.startIPFIX(ctx)
 	e.startBandwidthPoller(ctx)
+	e.startDeviceBandwidthSampler(ctx)
 	return nil
+}
+
+// startDeviceBandwidthSampler periodically folds the flow aggregator
+// into per-LAN-device byte buckets. The cadence matches the configured
+// bucket width so each tick produces one bucket of data; faster ticks
+// would just accumulate into the same bucket.
+func (e *Engine) startDeviceBandwidthSampler(ctx context.Context) {
+	if e.deviceBW == nil || e.flowAgg == nil {
+		return
+	}
+	interval := e.deviceBW.BucketSizeDuration()
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				e.deviceBW.Sample(e.flowAgg.Snapshot(), now)
+			}
+		}
+	}()
 }
 
 // startBandwidthPoller samples kernel interface counters once per second
@@ -393,6 +429,111 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 			Timeout:  e.cfg.DNSTimeout,
 		},
 	}
+	if e.cfg.TopTalkersEnabled && e.flowAgg != nil {
+		cs = append(cs, &collectors.TopTalkersCollector{
+			Flows:    e.flowAgg,
+			Interval: e.cfg.TopTalkersInterval,
+			Timeout:  e.cfg.TopTalkersTimeout,
+			MaxHosts: e.cfg.TopTalkersMaxHosts,
+		})
+	}
+	if e.cfg.IfaceHealthEnabled && e.netops != nil {
+		cs = append(cs, &collectors.IfaceHealthCollector{
+			Netops:   e.netops,
+			Interval: e.cfg.IfaceHealthInterval,
+		})
+	}
+	if e.cfg.DNSInternalEnabled {
+		cs = append(cs, &collectors.InternalDNSCollector{
+			Servers:  e.cfg.DNSInternalServers,
+			Names:    e.cfg.DNSNames,
+			Interval: e.cfg.DNSInterval,
+			Timeout:  e.cfg.DNSTimeout,
+		})
+	}
+	// HTTP and TLS targets fall back to DNSNames when not configured -
+	// gives an out-of-the-box health view that exercises the same set of
+	// names the DNS probe already trusts, without forcing the operator
+	// to populate two more config slices.
+	httpEndpoints := e.cfg.HTTPEndpoints
+	if len(httpEndpoints) == 0 {
+		for _, name := range e.cfg.DNSNames {
+			n := strings.TrimSpace(name)
+			if n == "" {
+				continue
+			}
+			httpEndpoints = append(httpEndpoints, "https://"+n+"/")
+		}
+	}
+	if len(httpEndpoints) > 0 {
+		cs = append(cs, &collectors.HTTPEndpointCollector{
+			Endpoints: httpEndpoints,
+			Interval:  e.cfg.HTTPInterval,
+			Timeout:   e.cfg.HTTPTimeout,
+		})
+	}
+	tlsTargets := e.cfg.TLSCertTargets
+	if len(tlsTargets) == 0 {
+		for _, name := range e.cfg.DNSNames {
+			n := strings.TrimSpace(name)
+			if n == "" {
+				continue
+			}
+			tlsTargets = append(tlsTargets, n+":443")
+		}
+	}
+	if len(tlsTargets) > 0 {
+		cs = append(cs, &collectors.TLSCertCollector{
+			Targets:  tlsTargets,
+			Interval: e.cfg.TLSCertInterval,
+			WarnDays: e.cfg.TLSCertWarnDays,
+			CritDays: e.cfg.TLSCertCritDays,
+		})
+	}
+	if e.cfg.TracerouteEnabled {
+		targets := e.cfg.TracerouteTargets
+		if len(targets) == 0 {
+			targets = e.cfg.ICMPTargets
+		}
+		cs = append(cs, &collectors.TracerouteCollector{
+			Targets:  targets,
+			Interval: e.cfg.TracerouteInterval,
+			MaxHops:  e.cfg.TracerouteHops,
+		})
+	}
+	if e.cfg.BufferbloatEnabled {
+		target := e.cfg.BufferbloatTarget
+		if target == "" && len(e.cfg.ICMPTargets) > 0 {
+			target = e.cfg.ICMPTargets[0]
+		}
+		cs = append(cs, &collectors.BufferbloatCollector{
+			Target:   target,
+			LoadURL:  e.cfg.BufferbloatLoadURL,
+			Interval: e.cfg.BufferbloatInterval,
+			Duration: e.cfg.BufferbloatDuration,
+			Timeout:  e.cfg.ICMPTimeout,
+		})
+	}
+	if e.cfg.WiFiEnabled {
+		e.wifi = &collectors.WiFiCollector{
+			Interval:  e.cfg.WiFiInterval,
+			MinSignal: e.cfg.WiFiMinSignal,
+		}
+		cs = append(cs, e.wifi)
+	}
+	if e.cfg.LANReachEnabled && e.inventory != nil {
+		cs = append(cs, &collectors.LANReachabilityCollector{
+			Inventory: e.inventory,
+			Interval:  e.cfg.LANReachInterval,
+		})
+	}
+	if e.cfg.L2Enabled && e.netops != nil {
+		cs = append(cs, &collectors.L2Collector{
+			Netops:             e.netops,
+			Interval:           e.cfg.L2Interval,
+			MulticastThreshold: e.cfg.L2MulticastThreshold,
+		})
+	}
 	for _, c := range cs {
 		c := c
 		e.wg.Add(1)
@@ -446,6 +587,16 @@ func (e *Engine) startAnalyzers(ctx context.Context) {
 			[]events.Kind{}},
 		{&analyzers.RetransmissionDetector{Settings: e.settings, Interval: 20 * time.Second},
 			[]events.Kind{}},
+	}
+	if e.cfg.DeviceChatterEnabled && e.deviceBW != nil {
+		specs = append(specs, analyzerSpec{
+			a: &analyzers.DeviceChatterDetector{
+				Bandwidth: e.deviceBW,
+				Interval:  15 * time.Second,
+				Factor:    e.cfg.DeviceChatterFactor,
+			},
+			kinds: []events.Kind{},
+		})
 	}
 	for _, spec := range specs {
 		spec := spec

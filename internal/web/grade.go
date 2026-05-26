@@ -1,27 +1,97 @@
 package web
 
 import (
+	"net"
+	"strings"
+
+	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/config"
+	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/metrics"
+	"github.com/noahzmr/testudo/internal/netops"
 )
 
 // computeGradeView mirrors the TUI's ComputeGrade so the dashboard's
-// "Network Quality" badge looks identical in both UIs. Weights and the
-// 0-100 sub-score mapping are kept in lockstep with internal/tui/grade.go.
-func computeGradeView(targets []metrics.TargetStats, dns []metrics.DNSStats, th config.Thresholds) gradeView {
+// "Network Quality" badge looks identical in both UIs. Weights, sub-score
+// mapping, and target classification stay in lockstep with
+// internal/tui/grade.go.
+func computeGradeView(
+	targets []metrics.TargetStats,
+	dns []metrics.DNSStats,
+	ifaces []netops.IfaceInfo,
+	wifi []collectors.WiFiSnapshot,
+	th config.Thresholds,
+) gradeView {
 	const (
-		wLoss   = 0.40
-		wRTT    = 0.30
-		wJitter = 0.15
-		wDNS    = 0.15
+		wLoss   = 0.20
+		wRTT    = 0.15
+		wJitter = 0.10
+		wDNS    = 0.10
+		wLAN    = 0.15
+		wHTTP   = 0.10
+		wStab   = 0.10
+		wWiFi   = 0.10
 	)
-	lossScore := subScore(avgLoss(targets), th.PacketLossPct)
-	rttScore := subScore(avgRTT(targets), th.RTTMs)
-	jitScore := subScore(avgJit(targets), th.JitterMs)
+
+	wan := filterT(targets, isWANTargetW)
+	lan := filterT(targets, isLANTargetW)
+	httpT := filterT(targets, isHTTPTargetW)
+
+	hasLoss := len(wan) > 0
+	hasRTT := hasRTTDataW(wan)
+	hasJit := hasRTTDataW(wan)
+	hasDNS := hasDNSDataW(dns)
+	hasLAN := len(lan) > 0
+	hasHTTP := len(httpT) > 0
+	hasStab := hasStabDataW(ifaces)
+	hasWiFi := hasWiFiDataW(wifi)
+
+	lossScore := subScore(avgLoss(wan), th.PacketLossPct)
+	rttScore := subScore(avgRTT(wan), th.RTTMs)
+	jitScore := subScore(avgJit(wan), th.JitterMs)
 	dnsScore := subScore(avgDNS(dns), th.DNSLatencyMs)
-	total := wLoss*float64(lossScore) + wRTT*float64(rttScore) +
-		wJitter*float64(jitScore) + wDNS*float64(dnsScore)
-	score := int(total + 0.5)
+	lanScore := scoreLANW(lan, th)
+	httpScore := scoreHTTPW(httpT)
+	stabScore := scoreStabilityW(ifaces)
+	wifiScore := scoreWiFiW(wifi)
+
+	// Renormalize over sub-scores that have data so "no measurement yet"
+	// doesn't inflate the overall grade. Mirrors internal/tui/grade.go.
+	parts := []struct {
+		w  float64
+		s  int
+		ok bool
+		nm string
+	}{
+		{wLoss, lossScore, hasLoss, "Loss"},
+		{wRTT, rttScore, hasRTT, "RTT"},
+		{wJitter, jitScore, hasJit, "Jitter"},
+		{wDNS, dnsScore, hasDNS, "DNS"},
+		{wLAN, lanScore, hasLAN, "LAN"},
+		{wHTTP, httpScore, hasHTTP, "HTTP"},
+		{wStab, stabScore, hasStab, "Stab"},
+		{wWiFi, wifiScore, hasWiFi, "WiFi"},
+	}
+	var weighted, totalW float64
+	noData := []string{}
+	for _, p := range parts {
+		if !p.ok {
+			noData = append(noData, p.nm)
+			continue
+		}
+		weighted += p.w * float64(p.s)
+		totalW += p.w
+	}
+	if totalW == 0 {
+		return gradeView{
+			Score: 0, Letter: "?", Verdict: "Awaiting probes",
+			HasData: false,
+			Loss:    lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
+			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
+			NoData: noData,
+		}
+	}
+	score := int(weighted/totalW + 0.5)
 	if score < 0 {
 		score = 0
 	}
@@ -30,13 +100,52 @@ func computeGradeView(targets []metrics.TargetStats, dns []metrics.DNSStats, th 
 	}
 	letter, verdict := letterVerdict(score)
 	return gradeView{
-		Score: score, Letter: letter, Verdict: verdict,
+		Score: score, Letter: letter, Verdict: verdict, HasData: true,
 		Loss: lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
+		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
+		NoData: noData,
 	}
 }
 
-// subScore maps a measurement => 0..100 against a comfort threshold.
-// See tui/grade.go for the same logic.
+func hasRTTDataW(ts []metrics.TargetStats) bool {
+	for _, t := range ts {
+		if t.AvgRTT > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDNSDataW(ds []metrics.DNSStats) bool {
+	for _, d := range ds {
+		if d.AvgLatency > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStabDataW(ifs []netops.IfaceInfo) bool {
+	for _, ifi := range ifs {
+		if ifi.Name == "lo" {
+			continue
+		}
+		if ifi.RxPackets+ifi.TxPackets > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWiFiDataW(snaps []collectors.WiFiSnapshot) bool {
+	for _, s := range snaps {
+		if s.Associated && s.Signal != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func subScore(value, threshold float64) int {
 	if threshold <= 0 {
 		threshold = 1
@@ -53,6 +162,66 @@ func subScore(value, threshold float64) int {
 	default:
 		return 0
 	}
+}
+
+func scoreLANW(ts []metrics.TargetStats, th config.Thresholds) int {
+	if len(ts) == 0 {
+		return 100
+	}
+	loss := subScore(avgLoss(ts), th.PacketLossPct)
+	rtt := subScore(avgRTT(ts), 50) // LAN comfort line tighter than WAN
+	return (loss + rtt) / 2
+}
+
+func scoreHTTPW(ts []metrics.TargetStats) int {
+	if len(ts) == 0 {
+		return 100
+	}
+	fail := subScore(avgLoss(ts), 2.0)
+	ttfb := subScore(avgRTT(ts), 500)
+	return (fail + ttfb) / 2
+}
+
+func scoreStabilityW(ifs []netops.IfaceInfo) int {
+	var totalErrors, totalPackets uint64
+	for _, ifi := range ifs {
+		if ifi.Name == "lo" {
+			continue
+		}
+		totalErrors += ifi.RxErrors + ifi.TxErrors + ifi.RxDropped + ifi.TxDropped
+		totalPackets += ifi.RxPackets + ifi.TxPackets
+	}
+	if totalPackets == 0 {
+		return 100
+	}
+	pct := float64(totalErrors) / float64(totalPackets) * 100
+	return subScore(pct, 0.1)
+}
+
+func scoreWiFiW(snaps []collectors.WiFiSnapshot) int {
+	if len(snaps) == 0 {
+		return 100
+	}
+	var sum float64
+	var n int
+	for _, s := range snaps {
+		if s.Associated && s.Signal != 0 {
+			sum += s.Signal
+			n++
+		}
+	}
+	if n == 0 {
+		return 100
+	}
+	avg := sum / float64(n)
+	score := int((avg+90)/30*100 + 0.5)
+	if score < 0 {
+		score = 0
+	}
+	if score > 100 {
+		score = 100
+	}
+	return score
 }
 
 func letterVerdict(score int) (string, string) {
@@ -75,6 +244,55 @@ func letterVerdict(score int) (string, string) {
 		return "F", "Failing"
 	}
 }
+
+// ---- target classification (mirrors tui/grade.go) ----
+
+func filterT(ts []metrics.TargetStats, pred func(string) bool) []metrics.TargetStats {
+	out := make([]metrics.TargetStats, 0, len(ts))
+	for _, t := range ts {
+		if pred(t.Target) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func isHTTPTargetW(t string) bool {
+	return strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://")
+}
+
+func isLANTargetW(t string) bool {
+	host := t
+	if h, _, err := net.SplitHostPort(t); err == nil {
+		host = h
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return flows.IsLAN(host)
+	}
+	for _, suf := range []string{".lan", ".local", ".home", ".internal"} {
+		if strings.HasSuffix(strings.ToLower(host), suf) {
+			return true
+		}
+	}
+	return false
+}
+
+func isWANTargetW(t string) bool {
+	if isHTTPTargetW(t) {
+		return false
+	}
+	for _, p := range []string{"trace:", "wifi:", "bufferbloat:"} {
+		if strings.HasPrefix(t, p) {
+			return false
+		}
+	}
+	if isLANTargetW(t) {
+		return false
+	}
+	return true
+}
+
+// ---- averages ----
 
 func avgLoss(ts []metrics.TargetStats) float64 {
 	if len(ts) == 0 {
@@ -131,3 +349,4 @@ func avgDNS(ds []metrics.DNSStats) float64 {
 	}
 	return sum / float64(n)
 }
+

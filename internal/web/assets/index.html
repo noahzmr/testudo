@@ -52,6 +52,10 @@
         <div id="bandwidth-list"></div>
       </div>
       <div class="card">
+        <h2>WiFi radios</h2>
+        <div id="wifi-list" class="wifi-list"></div>
+      </div>
+      <div class="card">
         <h2>ICMP latency (rolling samples)</h2>
         <div id="icmp-sparks"></div>
       </div>
@@ -125,9 +129,16 @@
     <!-- INTERFACES ---------------------------------------------------- -->
     <section data-pane="ifaces" class="pane">
       <div class="card">
-        <h2>Interfaces</h2>
+        <h2>Interfaces · live kernel state</h2>
+        <p class="muted">All kernel-visible interfaces are monitored. Errors / drops / collisions and a per-radio WiFi badge sit alongside the link state so a degraded NIC is obvious before flows go silent.</p>
         <table>
-          <thead><tr><th>Name</th><th>State</th><th>MTU</th><th>HW addr</th><th>Addresses</th><th>RX</th><th>TX</th><th>Actions</th></tr></thead>
+          <thead><tr>
+            <th>Name</th><th>State</th><th>Type</th><th>MTU</th><th>HW addr</th><th>Addresses</th>
+            <th>RX</th><th>TX</th>
+            <th>RX err</th><th>TX err</th><th>Drops</th><th>Coll.</th>
+            <th>WiFi</th>
+            <th>Actions</th>
+          </tr></thead>
           <tbody id="ifaces-body"></tbody>
         </table>
       </div>

@@ -80,6 +80,8 @@ var commandAliases = map[string]string{
 	"replay":     "History",
 	"set":        "Settings",
 	"settings":   "Settings",
+	"health":     "Health",
+	"probes2":    "Health",
 }
 
 // resolveCommand returns the tab index for a `:name` input, or (-1, true)
@@ -129,24 +131,24 @@ func completeCommand(input string) string {
 // ---- chrome styles ----
 
 var (
+	brandStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("231")).
+			Background(lipgloss.Color("63")).
+			Padding(0, 1)
+
 	panelBox = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("63")).
 			Padding(0, 1)
 
 	panelLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true)
-	panelKey   = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	panelVal   = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	bannerHue  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 
-	crumbStyle = lipgloss.NewStyle().
+	statusMsgStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("63")).
-			Padding(0, 2)
-
-	crumbDim = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
-			Padding(0, 1)
+			Foreground(lipgloss.Color("214"))
 
 	cmdPromptStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -184,60 +186,117 @@ var (
 	helpGroup = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).MarginTop(1)
 )
 
-// renderHeader builds the 3-column top panel. Width is split roughly into
-// thirds; if the terminal is too narrow we collapse the right (logo) panel
-// first, then the middle (keys) panel, and finally render a single-line
-// compact summary for very narrow terminals.
+// renderHeader builds the three-panel top chrome: banner (left), runtime
+// statistics (middle), and network-quality grade (right). Panels are
+// dropped right-to-left only when the right-most one no longer fits; the
+// grade panel is kept whenever there's any room because it's the most
+// operationally valuable cell. On very narrow terminals we fall back to a
+// single-line summary that still shows the brand, view, filter, and grade
+// letter.
 func (a *App) renderHeader(width int) string {
 	if width <= 0 {
 		width = 80
 	}
-
 	activeTitle := "-"
 	if a.activeIdx >= 0 && a.activeIdx < len(a.tabs) {
 		activeTitle = a.tabs[a.activeIdx].Title()
 	}
-	filterLine := panelVal.Render("-")
-	if a.filter != "" {
-		filterLine = filterActiveStyle.Render(a.filter)
-	}
 
-	leftLines := []string{
-		panelLabel.Render("Testudo"),
-		panelLabel.Render("Session: ") + panelVal.Render(shortID(a.eng.SessionID())),
-		panelLabel.Render("Uptime:  ") + panelVal.Render(a.uptime()),
-		panelLabel.Render("View:    ") + panelVal.Render(activeTitle),
-		panelLabel.Render("Filter:  ") + filterLine,
-	}
-	keysLines := []string{
-		panelLabel.Render("Navigation"),
-		panelKey.Render(" <:>") + footerLabel.Render(" command"),
-		panelKey.Render(" </>") + footerLabel.Render(" filter"),
-		panelKey.Render(" <?>") + footerLabel.Render(" help"),
-		panelKey.Render(" <1-9>") + footerLabel.Render(" jump · ") + panelKey.Render("<q>") + footerLabel.Render(" quit"),
-	}
-	logoLines := strings.Split(tuiBanner, "\n")
-	logoStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render(strings.Join(logoLines, "\n"))
+	stats := a.renderStatsPanel(activeTitle)
+	banner := panelBox.Render(bannerHue.Render(tuiBanner))
+	grade := panelBox.Render(a.renderGradePanel())
 
-	left := panelBox.Render(strings.Join(leftLines, "\n"))
-	mid := panelBox.Render(strings.Join(keysLines, "\n"))
-	right := panelBox.Render(logoStyled)
-
-	// Compose: drop panels if width is tight. Each panel has its own border
-	// and padding, so lipgloss.Width gives the actual rendered cells.
+	// Compose: drop panels right-to-left if width is tight.
 	switch {
-	case lipgloss.Width(left)+lipgloss.Width(mid)+lipgloss.Width(right)+2 <= width:
-		return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", mid, " ", right)
-	case lipgloss.Width(left)+lipgloss.Width(mid)+1 <= width:
-		return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", mid)
-	case lipgloss.Width(left) <= width:
-		return left
+	case lipgloss.Width(banner)+lipgloss.Width(stats)+lipgloss.Width(grade)+2 <= width:
+		return lipgloss.JoinHorizontal(lipgloss.Top, banner, " ", stats, " ", grade)
+	case lipgloss.Width(stats)+lipgloss.Width(grade)+1 <= width:
+		return lipgloss.JoinHorizontal(lipgloss.Top, stats, " ", grade)
+	case lipgloss.Width(grade) <= width:
+		return grade
 	default:
 		// Very narrow: a single line that still surfaces what matters.
-		return panelLabel.Render("Testudo") + " · " +
-			panelVal.Render(activeTitle) + " · " +
-			panelLabel.Render("filter:") + " " + filterLine
+		filterCell := panelVal.Render("-")
+		if a.filter != "" {
+			filterCell = filterActiveStyle.Render(a.filter)
+		}
+		return brandStyle.Render("testudo") + "  " +
+			panelVal.Render(activeTitle) + "  " +
+			panelLabel.Render("grade:") + panelVal.Render(a.grade.Letter) + "  " +
+			panelLabel.Render("filter:") + filterCell
 	}
+}
+
+// renderStatsPanel renders the middle bordered panel showing live runtime
+// counters: session, uptime, view, anomaly count, and active filter.
+func (a *App) renderStatsPanel(activeTitle string) string {
+	filterCell := panelVal.Render("-")
+	if a.filter != "" {
+		filterCell = filterActiveStyle.Render(a.filter)
+	}
+	anomCount := panelVal.Render(fmt.Sprintf("%d", len(a.anomalies)))
+	if len(a.anomalies) > 0 {
+		anomCount = filterActiveStyle.Render(fmt.Sprintf("%d", len(a.anomalies)))
+	}
+	lines := []string{
+		panelLabel.Render("Statistics"),
+		panelLabel.Render("Session:  ") + panelVal.Render(shortID(a.eng.SessionID())),
+		panelLabel.Render("Uptime:   ") + panelVal.Render(a.uptime()),
+		panelLabel.Render("View:     ") + panelVal.Render(activeTitle),
+		panelLabel.Render("Anomaly:  ") + anomCount,
+		panelLabel.Render("Filter:   ") + filterCell,
+	}
+	return panelBox.Render(strings.Join(lines, "\n"))
+}
+
+// renderGradePanel renders the right bordered panel showing the cached
+// network-quality grade: letter badge, score, verdict, plus three compact
+// sub-score bars for the most operationally important dimensions.
+func (a *App) renderGradePanel() string {
+	g := a.grade
+	col := gradeColor(g.Score)
+	letter := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("231")).
+		Background(col).
+		Padding(0, 1).
+		Render(g.Letter)
+	score := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(col).
+		Render(fmt.Sprintf("%d/100", g.Score))
+	verdict := lipgloss.NewStyle().
+		Foreground(col).
+		Render(g.Verdict)
+
+	lines := []string{
+		panelLabel.Render("Network Quality"),
+		letter + "  " + score,
+		verdict,
+		miniSubScoreBar(g.Loss),
+		miniSubScoreBar(g.RTT),
+		miniSubScoreBar(g.DNS),
+	}
+	return strings.Join(lines, "\n")
+}
+
+// miniSubScoreBar is a narrower variant of renderSubScoreBar tuned for the
+// header grade panel. 8-cell bar instead of 16.
+func miniSubScoreBar(s subScore) string {
+	const barW = 8
+	filled := s.Score * barW / 100
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > barW {
+		filled = barW
+	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barW-filled)
+	col := gradeColor(s.Score)
+	return fmt.Sprintf("%s %s",
+		panelLabel.Render(fmt.Sprintf("%-4s", strings.ToUpper(s.Name))),
+		lipgloss.NewStyle().Foreground(col).Render(bar),
+	)
 }
 
 // renderTabBar produces a tab strip that adapts to width. Three layouts:
@@ -307,21 +366,6 @@ func (a *App) renderTabBar(width int) string {
 		a.activeIdx+1, len(a.tabs), title))
 }
 
-// renderBreadcrumb is the k9s "<0> resource" line below the tab bar.
-func (a *App) renderBreadcrumb() string {
-	if a.activeIdx < 0 || a.activeIdx >= len(a.tabs) {
-		return ""
-	}
-	title := a.tabs[a.activeIdx].Title()
-	crumb := crumbStyle.Render(fmt.Sprintf(" %d / %d ", a.activeIdx+1, len(a.tabs)))
-	name := crumbDim.Render(strings.ToLower(title))
-	hint := ""
-	if a.filter != "" {
-		hint = " " + filterActiveStyle.Render("/"+a.filter)
-	}
-	return crumb + name + hint
-}
-
 // renderCommandBar renders the bottom-of-screen single-line input shown
 // while modeCommand or modeFilter is active. For modeNormal it returns the
 // regular footer hints block (which may span multiple lines on narrow
@@ -342,37 +386,35 @@ func (a *App) renderCommandBar(width int) string {
 	}
 }
 
-// renderFooter packs the chrome hint set onto line 1 and the active tab's
-// HelpHints into one or more lines beneath, packing items left-to-right
-// until they don't fit, then wrapping. This keeps every binding readable
-// at any terminal width - the lines just stack rather than overflowing.
+// renderFooter packs chrome hints and the active tab's HelpHints into a
+// single packed run of items, wrapping only when the row is full. Status
+// toasts are appended to the last line when they fit; otherwise they wrap
+// to a new line.
 func (a *App) renderFooter(width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	chrome := []string{
+	items := []string{
 		footerKey.Render("?") + footerLabel.Render(" help"),
 		footerKey.Render(":") + footerLabel.Render(" cmd"),
 		footerKey.Render("/") + footerLabel.Render(" filter"),
 		footerKey.Render("Tab") + footerLabel.Render(" next"),
 		footerKey.Render("q") + footerLabel.Render(" quit"),
 	}
-	var rendered []string
-	rendered = append(rendered, packHints(chrome, width)...)
-	if hints := a.activeTabHints(); len(hints) > 0 {
-		items := make([]string, len(hints))
-		for i, h := range hints {
-			items[i] = footerKey.Render(h.Key) + footerLabel.Render(" "+h.Desc)
-		}
-		// Visible separator between chrome and tab keys.
-		rendered = append(rendered, dimStyle.Render(strings.Repeat("·", min(width, 40))))
-		rendered = append(rendered, packHints(items, width)...)
+	for _, h := range a.activeTabHints() {
+		items = append(items, footerKey.Render(h.Key)+footerLabel.Render(" "+h.Desc))
 	}
-	line := strings.Join(rendered, "\n")
+	lines := packHints(items, width)
 	if a.statusMsg != "" {
-		line += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(a.statusMsg)
+		msg := statusMsgStyle.Render("· " + a.statusMsg)
+		last := len(lines) - 1
+		if last >= 0 && lipgloss.Width(lines[last])+lipgloss.Width(msg)+2 <= width {
+			lines[last] = lines[last] + "  " + msg
+		} else {
+			lines = append(lines, msg)
+		}
 	}
-	return line
+	return strings.Join(lines, "\n")
 }
 
 // packHints arranges items left-to-right into lines no wider than width,

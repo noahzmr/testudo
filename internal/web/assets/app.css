@@ -218,8 +218,9 @@ input:focus, select:focus { outline: none; border-color: var(--accent-blue); }
   background: var(--bg-row);
   border: 1px solid var(--border);
 }
-.status-pill.on  { background: var(--accent); color: #0d1117; border-color: var(--accent); }
-.status-pill.off { background: var(--accent-red); color: white; border-color: var(--accent-red); }
+.status-pill.on   { background: var(--accent); color: #0d1117; border-color: var(--accent); }
+.status-pill.off  { background: var(--accent-red); color: white; border-color: var(--accent-red); }
+.status-pill.warn { background: var(--accent-yellow); color: #0d1117; border-color: var(--accent-yellow); }
 
 .severity {
   padding: 2px 6px;
@@ -264,6 +265,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent-blue); }
 .grade-badge.C { background: var(--accent-yellow); color: #0d1117; }
 .grade-badge.D { background: var(--accent-orange); color: #0d1117; }
 .grade-badge.F { background: var(--accent-red); color: white; }
+.grade-badge.nodata { background: var(--accent-violet); color: white; }
 
 .grade-score { font-size: 22px; font-weight: 700; }
 .grade-verdict { color: var(--fg-dim); font-size: 13px; margin-top: 4px; }
@@ -321,3 +323,55 @@ input:focus, select:focus { outline: none; border-color: var(--accent-blue); }
 .loss-ok   { color: var(--accent); }
 .loss-warn { color: var(--accent-yellow); }
 .loss-err  { color: var(--accent-red); }
+
+/* Inline emphasis used by table cells */
+.ok   { color: var(--accent); }
+.warn { color: var(--accent-yellow); }
+.err  { color: var(--accent-red); }
+.mono { font-family: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace; font-size: 12px; }
+
+/* Interface-type badge in the Interfaces table. Keeps the wired /
+   wifi / tunnel / container distinction visible at a glance without
+   forcing the operator to read the iface name. */
+.iface-type {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+  border: 1px solid var(--border);
+  background: var(--bg-row);
+  color: var(--fg-dim);
+}
+.iface-type.wifi    { color: var(--accent-violet); border-color: var(--accent-violet); }
+.iface-type.wired   { color: var(--accent-blue); border-color: var(--accent-blue); }
+.iface-type.vpn     { color: var(--accent-yellow); border-color: var(--accent-yellow); }
+.iface-type.virt    { color: var(--fg-dim); }
+.iface-type.lo      { color: var(--fg-dim); }
+
+/* WiFi dashboard card layout. One sub-card per radio so multiple
+   interfaces (eg. laptop + USB dongle) lay out cleanly without a
+   table. */
+.wifi-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 12px;
+}
+.wifi-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--bg-row);
+}
+.wifi-card.idle { opacity: 0.7; }
+.wifi-head { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wifi-grid {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  row-gap: 4px;
+  column-gap: 10px;
+  margin: 0;
+}
+.wifi-grid dt { color: var(--fg-dim); font-size: 12px; }
+.wifi-grid dd { margin: 0; font-size: 13px; word-break: break-word; }

@@ -17,8 +17,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/engine"
 	"github.com/noahzmr/testudo/internal/events"
+	"github.com/noahzmr/testudo/internal/netops"
 )
 
 // Tab is one screen within the app. Each implementation owns its data and
@@ -45,6 +47,12 @@ type App struct {
 	// permanent dead subscriber to the bus's fan-out loop.
 	anomalySub *events.Subscription
 
+	// probes caches the latest latency / loss / DNS result per
+	// (source, target). Fed by a single bus subscription started in NewApp;
+	// the Health tab reads snapshots on every render. Lives for the
+	// lifetime of the App and is closed in Close().
+	probes *ProbeState
+
 	// mode + cmdBuf hold the chrome's input-mode state machine. Only one
 	// editor (command bar, filter bar, help overlay) is active at a time.
 	mode   inputMode
@@ -56,6 +64,11 @@ type App struct {
 	height    int
 	startedAt time.Time
 	statusMsg string
+
+	// grade is the latest network-quality summary rendered in the header.
+	// Refreshed on slowTick so every tab (not just Dashboard) sees a
+	// current letter/score without each one recomputing it on every frame.
+	grade NetworkGrade
 
 	// bodyScroll is the vertical offset applied to the active tab's
 	// rendered body. Driven by PgUp/PgDn/Home/End/Ctrl-U/Ctrl-D in the
@@ -72,6 +85,7 @@ type anomalyMsg struct {
 	ts       time.Time
 	severity string
 	text     string
+	source   string
 }
 
 func NewApp(eng *engine.Engine) *App {
@@ -79,7 +93,9 @@ func NewApp(eng *engine.Engine) *App {
 		eng:        eng,
 		startedAt:  time.Now(),
 		anomalySub: eng.Bus().SubscribeKinds(events.KindAnomaly),
+		probes:     NewProbeState(eng.Bus()),
 	}
+	app.refreshGrade() // populate before the first frame
 	app.tabs = []Tab{
 		newDashboardTab(eng),
 		newFlowsTab(eng, app),
@@ -94,6 +110,7 @@ func NewApp(eng *engine.Engine) *App {
 		newAlertsTab(app),
 		newHistoryTab(eng, app),
 		newSettingsTab(eng, app),
+		newHealthTab(eng, app),
 	}
 	return app
 }
@@ -112,6 +129,24 @@ func (a *App) Init() tea.Cmd {
 		}
 	}
 	return tea.Batch(cmds...)
+}
+
+// refreshGrade recomputes the cached network-quality grade from the
+// aggregator's latest snapshots. Called on slowTick (3s) and once at
+// startup so the header always shows a current score without each tab
+// recomputing it on every frame.
+func (a *App) refreshGrade() {
+	targets := a.eng.Aggregator().SnapshotTargets()
+	dns := a.eng.Aggregator().SnapshotDNS()
+	var ifaces []netops.IfaceInfo
+	if nw := a.eng.Netops(); nw != nil {
+		ifaces, _ = nw.ListIfaces()
+	}
+	var wifi []collectors.WiFiSnapshot
+	if wc := a.eng.WiFi(); wc != nil {
+		wifi = wc.Snapshot()
+	}
+	a.grade = ComputeGrade(targets, dns, ifaces, wifi, a.eng.Settings().Snapshot())
 }
 
 // refreshActive triggers an immediate one-shot slow-refresh of the
@@ -140,7 +175,7 @@ func (a *App) waitAnomaly() tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return anomalyMsg{ts: ev.Time, severity: p.Severity, text: p.Message}
+		return anomalyMsg{ts: ev.Time, severity: p.Severity, text: p.Message, source: ev.Source}
 	}
 }
 
@@ -153,6 +188,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_ = a.tabs[a.activeIdx].Update(m)
 		return a, dashTick()
 	case slowTickMsg:
+		a.refreshGrade()
 		_ = a.tabs[a.activeIdx].Update(m)
 		return a, slowTick()
 	case anomalyMsg:
@@ -384,7 +420,6 @@ func (a *App) View() string {
 
 	header := a.renderHeader(width)
 	tabBar := a.renderTabBar(width)
-	crumb := a.renderBreadcrumb()
 	bodyH := a.bodyHeight()
 	body := a.tabs[a.activeIdx].View(width, bodyH)
 	bottom := a.renderCommandBar(width)
@@ -404,8 +439,7 @@ func (a *App) View() string {
 	// anchored and the operator can reach hidden rows.
 	body = a.scrollClip(body, bodyH)
 
-	parts := []string{header, tabBar, crumb, body, bottom}
-	main := strings.Join(parts, "\n")
+	main := strings.Join([]string{header, tabBar, body, bottom}, "\n")
 
 	if a.mode == modeHelp {
 		// Overlay the help screen over the entire frame. lipgloss.Place
@@ -415,17 +449,17 @@ func (a *App) View() string {
 	return main
 }
 
-// bodyHeight reserves space for the chrome around the tab body. The footer
-// is multi-line and width-dependent, so we measure it instead of guessing.
+// bodyHeight reserves space for the chrome around the tab body. The
+// header panels are 8 rows tall (6 content lines + rounded border top &
+// bottom). The footer is multi-line and width-dependent, so we measure it
+// instead of guessing.
 func (a *App) bodyHeight() int {
 	if a.height <= 0 {
 		return 24
 	}
-	chromeRows := 7 // header panel
+	chromeRows := 8 // bordered header panels (6 content + 2 border)
 	chromeRows += 1 // tab bar
-	chromeRows += 1 // breadcrumb
 	chromeRows += a.footerRows()
-	chromeRows += 2 // separator newlines between the joined parts
 	h := a.height - chromeRows
 	if h < 5 {
 		return 5
@@ -499,6 +533,10 @@ func (a *App) Close() {
 	if a.anomalySub != nil {
 		a.anomalySub.Close()
 		a.anomalySub = nil
+	}
+	if a.probes != nil {
+		a.probes.Close()
+		a.probes = nil
 	}
 }
 

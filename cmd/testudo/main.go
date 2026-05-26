@@ -124,6 +124,9 @@ func cmdLive(args []string) error {
 	enableCapture := fs.Bool("capture", false, "enable packet capture (needs CAP_NET_RAW)")
 	iface := fs.String("iface", "", "comma-separated interfaces to capture on; empty = auto-discover all")
 	allowWrites := fs.Bool("allow-netops-write", false, "permit netlink writes (iface up/down, route add/del, NAT add/del)")
+	bufferbloat := fs.Bool("bufferbloat", false, "enable bufferbloat probe (saturates link periodically to measure loaded-RTT delta)")
+	bufferbloatTarget := fs.String("bufferbloat-target", cfg.BufferbloatTarget, "ping target during bufferbloat probe")
+	bufferbloatEvery := fs.Duration("bufferbloat-interval", cfg.BufferbloatInterval, "gap between bufferbloat runs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -137,6 +140,13 @@ func cmdLive(args []string) error {
 	cfg.CaptureEnabled = *enableCapture || *iface != ""
 	if *iface != "" {
 		cfg.CaptureIfaces = splitCSV(*iface)
+	}
+	cfg.BufferbloatEnabled = *bufferbloat
+	if *bufferbloatTarget != "" {
+		cfg.BufferbloatTarget = *bufferbloatTarget
+	}
+	if *bufferbloatEvery > 0 {
+		cfg.BufferbloatInterval = *bufferbloatEvery
 	}
 
 	if err := cfg.EnsureDirs(); err != nil {

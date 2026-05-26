@@ -324,6 +324,8 @@ func (t *historyTab) View(w, h int) string {
 
 func (t *historyTab) viewList(w int) string {
 	visible := t.visibleSessions()
+	innerW := w - 4 // boxStyle border (2) + padding (2)
+	sessionWidths := []int{16, 21, 21, 12, 28}
 	title := fmt.Sprintf("History - %d session(s)", len(t.sessions))
 	if t.filter != "" {
 		title = fmt.Sprintf("History - %d / %d match `%s`",
@@ -331,7 +333,7 @@ func (t *historyTab) viewList(w int) string {
 	}
 	rows := []string{
 		headerStyle.Render(title),
-		renderRowWidths([]int{16, 21, 21, 12, 28},
+		renderTableRow(innerW, sessionWidths,
 			"ID", "STARTED", "ENDED", "DURATION", "TARGETS"),
 	}
 	if t.listErr != nil {
@@ -354,7 +356,7 @@ func (t *historyTab) viewList(w int) string {
 			ended = s.EndedAt.Local().Format("2006-01-02 15:04:05")
 			dur = s.EndedAt.Sub(s.StartedAt).Truncate(time.Second).String()
 		}
-		row := renderRowWidths([]int{16, 21, 21, 12, 28},
+		row := renderTableRow(innerW, sessionWidths,
 			shortID(s.ID),
 			s.StartedAt.Local().Format("2006-01-02 15:04:05"),
 			ended, dur, strings.Join(s.Targets, ", "))
@@ -418,16 +420,18 @@ func (t *historyTab) viewDetail(w int) string {
 	b.WriteString("\n")
 
 	// --- snapshot index ---
+	snapWidths := []int{8, 14, 24}
+	innerW := w - 4 // boxStyle border (2) + padding (2)
 	sRows := []string{
 		headerStyle.Render(fmt.Sprintf("Snapshots (%d) - Enter to inspect", len(t.snapIndex))),
-		renderRowWidths([]int{8, 14, 24}, "#", "KIND", "TIMESTAMP"),
+		renderTableRow(innerW, snapWidths, "#", "KIND", "TIMESTAMP"),
 	}
 	if len(t.snapIndex) == 0 {
 		sRows = append(sRows, subtitleStyle.Render(
 			"  no snapshots captured - netops snapshotter may have been disabled"))
 	} else {
 		for i, e := range t.snapIndex {
-			row := renderRowWidths([]int{8, 14, 24},
+			row := renderTableRow(innerW, snapWidths,
 				fmt.Sprintf("%d", e.ID), e.Kind,
 				e.TS.Local().Format("2006-01-02 15:04:05"))
 			if i == t.snapCursor {

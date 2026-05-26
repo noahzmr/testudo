@@ -183,14 +183,17 @@ func (t *tcpdumpTab) View(w, h int) string {
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) with a further 2-char
+	// row marker / indent, the actual table width is w - 6.
+	innerW := w - 6
 	widths := []int{8, 9, 10, 10, 28, 36}
-	rows = append(rows, "  "+renderRowWidths(widths,
+	rows = append(rows, "  "+renderTableRow(innerW, widths,
 		"ID", "STATE", "IFACE", "SIZE", "FILTER", "FILE"))
 	for i, j := range t.jobs {
 		state := stateStyleFor(j.State).Render(j.State)
 		fileShort := shortenMid(j.OutputPath, 36)
 		filterShort := orDash(shortenMid(j.Filter, 28))
-		row := renderRowWidths(widths,
+		row := renderTableRow(innerW, widths,
 			j.ID, state, j.Iface, fmtBytes(uint64(j.Bytes)),
 			filterShort, fileShort)
 		marker := "  "

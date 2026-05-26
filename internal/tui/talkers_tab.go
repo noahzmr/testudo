@@ -48,7 +48,7 @@ func (t *talkersTab) Update(msg tea.Msg) tea.Cmd {
 				t.section--
 			}
 		case "right", "l":
-			if t.section < 2 {
+			if t.section < 3 {
 				t.section++
 			}
 		case "1":
@@ -57,6 +57,8 @@ func (t *talkersTab) Update(msg tea.Msg) tea.Cmd {
 			t.section = 1
 		case "3":
 			t.section = 2
+		case "4":
+			t.section = 3
 		}
 	}
 	return nil
@@ -67,28 +69,32 @@ func (t *talkersTab) View(w, h int) string {
 	hosts := flows.TopHosts(t.rows, 20)
 	procs := flows.TopProcesses(t.rows, 20)
 	svcs := flows.TopServices(t.rows, 20)
-
-	hostsActive := t.section == 0
-	procsActive := t.section == 1
-	svcsActive := t.section == 2
+	matrix := flows.LANMatrix(t.rows, 20)
 
 	hdr := []string{
-		sectionLabel("Hosts", len(hosts), hostsActive),
-		sectionLabel("Processes", len(procs), procsActive),
-		sectionLabel("Services", len(svcs), svcsActive),
+		sectionLabel("Hosts", len(hosts), t.section == 0),
+		sectionLabel("Processes", len(procs), t.section == 1),
+		sectionLabel("Services", len(svcs), t.section == 2),
+		sectionLabel("LAN matrix", len(matrix), t.section == 3),
 	}
-	b.WriteString(headerStyle.Render("Top talkers - ←/=> switch · 1 hosts · 2 processes · 3 services"))
+	b.WriteString(headerStyle.Render("Top talkers - ←/=> switch · 1 hosts · 2 processes · 3 services · 4 LAN matrix"))
 	b.WriteString("\n  ")
 	b.WriteString(strings.Join(hdr, "    "))
 	b.WriteString("\n\n")
 
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) and the rows have a
+	// further "  " indent, so the actual table width is w - 6.
+	innerW := w - 6
+
 	switch t.section {
 	case 0:
-		b.WriteString(renderTopHosts(hosts))
+		b.WriteString(renderTopHosts(innerW, hosts))
 	case 1:
-		b.WriteString(renderTopProcs(procs))
+		b.WriteString(renderTopProcs(innerW, procs))
 	case 2:
-		b.WriteString(renderTopServices(svcs))
+		b.WriteString(renderTopServices(innerW, svcs))
+	case 3:
+		b.WriteString(renderLANMatrix(innerW, matrix))
 	}
 	return boxStyle.Render(b.String())
 }
@@ -101,12 +107,12 @@ func sectionLabel(name string, count int, active bool) string {
 	return dimStyle.Render(" " + s + " ")
 }
 
-func renderTopHosts(rows []flows.HostRollup) string {
+func renderTopHosts(innerW int, rows []flows.HostRollup) string {
 	if len(rows) == 0 {
 		return subtitleStyle.Render("  no flows yet - start capture (Flows tab => 's')")
 	}
 	widths := []int{4, 30, 8, 12, 10, 8}
-	out := []string{"  " + renderRowWidths(widths,
+	out := []string{"  " + renderTableRow(innerW, widths,
 		"#", "HOST / DNS", "ZONE", "BYTES", "PACKETS", "FLOWS")}
 	for i, r := range rows {
 		zone := okStyle.Render("WAN")
@@ -117,7 +123,7 @@ func renderTopHosts(rows []flows.HostRollup) string {
 		if r.DNS != "" && r.DNS != r.Host {
 			host = r.DNS
 		}
-		row := renderRowWidths(widths,
+		row := renderTableRow(innerW, widths,
 			fmt.Sprintf("%d", i+1), host, zone,
 			fmtBytes(r.Bytes), fmt.Sprintf("%d", r.Packets), fmt.Sprintf("%d", r.Flows))
 		out = append(out, rowStyle.Render("  "+row))
@@ -125,30 +131,45 @@ func renderTopHosts(rows []flows.HostRollup) string {
 	return strings.Join(out, "\n")
 }
 
-func renderTopProcs(rows []flows.ProcessRollup) string {
+func renderTopProcs(innerW int, rows []flows.ProcessRollup) string {
 	if len(rows) == 0 {
 		return subtitleStyle.Render("  no flows with process info - capture must run as a user that can read /proc/*/fd")
 	}
 	widths := []int{4, 28, 12, 12, 8}
-	out := []string{"  " + renderRowWidths(widths,
+	out := []string{"  " + renderTableRow(innerW, widths,
 		"#", "PROCESS", "BYTES", "PACKETS", "FLOWS")}
 	for i, r := range rows {
-		out = append(out, rowStyle.Render("  "+renderRowWidths(widths,
+		out = append(out, rowStyle.Render("  "+renderTableRow(innerW, widths,
 			fmt.Sprintf("%d", i+1), r.Process,
 			fmtBytes(r.Bytes), fmt.Sprintf("%d", r.Packets), fmt.Sprintf("%d", r.Flows))))
 	}
 	return strings.Join(out, "\n")
 }
 
-func renderTopServices(rows []flows.ServiceRollup) string {
+func renderLANMatrix(innerW int, rows []flows.LANPair) string {
+	if len(rows) == 0 {
+		return subtitleStyle.Render("  no LAN-to-LAN flows yet · capture must be running and at least one host must be talking to another LAN host")
+	}
+	widths := []int{4, 22, 22, 12, 10, 8}
+	out := []string{"  " + renderTableRow(innerW, widths,
+		"#", "A", "B", "BYTES", "PACKETS", "FLOWS")}
+	for i, r := range rows {
+		out = append(out, rowStyle.Render("  "+renderTableRow(innerW, widths,
+			fmt.Sprintf("%d", i+1), r.A, r.B,
+			fmtBytes(r.Bytes), fmt.Sprintf("%d", r.Packets), fmt.Sprintf("%d", r.Flows))))
+	}
+	return strings.Join(out, "\n")
+}
+
+func renderTopServices(innerW int, rows []flows.ServiceRollup) string {
 	if len(rows) == 0 {
 		return subtitleStyle.Render("  no services classified yet")
 	}
 	widths := []int{4, 16, 6, 8, 12, 12, 8}
-	out := []string{"  " + renderRowWidths(widths,
+	out := []string{"  " + renderTableRow(innerW, widths,
 		"#", "SERVICE", "PROTO", "PORT", "BYTES", "PACKETS", "FLOWS")}
 	for i, r := range rows {
-		out = append(out, rowStyle.Render("  "+renderRowWidths(widths,
+		out = append(out, rowStyle.Render("  "+renderTableRow(innerW, widths,
 			fmt.Sprintf("%d", i+1), r.Service,
 			strings.ToUpper(r.Proto), fmt.Sprintf("%d", r.Port),
 			fmtBytes(r.Bytes), fmt.Sprintf("%d", r.Packets), fmt.Sprintf("%d", r.Flows))))
