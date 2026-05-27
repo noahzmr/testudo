@@ -124,6 +124,18 @@
           <tbody id="devices-body"></tbody>
         </table>
       </div>
+      <div class="card">
+        <h2>Neighbours (ARP / NDP)</h2>
+        <p class="muted">
+          The kernel neighbour table for both address families, with resolution state.
+          Duplicate IPs (one address answered by two MACs) are flagged — a hard local-network fault.
+        </p>
+        <div id="neigh-conflicts" class="banner" style="display:none"></div>
+        <table>
+          <thead><tr><th>IP</th><th>MAC</th><th>Dev</th><th>Family</th><th>State</th></tr></thead>
+          <tbody id="neigh-body"></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- INTERFACES ---------------------------------------------------- -->
@@ -220,6 +232,18 @@
         <table>
           <thead><tr><th>Proto</th><th>WAN</th><th>=> LAN IP</th><th>LAN port</th><th></th></tr></thead>
           <tbody id="nat-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Conntrack — live flows</h2>
+        <p class="muted">
+          The kernel connection-tracking table. The reply tuple differs from the original once
+          NAT rewrites it. <b>Flush</b> kills a stuck or translated flow (needs netops writes).
+        </p>
+        <div id="conntrack-util" class="row"></div>
+        <table>
+          <thead><tr><th>Proto</th><th>Original</th><th>Reply (NAT)</th><th>State</th><th>Bytes</th><th>Timeout</th><th>Action</th></tr></thead>
+          <tbody id="conntrack-body"></tbody>
         </table>
       </div>
     </section>

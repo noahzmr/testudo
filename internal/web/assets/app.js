@@ -189,6 +189,20 @@
         });
         showToast('forward removed');
         break;
+      case 'ct-flush': {
+        const f = JSON.parse(btn.dataset.flow);
+        if (!confirm('Flush ' + f.proto + ' flow ' + f.orig_src + ':' + f.orig_sport + ' -> ' + f.orig_dst + ':' + f.orig_dport + '?')) return;
+        await post('/api/conntrack/flush', {
+          proto: f.proto,
+          orig_src: f.orig_src,
+          orig_dst: f.orig_dst,
+          orig_sport: f.orig_sport,
+          orig_dport: f.orig_dport,
+          natted: f.natted,
+        });
+        showToast('conntrack flow flushed');
+        break;
+      }
       case 'td-start':
         await post('/api/tcpdump/start', {
           iface:        val('td-iface'),
@@ -348,6 +362,7 @@
       ['Stab',     g.stab_score],
       ['WiFi',     g.wifi_score],
       ['Firewall', g.firewall_score],
+      ['NAT',      g.nat_score],
     ];
     bars.innerHTML = rows.map(([label, score]) => {
       if (noData.has(label)) {
@@ -534,6 +549,45 @@
         + '</td>'
         + '</tr>';
     }).join('') || '<tr><td colspan="6" class="muted">no devices yet</td></tr>';
+  }
+
+  // neighStateClass maps a NUD state to a status-pill colour. FAILED /
+  // INCOMPLETE are the operationally bad states (gateway loss precursor).
+  function neighStateClass(state) {
+    if (state === 'REACHABLE' || state === 'PERMANENT' || state === 'NOARP') return 'on';
+    if (state === 'FAILED' || state === 'INCOMPLETE') return 'off';
+    return 'warn';
+  }
+
+  function renderNeighbours(rows, conflicts) {
+    // Conflict banner: duplicate IPs are a hard local-network fault.
+    const banner = document.getElementById('neigh-conflicts');
+    if (banner) {
+      if ((conflicts || []).length) {
+        banner.style.display = '';
+        banner.innerHTML = (conflicts || []).map(c =>
+          '<span class="status-pill off">DUPLICATE ' + escape(c.ip) + '</span> answered by '
+          + escape((c.macs || []).join(', ')) + ' on ' + escape((c.devs || []).join(', '))
+        ).join('<br>');
+      } else {
+        banner.style.display = 'none';
+        banner.innerHTML = '';
+      }
+    }
+    const body = document.getElementById('neigh-body');
+    if (!body) return;
+    body.innerHTML = (rows || []).map(n => {
+      const conflictBadge = n.conflict ? ' <span class="status-pill off">conflict</span>' : '';
+      const routerBadge = n.router ? ' <span class="status-pill">router</span>' : '';
+      const rowCls = n.conflict ? ' class="row-danger"' : '';
+      return '<tr' + rowCls + '>'
+        + '<td><b>' + escape(n.ip) + '</b>' + conflictBadge + routerBadge + '</td>'
+        + '<td><code>' + escape(n.mac || '-') + '</code></td>'
+        + '<td>' + escape(n.dev || '-') + '</td>'
+        + '<td>' + escape(n.family) + '</td>'
+        + '<td><span class="status-pill ' + neighStateClass(n.state) + '">' + escape(n.state) + '</span></td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">no neighbours - needs CAP_NET_ADMIN, or none learned yet</td></tr>';
   }
 
   // portForProto returns the canonical port for a given protocol that the
@@ -783,6 +837,43 @@
     ).join('') || '<tr><td colspan="5" class="muted">no port forwards configured</td></tr>';
   }
 
+  function renderConntrack(ct, allowWrite) {
+    ct = ct || {};
+    // Utilisation gauge: live entries / nf_conntrack_max.
+    const gauge = document.getElementById('conntrack-util');
+    if (gauge) {
+      if (ct.max > 0) {
+        const pct = Math.min(100, Math.round((ct.count / ct.max) * 100));
+        const cls = pct >= 95 ? 'off' : pct >= 80 ? 'warn' : 'on';
+        gauge.innerHTML = '<span class="status-pill ' + cls + '">' + pct + '% full</span> '
+          + '<span class="muted">' + ct.count + ' / ' + ct.max + ' entries</span>';
+      } else {
+        gauge.innerHTML = '<span class="muted">conntrack not loaded</span>';
+      }
+    }
+    const body = document.getElementById('conntrack-body');
+    if (!body) return;
+    body.innerHTML = (ct.flows || []).map(f => {
+      const orig = escape(f.orig_src) + ':' + f.orig_sport + ' → ' + escape(f.orig_dst) + ':' + f.orig_dport;
+      const reply = f.natted
+        ? '<span class="status-pill warn">NAT</span> ' + escape(f.reply_src) + ' → ' + escape(f.reply_dst)
+        : '<span class="muted">-</span>';
+      const dataFlow = JSON.stringify(f).replace(/"/g, '&quot;');
+      const flushBtn = allowWrite
+        ? '<button class="btn btn-small btn-danger" data-action="ct-flush" data-flow="' + dataFlow + '">flush</button>'
+        : '<button class="btn btn-small" disabled title="enable netops writes in Settings to flush">flush</button>';
+      return '<tr>'
+        + '<td>' + escape(f.proto.toUpperCase()) + '</td>'
+        + '<td>' + orig + '</td>'
+        + '<td>' + reply + '</td>'
+        + '<td><span class="status-pill">' + escape(f.state) + '</span></td>'
+        + '<td>' + fmtBytes(f.bytes) + '</td>'
+        + '<td>' + f.timeout_sec + 's</td>'
+        + '<td>' + flushBtn + '</td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">no live conntrack flows</td></tr>';
+  }
+
   function renderTCPDump(rows) {
     document.getElementById('td-body').innerHTML = (rows || []).map(j => {
       const stateCls = j.state === 'running' ? 'status-pill on' : j.state === 'failed' ? 'status-pill off' : 'status-pill';
@@ -1003,11 +1094,13 @@
       renderDNS(snap.dns);
       renderFlows(snap.flows);
       renderDevices(snap.devices);
+      renderNeighbours(snap.neighbours, snap.ip_conflicts);
       renderIfaces(snap.ifaces, snap.wifi);
       renderWiFi(snap.wifi);
       renderRoutes(snap.routes);
       renderFirewall(snap.filter_rules, snap.firewall, snap.firewall_rules);
       renderNAT(snap.nat);
+      renderConntrack(snap.conntrack, snap.thresholds && snap.thresholds.allow_netops_write);
       renderTCPDump(snap.tcpdump);
       renderAlerts(snap.anomalies);
       renderCapture(snap.capture || { running: false, ifaces: [] });

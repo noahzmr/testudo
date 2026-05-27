@@ -59,12 +59,49 @@ func (e *Engine) snapshotOnce(ctx context.Context, topo *topology.Builder) {
 	if nats, err := e.netops.ListPortForwards(); err == nil {
 		_ = e.store.InsertSnapshot(ctx, e.sessionID, storage.SnapshotKindNAT, nats)
 	}
+	e.snapshotL3(ctx)
 	devs := []flows.FlowStats{}
 	if e.flowAgg != nil {
 		devs = e.flowAgg.Snapshot()
 	}
 	g := topo.Build(e.inventory.Snapshot(), devs)
 	_ = e.store.InsertSnapshot(ctx, e.sessionID, storage.SnapshotKindTopology, g)
+}
+
+// snapshotL3 persists the neighbour table and live conntrack flows for this
+// tick, reading the collector's cached dump so we don't issue a second
+// netlink request. No-op when the collector is disabled. These rows let
+// replay answer "was there an IP conflict at 02:00?" and "what was NAT'd
+// during the incident?".
+func (e *Engine) snapshotL3(ctx context.Context) {
+	if e.neigh == nil {
+		return
+	}
+	now := time.Now()
+	if ns := e.neigh.Neighbours(); len(ns) > 0 {
+		rows := make([]storage.NeighbourSample, 0, len(ns))
+		for _, n := range ns {
+			rows = append(rows, storage.NeighbourSample{
+				TS: now, IP: n.IP, MAC: n.MAC, Dev: n.Dev,
+				Family: n.Family, State: n.State, Router: n.Router,
+			})
+		}
+		_ = e.store.InsertNeighbours(ctx, e.sessionID, now, rows)
+	}
+	if fs := e.neigh.Conntrack(); len(fs) > 0 {
+		rows := make([]storage.ConntrackSample, 0, len(fs))
+		for _, f := range fs {
+			rows = append(rows, storage.ConntrackSample{
+				TS: now, Proto: f.Proto,
+				OrigSrc: f.OrigSrc, OrigDst: f.OrigDst,
+				OrigSport: f.OrigSport, OrigDport: f.OrigDport,
+				ReplySrc: f.ReplySrc, ReplyDst: f.ReplyDst,
+				State: f.State, NATed: f.NATed,
+				Packets: f.Packets, Bytes: f.Bytes,
+			})
+		}
+		_ = e.store.InsertConntrack(ctx, e.sessionID, now, rows)
+	}
 }
 
 // fwDropAnomalyThreshold is the per-rule packet increase within one snapshot

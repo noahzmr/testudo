@@ -84,7 +84,7 @@ func (t *dashboardTab) View(w, h int) string {
 		wifi = wc.Snapshot()
 	}
 	fwRate, fwHas := t.eng.FirewallSignal()
-	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, t.eng.Settings().Snapshot())
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh()), t.eng.Settings().Snapshot())
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -99,6 +99,7 @@ func (t *dashboardTab) View(w, h int) string {
 		renderSubScoreBar(grade.Stab, w),
 		renderSubScoreBar(grade.WiFi, w),
 		renderSubScoreBar(grade.Firewall, w),
+		renderSubScoreBar(grade.NAT, w),
 	}
 	if len(t.targets) == 0 && len(t.dns) == 0 {
 		gradeRows = append(gradeRows, "",
@@ -1156,15 +1157,22 @@ type natTab struct {
 	forwards []netops.PortForward
 	err      error
 	cursor   int
+
+	// focusCT moves the cursor into the live conntrack table (below the
+	// port forwards) so a translated flow can be selected and flushed.
+	focusCT  bool
+	ctCursor int
 }
 
 func newNATTab(eng *engine.Engine, app *App) *natTab { return &natTab{eng: eng, app: app} }
 
 func (t *natTab) HelpHints() []KeyHint {
 	return []KeyHint{
-		{Key: "↑/↓ · j/k", Desc: "select port forward"},
+		{Key: "↑/↓ · j/k", Desc: "select row"},
 		{Key: "a", Desc: "add port forward (proto / wan_port / lan_ip / lan_port)"},
 		{Key: "x", Desc: "delete the selected port forward"},
+		{Key: "c", Desc: "focus the live conntrack table"},
+		{Key: "F", Desc: "flush the selected conntrack flow (needs netops writes)"},
 		{Key: "r", Desc: "refresh"},
 	}
 }
@@ -1191,12 +1199,23 @@ func (t *natTab) Update(msg tea.Msg) tea.Cmd {
 	}
 	if m, ok := msg.(tea.KeyMsg); ok {
 		switch m.String() {
+		case "c":
+			t.focusCT = !t.focusCT
+			t.ctCursor = 0
 		case "up", "k":
-			if t.cursor > 0 {
+			if t.focusCT {
+				if t.ctCursor > 0 {
+					t.ctCursor--
+				}
+			} else if t.cursor > 0 {
 				t.cursor--
 			}
 		case "down", "j":
-			if t.cursor < len(t.forwards)-1 {
+			if t.focusCT {
+				if t.ctCursor < len(t.conntrack())-1 {
+					t.ctCursor++
+				}
+			} else if t.cursor < len(t.forwards)-1 {
 				t.cursor++
 			}
 		case "r":
@@ -1205,9 +1224,58 @@ func (t *natTab) Update(msg tea.Msg) tea.Cmd {
 			return t.openAddModal()
 		case "x":
 			return t.openDelModal()
+		case "F":
+			return t.flushSelectedConntrack()
 		}
 	}
 	return nil
+}
+
+// conntrack returns the collector's cached flow table (nil when disabled).
+func (t *natTab) conntrack() []netops.ConntrackFlow {
+	if nc := t.eng.Neigh(); nc != nil {
+		return nc.Conntrack()
+	}
+	return nil
+}
+
+// flushSelectedConntrack opens the standard confirm modal for the selected
+// live flow. Write-gated: greys out with a toast when netops writes are off,
+// matching every other mutation.
+func (t *natTab) flushSelectedConntrack() tea.Cmd {
+	if !t.focusCT {
+		return statusCmd("press 'c' to focus the conntrack table, then 'F' to flush")
+	}
+	flows := t.conntrack()
+	if t.ctCursor < 0 || t.ctCursor >= len(flows) {
+		return statusCmd("no conntrack flow selected")
+	}
+	if !t.eng.Settings().Snapshot().AllowNetopsWrite {
+		return statusCmd("netops writes disabled - enable in Settings to flush flows")
+	}
+	return t.openFlushModal(flows[t.ctCursor])
+}
+
+func (t *natTab) openFlushModal(f netops.ConntrackFlow) tea.Cmd {
+	modal := NewFormModal(
+		fmt.Sprintf("Flush %s flow %s:%d -> %s:%d", strings.ToUpper(f.Proto), f.OrigSrc, f.OrigSport, f.OrigDst, f.OrigDport),
+		[]FormField{
+			{Label: "proto", Value: f.Proto, Hint: "tcp / udp / icmp ..."},
+			{Label: "orig_src", Value: f.OrigSrc, Hint: "original source IP"},
+			{Label: "orig_dst", Value: f.OrigDst, Hint: "original destination IP"},
+			{Label: "orig_sport", Value: fmt.Sprintf("%d", f.OrigSport), Hint: "original source port"},
+			{Label: "orig_dport", Value: fmt.Sprintf("%d", f.OrigDport), Hint: "original destination port"},
+		},
+		func(values map[string]string) error {
+			sport, _ := parseUint16(values["orig_sport"])
+			dport, _ := parseUint16(values["orig_dport"])
+			return t.eng.Netops().FlushConntrack(netops.ConntrackFlow{
+				Proto: values["proto"], OrigSrc: values["orig_src"], OrigDst: values["orig_dst"],
+				OrigSport: sport, OrigDport: dport, NATed: f.NATed,
+			})
+		},
+	)
+	return t.app.SetModal(modal)
 }
 
 func (t *natTab) openAddModal() tea.Cmd {
@@ -1273,31 +1341,86 @@ func parseUint16(s string) (uint16, error) {
 	return uint16(n), nil
 }
 func (t *natTab) View(w, h int) string {
-	rows := []string{headerStyle.Render("NAT - port forwards in testudo_nat table · a=add · x=del · r=refresh")}
+	rows := []string{headerStyle.Render("NAT - port forwards in testudo_nat table · a=add · x=del · c=conntrack · r=refresh")}
 	if t.err != nil {
 		rows = append(rows, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
+	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
+	innerW := w - 4
 	if len(t.forwards) == 0 {
 		rows = append(rows, subtitleStyle.Render("  no port forwards configured by Testudo"))
 		rows = append(rows, dimStyle.Render("  press 'a' to add · or CLI: testudo nat add tcp 8080 192.168.1.10:80"))
-		return boxStyle.Render(strings.Join(rows, "\n"))
-	}
-	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
-	innerW := w - 4
-	widths := []int{6, 8, 8, 18, 8}
-	rows = append(rows, renderTableRow(innerW, widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT"))
-	for i, pf := range t.forwards {
-		row := renderTableRow(innerW, widths,
-			strings.ToUpper(pf.Proto), fmt.Sprintf("%d", pf.WANPort), "=>",
-			pf.LANIP, fmt.Sprintf("%d", pf.LANPort))
-		if i == t.cursor {
-			rows = append(rows, selectedRowStyle.Render(row))
-		} else {
-			rows = append(rows, rowStyle.Render(row))
+	} else {
+		widths := []int{6, 8, 8, 18, 8}
+		rows = append(rows, renderTableRow(innerW, widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT"))
+		for i, pf := range t.forwards {
+			row := renderTableRow(innerW, widths,
+				strings.ToUpper(pf.Proto), fmt.Sprintf("%d", pf.WANPort), "=>",
+				pf.LANIP, fmt.Sprintf("%d", pf.LANPort))
+			if i == t.cursor && !t.focusCT {
+				rows = append(rows, selectedRowStyle.Render(row))
+			} else {
+				rows = append(rows, rowStyle.Render(row))
+			}
 		}
 	}
+	rows = append(rows, "")
+	rows = append(rows, t.renderConntrack(innerW)...)
 	return boxStyle.Render(strings.Join(rows, "\n"))
+}
+
+// renderConntrack renders the live conntrack table below the port forwards:
+// per-flow original/reply tuples (reply differs once NAT'd), state, bytes and
+// timeout, plus a utilisation gauge. Selecting (c to focus) and F flush a
+// stuck flow. Capped to the top rows by bytes so a busy router stays readable.
+func (t *natTab) renderConntrack(innerW int) []string {
+	nc := t.eng.Neigh()
+	if nc == nil {
+		return []string{dimStyle.Render("conntrack collector disabled")}
+	}
+	flows := nc.Conntrack()
+	count, max := nc.ConntrackCounts()
+	hdr := "Conntrack - live flows"
+	if max > 0 {
+		hdr += fmt.Sprintf(" · %d / %d entries (%.0f%% full)", count, max, float64(count)/float64(max)*100)
+	}
+	if t.focusCT {
+		hdr += " · [focused] F=flush"
+	} else {
+		hdr += " · c=focus"
+	}
+	out := []string{headerStyle.Render(hdr)}
+	if len(flows) == 0 {
+		out = append(out, dimStyle.Render("  no live conntrack flows (needs CAP_NET_ADMIN on some kernels)"))
+		return out
+	}
+	const maxShown = 100
+	widths := []int{6, 26, 22, 13, 10, 7}
+	out = append(out, renderTableRow(innerW, widths, "PROTO", "ORIGINAL", "REPLY (NAT)", "STATE", "BYTES", "TMO"))
+	if t.ctCursor >= len(flows) {
+		t.ctCursor = len(flows) - 1
+	}
+	for i, f := range flows {
+		if i >= maxShown {
+			out = append(out, dimStyle.Render(fmt.Sprintf("  … %d more flows (capped)", len(flows)-maxShown)))
+			break
+		}
+		orig := fmt.Sprintf("%s:%d>%s:%d", f.OrigSrc, f.OrigSport, f.OrigDst, f.OrigDport)
+		reply := dimStyle.Render("-")
+		if f.NATed {
+			reply = warnStyle.Render(fmt.Sprintf("%s>%s", f.ReplySrc, f.ReplyDst))
+		}
+		row := renderTableRow(innerW, widths,
+			strings.ToUpper(f.Proto), orig, reply, f.State, fmtBytes(f.Bytes),
+			fmt.Sprintf("%ds", f.TimeoutSec))
+		if t.focusCT && i == t.ctCursor {
+			out = append(out, selectedRowStyle.Render(row))
+		} else {
+			out = append(out, rowStyle.Render(row))
+		}
+	}
+	return out
 }
 
 // ---- Alerts ----
@@ -1602,6 +1725,12 @@ type devicesTab struct {
 	app     *App
 	devices []discovery.Device
 	cursor  int
+
+	// showNeigh switches the pane from the discovery device list to the
+	// full kernel neighbour (ARP/NDP) table; neighFamily filters it.
+	showNeigh   bool
+	neighFamily string // "" = all, "ipv4", "ipv6"
+	neighCursor int
 }
 
 func newDevicesTab(eng *engine.Engine, app *App) *devicesTab {
@@ -1612,7 +1741,9 @@ func (t *devicesTab) ShortKey() string { return "3" }
 func (t *devicesTab) Init() tea.Cmd    { return nil }
 func (t *devicesTab) HelpHints() []KeyHint {
 	return []KeyHint{
-		{Key: "↑/↓ · j/k", Desc: "select device"},
+		{Key: "↑/↓ · j/k", Desc: "select row"},
+		{Key: "n", Desc: "toggle neighbour (ARP/NDP) table"},
+		{Key: "f", Desc: "filter neighbour family (all / ipv4 / ipv6)"},
 		{Key: "s", Desc: "scan selected device (SSH / RDP / VNC / Telnet / HTTP / HTTPS)"},
 		{Key: "c", Desc: "show connect URLs for the selected device"},
 		{Key: "g", Desc: "Guacamole SSH launch (legacy quick-key)"},
@@ -1627,12 +1758,36 @@ func (t *devicesTab) Update(msg tea.Msg) tea.Cmd {
 		}
 	case tea.KeyMsg:
 		switch m.String() {
+		case "n":
+			t.showNeigh = !t.showNeigh
+			return nil
+		case "f":
+			if t.showNeigh {
+				switch t.neighFamily {
+				case "":
+					t.neighFamily = "ipv4"
+				case "ipv4":
+					t.neighFamily = "ipv6"
+				default:
+					t.neighFamily = ""
+				}
+				t.neighCursor = 0
+			}
+			return nil
 		case "up", "k":
-			if t.cursor > 0 {
+			if t.showNeigh {
+				if t.neighCursor > 0 {
+					t.neighCursor--
+				}
+			} else if t.cursor > 0 {
 				t.cursor--
 			}
 		case "down", "j":
-			if t.cursor < len(t.devices)-1 {
+			if t.showNeigh {
+				if t.neighCursor < len(t.filteredNeighbours())-1 {
+					t.neighCursor++
+				}
+			} else if t.cursor < len(t.devices)-1 {
 				t.cursor++
 			}
 		case "s":
@@ -1646,6 +1801,37 @@ func (t *devicesTab) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// filteredNeighbours returns the cached neighbour table filtered by the
+// current family selection.
+func (t *devicesTab) filteredNeighbours() []netops.Neighbour {
+	nc := t.eng.Neigh()
+	if nc == nil {
+		return nil
+	}
+	all := nc.Neighbours()
+	if t.neighFamily == "" {
+		return all
+	}
+	out := make([]netops.Neighbour, 0, len(all))
+	for _, n := range all {
+		if n.Family == t.neighFamily {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// conflictIPs returns the set of IPs currently in a duplicate-IP conflict.
+func (t *devicesTab) conflictIPs() map[string]bool {
+	m := map[string]bool{}
+	if nc := t.eng.Neigh(); nc != nil {
+		for _, c := range nc.Conflicts() {
+			m[c.IP] = true
+		}
+	}
+	return m
 }
 
 // scanSelected runs an on-demand connection-port scan against the
@@ -1784,9 +1970,24 @@ func (t *devicesTab) openGuacamoleLaunch(proto string) tea.Cmd {
 }
 
 func (t *devicesTab) View(w, h int) string {
+	if t.showNeigh {
+		return t.renderNeighView(w, h)
+	}
+	conflicts := t.conflictIPs()
+	neighByIP := map[string]netops.Neighbour{}
+	if nc := t.eng.Neigh(); nc != nil {
+		for _, n := range nc.Neighbours() {
+			if _, seen := neighByIP[n.IP]; !seen {
+				neighByIP[n.IP] = n
+			}
+		}
+	}
 	rows := []string{headerStyle.Render(fmt.Sprintf(
-		"Devices - %d on local network · s=scan · c=connect · g/G=guac legacy",
+		"Devices - %d on local network · n=neighbours · s=scan · c=connect · g/G=guac legacy",
 		len(t.devices)))}
+	if len(conflicts) > 0 {
+		rows = append(rows, errStyle.Render(fmt.Sprintf("  ⚠ %d duplicate-IP conflict(s) on the LAN - press 'n' for the neighbour table", len(conflicts))))
+	}
 	if len(t.devices) == 0 {
 		rows = append(rows, subtitleStyle.Render("  no devices yet - enable active discovery (--discover-active) or press 's' on a known IP"))
 		return boxStyle.Render(strings.Join(rows, "\n"))
@@ -1821,13 +2022,20 @@ func (t *devicesTab) View(w, h int) string {
 				bwCell = sparkline(vals, 12)
 			}
 		}
+		ipCell := d.IP
+		if conflicts[d.IP] {
+			ipCell = d.IP + " ⚠DUP"
+		}
 		row := renderTableRow(innerW, widths,
-			d.IP, dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
+			ipCell, dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
 			dashIfEmpty(d.Vendor), protoCell, bwCell,
 			fmt.Sprintf("%s ago", age))
-		if i == t.cursor {
+		switch {
+		case i == t.cursor:
 			rows = append(rows, selectedRowStyle.Render(row))
-		} else {
+		case conflicts[d.IP]:
+			rows = append(rows, errStyle.Render(row))
+		default:
 			rows = append(rows, rowStyle.Render(row))
 		}
 	}
@@ -1837,6 +2045,62 @@ func (t *devicesTab) View(w, h int) string {
 	if t.cursor >= 0 && t.cursor < len(t.devices) {
 		rows = append(rows, "")
 		rows = append(rows, renderDeviceDetail(t.devices[t.cursor]))
+		if n, ok := neighByIP[t.devices[t.cursor].IP]; ok {
+			line := fmt.Sprintf("  %-14s %s / %s (%s)", "Neighbour:", n.MAC, n.State, n.Family)
+			if conflicts[n.IP] {
+				line = errStyle.Render(line + "  ⚠ duplicate IP")
+			}
+			rows = append(rows, line)
+		}
+	}
+	return boxStyle.Render(strings.Join(rows, "\n"))
+}
+
+// renderNeighView lists the full kernel neighbour table (ARP/NDP) with
+// resolution state, filterable by family. Duplicate-IP rows are highlighted
+// red. Reached via 'n' from the Devices tab; 'f' cycles the family filter.
+func (t *devicesTab) renderNeighView(w, h int) string {
+	conflicts := t.conflictIPs()
+	ns := t.filteredNeighbours()
+	fam := t.neighFamily
+	if fam == "" {
+		fam = "all"
+	}
+	rows := []string{headerStyle.Render(fmt.Sprintf(
+		"Neighbours (ARP/NDP) - %d entries · family=%s · n=back to devices · f=cycle family",
+		len(ns), fam))}
+	if nc := t.eng.Neigh(); nc == nil {
+		rows = append(rows, subtitleStyle.Render("  neighbour collector disabled"))
+		return boxStyle.Render(strings.Join(rows, "\n"))
+	}
+	if len(ns) == 0 {
+		rows = append(rows, subtitleStyle.Render("  no neighbours - needs CAP_NET_ADMIN, or none learned yet"))
+		return boxStyle.Render(strings.Join(rows, "\n"))
+	}
+	innerW := w - 4
+	widths := []int{24, 20, 10, 8, 14}
+	rows = append(rows, renderTableRow(innerW, widths, "IP", "MAC", "DEV", "FAMILY", "STATE"))
+	if t.neighCursor >= len(ns) {
+		t.neighCursor = len(ns) - 1
+	}
+	for i, n := range ns {
+		ipCell := n.IP
+		if n.Router {
+			ipCell += " (router)"
+		}
+		if conflicts[n.IP] {
+			ipCell += " ⚠DUP"
+		}
+		row := renderTableRow(innerW, widths,
+			ipCell, dashIfEmpty(n.MAC), dashIfEmpty(n.Dev), n.Family, n.State)
+		switch {
+		case i == t.neighCursor:
+			rows = append(rows, selectedRowStyle.Render(row))
+		case conflicts[n.IP] || n.State == "FAILED" || n.State == "INCOMPLETE":
+			rows = append(rows, errStyle.Render(row))
+		default:
+			rows = append(rows, rowStyle.Render(row))
+		}
 	}
 	return boxStyle.Render(strings.Join(rows, "\n"))
 }

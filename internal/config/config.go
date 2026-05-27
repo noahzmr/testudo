@@ -209,6 +209,21 @@ type Config struct {
 	L2Interval           time.Duration
 	L2MulticastThreshold uint64
 
+	// NeighbourEnabled turns on the netlink neighbour (ARP/NDP) collector:
+	// it dumps RTM_GETNEIGH for both families on NeighbourInterval, persists
+	// a snapshot, and fires KindNeighChange / KindDuplicateIP on state
+	// transitions and IP conflicts.
+	NeighbourEnabled  bool
+	NeighbourInterval time.Duration
+
+	// ConntrackEnabled turns on the nf_conntrack table collector. It dumps
+	// the live table on ConntrackInterval (capped at ConntrackMaxRows for
+	// render/storage so a busy router doesn't blow up memory) and feeds
+	// conntrack utilisation into the NAT-exhaustion signal.
+	ConntrackEnabled  bool
+	ConntrackInterval time.Duration
+	ConntrackMaxRows  int
+
 	// DeviceChatterEnabled turns on the per-device baseline anomaly.
 	// Reads from the in-memory DeviceBandwidth aggregator, so it
 	// requires capture to be running to be useful.
@@ -290,6 +305,11 @@ func Default() Config {
 		L2Enabled:              true,
 		L2Interval:             10 * time.Second,
 		L2MulticastThreshold:   1000,
+		NeighbourEnabled:       true,
+		NeighbourInterval:      15 * time.Second,
+		ConntrackEnabled:       true,
+		ConntrackInterval:      15 * time.Second,
+		ConntrackMaxRows:       2000,
 		DeviceChatterEnabled:   true,
 		DeviceChatterFactor:    3.0,
 		WebEnabled:             false,

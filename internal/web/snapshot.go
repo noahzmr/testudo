@@ -28,6 +28,9 @@ type snapshot struct {
 	FirewallRules []firewallRuleView   `json:"firewall_rules"`
 	FilterRules   []filterRuleView     `json:"filter_rules"`
 	NAT           []natView            `json:"nat"`
+	Neighbours    []neighbourView      `json:"neighbours"`
+	Conflicts     []ipConflictView     `json:"ip_conflicts"`
+	Conntrack     conntrackView        `json:"conntrack"`
 	Anomalies     []anomalyView        `json:"anomalies"`
 	Thresholds    thresholdsView       `json:"thresholds"`
 	TCPDump       []tcpdumpView        `json:"tcpdump"`
@@ -92,6 +95,7 @@ type gradeView struct {
 	Stab     int  `json:"stab_score"`
 	WiFi     int  `json:"wifi_score"`
 	Firewall int  `json:"firewall_score"`
+	NAT      int  `json:"nat_score"`
 	// NoData lists the sub-score names that have not yet produced a
 	// measurement (e.g. ["WiFi", "HTTP"]). The dashboard renders these
 	// bars violet and excludes them from the overall grade.
@@ -234,6 +238,47 @@ type natView struct {
 	WANPort uint16 `json:"wan_port"`
 	LANIP   string `json:"lan_ip"`
 	LANPort uint16 `json:"lan_port"`
+}
+
+// neighbourView mirrors netops.Neighbour for the Devices view. Conflict is
+// true when this IP is also answered by another MAC (duplicate-IP badge).
+type neighbourView struct {
+	IP       string `json:"ip"`
+	MAC      string `json:"mac"`
+	Dev      string `json:"dev"`
+	Family   string `json:"family"`
+	State    string `json:"state"`
+	Router   bool   `json:"router"`
+	Conflict bool   `json:"conflict"`
+}
+
+type ipConflictView struct {
+	IP   string   `json:"ip"`
+	MACs []string `json:"macs"`
+	Devs []string `json:"devs"`
+}
+
+// conntrackView carries the live flow table plus the utilisation totals so
+// the NAT view can render both the per-row flush and a saturation gauge.
+type conntrackView struct {
+	Count uint64              `json:"count"` // live entries (nf_conntrack_count)
+	Max   uint64              `json:"max"`   // nf_conntrack_max
+	Flows []conntrackFlowView `json:"flows"` // capped at ConntrackMaxRows
+}
+
+type conntrackFlowView struct {
+	Proto      string `json:"proto"`
+	OrigSrc    string `json:"orig_src"`
+	OrigDst    string `json:"orig_dst"`
+	OrigSport  uint16 `json:"orig_sport"`
+	OrigDport  uint16 `json:"orig_dport"`
+	ReplySrc   string `json:"reply_src"`
+	ReplyDst   string `json:"reply_dst"`
+	State      string `json:"state"`
+	NATed      bool   `json:"natted"`
+	Packets    uint64 `json:"packets"`
+	Bytes      uint64 `json:"bytes"`
+	TimeoutSec int    `json:"timeout_sec"`
 }
 
 type anomalyView struct {
@@ -389,7 +434,37 @@ func (s *Server) buildSnapshot() snapshot {
 		wifiSnap = wc.Snapshot()
 	}
 	fwRate, fwHas := eng.FirewallSignal()
-	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, th)
+	var l3 collectors.NeighConntrackSignal
+	if nc := eng.Neigh(); nc != nil {
+		l3 = nc.Signal()
+	}
+	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, th)
+
+	// Neighbour (ARP/NDP) table + IP conflicts, and live conntrack flows.
+	if nc := eng.Neigh(); nc != nil {
+		conflictSet := map[string]bool{}
+		for _, cf := range nc.Conflicts() {
+			conflictSet[cf.IP] = true
+			snap.Conflicts = append(snap.Conflicts, ipConflictView{IP: cf.IP, MACs: cf.MACs, Devs: cf.Devs})
+		}
+		for _, n := range nc.Neighbours() {
+			snap.Neighbours = append(snap.Neighbours, neighbourView{
+				IP: n.IP, MAC: n.MAC, Dev: n.Dev, Family: n.Family,
+				State: n.State, Router: n.Router, Conflict: conflictSet[n.IP],
+			})
+		}
+		ctCount, ctMax := nc.ConntrackCounts()
+		snap.Conntrack.Count, snap.Conntrack.Max = ctCount, ctMax
+		for _, f := range nc.Conntrack() {
+			snap.Conntrack.Flows = append(snap.Conntrack.Flows, conntrackFlowView{
+				Proto: f.Proto, OrigSrc: f.OrigSrc, OrigDst: f.OrigDst,
+				OrigSport: f.OrigSport, OrigDport: f.OrigDport,
+				ReplySrc: f.ReplySrc, ReplyDst: f.ReplyDst,
+				State: f.State, NATed: f.NATed,
+				Packets: f.Packets, Bytes: f.Bytes, TimeoutSec: f.TimeoutSec,
+			})
+		}
+	}
 
 	// Capture status.
 	snap.Capture = captureView{

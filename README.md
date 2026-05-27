@@ -274,6 +274,7 @@ A layered probe pipeline runs alongside discovery and capture so latency, loss, 
 - **Per-interface stability** - polls every non-loopback interface every 5 s, emits anomalies on UP/RUNNING transitions, growing `Rx/TxErrors`, growing `Rx/TxDropped`, and collision growth.
 - **WiFi monitoring (nl80211 native)** - talks nl80211 over netlink directly via `github.com/mdlayher/wifi`, so the collector works on every modern driver without the `iw` userspace package and without root on most distros. Surfaces per-radio **SSID**, **BSSID**, **channel + frequency + width** (incl. 6 GHz Wi-Fi 6E), **band**, **TX/RX bitrate** (Mbit/s), **signal + signal average + noise floor + SNR**, **TX power**, **link quality**, station-level **RX/TX bytes/packets**, **retries**, **TX failures**, **beacon loss**, and **connected-since**. The `iw` shell-out and `/proc/net/wireless` remain as automatic fallbacks for unusual drivers, with the source labelled inline ("nl80211" / "iw" / "proc") so the operator knows which backend filled each card. Anomalies fire on low signal, lost association, growing retries, growing TX failures, and growing beacon loss. Unassociated radios still appear in the iface table so they don't silently disappear.
 - **L2 monitor** - per-interface multicast/broadcast burst detection (catches ARP storms, runaway mDNS) and ARP-table churn (IP→MAC reassignment surfaces IP conflicts or rogue devices).
+- **L3 state introspection (netlink)** - a slow-cadence collector dumps the kernel neighbour table via RTNETLINK `RTM_GETNEIGH` for **both** address families (ARP for IPv4, NDP for IPv6), carrying resolution state (REACHABLE / STALE / FAILED / INCOMPLETE / …) the legacy `/proc/net/arp` parse hides. **Duplicate-IP detection** flags any address answered by more than one MAC (conflict / rogue device → `KindDuplicateIP`, LAN-grade penalty), and the unreachable-neighbour ratio feeds the Stability sub-score. The same collector dumps the **nf_conntrack table** via NFNL (`IPCTNL_MSG_CT_GET`): per-flow original/reply tuples (the reply differs once NAT rewrites it), protocol, state, NAT mark, byte/packet counters, and timeout - with a write-gated, audit-logged **flush** to kill a stuck or translated flow. Both surface in TUI **and** web (Devices → neighbour table, NAT → conntrack), persist to the `neighbours` / `conntrack_samples` tables for replay, and ride the conntrack snapshot into incident bundles.
 
 ### Per-Device LAN Analytics
 
@@ -356,22 +357,22 @@ The web UI mirrors every TUI view: dashboard, flows, devices, interfaces, routes
 
 The TUI is the canonical interface. The web UI is the same data, the same engine, exposed over HTTP for operators running Testudo on a headless box. Both surface the same tabs - in the same order as the web topbar previewed in the header above:
 
-| Tab        | Purpose                                                                                                                      |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Dashboard  | Network Quality grade, bandwidth per interface, ICMP/DNS sparklines, top flows                                               |
-| Flows      | Live multi-interface flow table with process / DNS / service enrichment; capture controls                                    |
-| Devices    | Discovered devices, vendor, open ports; *Scan* + *Connect* (Guacamole / native URI)                                          |
-| Interfaces | Per-interface state, MTU, hardware address, addresses, RX/TX, controls                                                       |
-| Routes     | Routing table, add/remove static routes                                                                                      |
-| Firewall   | `iptables` / `nftables` rule view with hit counters, Testudo-managed rules, add/remove                                       |
-| NAT        | NAT and port-forwarding rules with counters, add/remove                                                                      |
-| TCPDump    | Selective PCAP capture with a BPF filter wizard (proto, host, port, raw filter)                                              |
-| Talkers    | Top hosts, top processes, top services - all ranked by bytes                                                                 |
-| Probes     | Interactive runner for ICMP / TCP / UDP / DNS / throughput / traceroute probes                                               |
-| Alerts     | Live alert log with severity filter and free-text search                                                                     |
-| History    | Read-only browse of past sessions persisted to SQLite; anomaly timeline + snapshots                                          |
-| Settings   | Live-tunable thresholds, netops & integrations, **IPFIX flow export** (e.g. to opsanio)                                      |
-| Health     | Live results of every probe collector: top talkers, internal DNS, HTTP, TLS certs, traceroute, bufferbloat, interfaces, WiFi |
+| Tab        | Purpose                                                                                                                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard  | Network Quality grade, bandwidth per interface, ICMP/DNS sparklines, top flows                                                                                                                       |
+| Flows      | Live multi-interface flow table with process / DNS / service enrichment; capture controls                                                                                                            |
+| Devices    | Discovered devices, vendor, open ports; *Scan* + *Connect* (Guacamole / native URI); **`n` toggles the full ARP/NDP neighbour table (`f` filters by family) with state + duplicate-IP highlighting** |
+| Interfaces | Per-interface state, MTU, hardware address, addresses, RX/TX, controls                                                                                                                               |
+| Routes     | Routing table, add/remove static routes                                                                                                                                                              |
+| Firewall   | `iptables` / `nftables` rule view with hit counters, Testudo-managed rules, add/remove                                                                                                               |
+| NAT        | NAT and port-forwarding rules with counters, add/remove; **live conntrack table (`c` to focus) showing NAT'd reply tuples, with `F` to flush a stuck flow (write-gated)**                            |
+| TCPDump    | Selective PCAP capture with a BPF filter wizard (proto, host, port, raw filter)                                                                                                                      |
+| Talkers    | Top hosts, top processes, top services - all ranked by bytes                                                                                                                                         |
+| Probes     | Interactive runner for ICMP / TCP / UDP / DNS / throughput / traceroute probes                                                                                                                       |
+| Alerts     | Live alert log with severity filter and free-text search                                                                                                                                             |
+| History    | Read-only browse of past sessions persisted to SQLite; anomaly timeline + snapshots                                                                                                                  |
+| Settings   | Live-tunable thresholds, netops & integrations, **IPFIX flow export** (e.g. to opsanio)                                                                                                              |
+| Health     | Live results of every probe collector: top talkers, internal DNS, HTTP, TLS certs, traceroute, bufferbloat, interfaces, WiFi                                                                         |
 
 Modal configuration is supported in both UIs for firewall rules, NAT rules, port forwarding, interface configuration, route configuration, and alert configuration.
 
@@ -644,19 +645,19 @@ go test ./...
 testudo <subcommand> [flags]
 ```
 
-| Subcommand     | Description                                             |
-| -------------- | ------------------------------------------------------- |
-| `live`         | Launch the live TUI (default if no subcommand is given) |
-| `web`          | Start the HTTP UI                                       |
-| `sessions`     | List recorded replay sessions                           |
-| `replay <id>`  | Open a replay session                                   |
-| `ifaces`       | List interfaces and their state                         |
-| `routes`       | Show the routing table                                  |
-| `nat list`     | List NAT and port-forwarding rules                      |
-| `discover`     | One-shot network scan                                   |
-| `probe <host>` | Diagnostic probe against a host                         |
+| Subcommand     | Description                                                                                                                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `live`         | Launch the live TUI (default if no subcommand is given)                                                                                                                                           |
+| `web`          | Start the HTTP UI                                                                                                                                                                                 |
+| `sessions`     | List recorded replay sessions                                                                                                                                                                     |
+| `replay <id>`  | Open a replay session                                                                                                                                                                             |
+| `ifaces`       | List interfaces and their state                                                                                                                                                                   |
+| `routes`       | Show the routing table                                                                                                                                                                            |
+| `nat list`     | List NAT and port-forwarding rules                                                                                                                                                                |
+| `discover`     | One-shot network scan                                                                                                                                                                             |
+| `probe <host>` | Diagnostic probe against a host                                                                                                                                                                   |
 | `doctor`       | Layered connectivity diagnosis - reports the first failing layer (link → address → route → gateway → DNS → WAN → captive portal) as the root cause; `--json` for scripts, exit code 2 when broken |
-| `user passwd`  | Rotate the local web-UI password                        |
+| `user passwd`  | Rotate the local web-UI password                                                                                                                                                                  |
 
 ### Common flags
 
@@ -815,21 +816,22 @@ The dashboard's most prominent element is a single **letter grade** (A+ through 
 
 ### What goes into the grade
 
-Nine live measurements, each pulled from the metrics aggregator (plus kernel and firewall counters). Every measurement is scaled into its own **0-100 sub-score** and the sub-scores are combined with weights:
+Ten live measurements, each pulled from the metrics aggregator (plus kernel, firewall, neighbour, and conntrack counters). Every measurement is scaled into its own **0-100 sub-score** and the sub-scores are combined with weights:
 
-| Sub-score       | Weight | What it measures                                                                                                                   |
-| --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Packet loss** | 20 %   | Average loss percentage across WAN-side targets (external ICMP + WAN top-talker probes)                                            |
-| **RTT**         | 15 %   | Average round-trip latency across WAN-side targets                                                                                 |
-| **Jitter**      | 10 %   | Rolling RTT variation across WAN-side targets                                                                                      |
-| **DNS latency** | 10 %   | Average resolution time across external + internal resolvers                                                                       |
-| **LAN**         | 15 %   | Reachability to LAN-side hosts (RFC1918 IPs and `.lan` / `.local` / `.home` / `.internal` hostnames) - blends LAN loss and LAN RTT |
-| **HTTP**        | 5 %    | Configured / auto-derived HTTP endpoints - blends failure rate and TTFB                                                            |
-| **Stab**        | 10 %   | Per-interface error / drop ratio across all non-loopback interfaces (`RxErrors+TxErrors+RxDropped+TxDropped` vs total packets)     |
-| **WiFi**        | 10 %   | Average signal level (dBm) across associated wireless interfaces; -60 dBm = 100, -90 dBm = 0 (linear)                              |
-| **Firewall**    | 5 %    | DROP/REJECT velocity (drops/sec) across Testudo-managed blocking rules, diffed between snapshots; 0 = 100, 10 drops/sec = 50       |
+| Sub-score       | Weight | What it measures                                                                                                                                                                   |
+| --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Packet loss** | 20 %   | Average loss percentage across WAN-side targets (external ICMP + WAN top-talker probes)                                                                                            |
+| **RTT**         | 15 %   | Average round-trip latency across WAN-side targets                                                                                                                                 |
+| **Jitter**      | 5 %    | Rolling RTT variation across WAN-side targets                                                                                                                                      |
+| **DNS latency** | 10 %   | Average resolution time across external + internal resolvers                                                                                                                       |
+| **LAN**         | 15 %   | Reachability to LAN-side hosts (blends LAN loss + LAN RTT); a **duplicate-IP conflict** in the neighbour table applies a hard penalty for as long as it persists                   |
+| **HTTP**        | 5 %    | Configured / auto-derived HTTP endpoints - blends failure rate and TTFB                                                                                                            |
+| **Stab**        | 10 %   | Per-interface error / drop ratio **blended with the unreachable-neighbour ratio** (FAILED + INCOMPLETE ARP/NDP entries - a failed gateway neighbour is imminent connectivity loss) |
+| **WiFi**        | 10 %   | Average signal level (dBm) across associated wireless interfaces; -60 dBm = 100, -90 dBm = 0 (linear)                                                                              |
+| **Firewall**    | 5 %    | DROP/REJECT velocity (drops/sec) across Testudo-managed blocking rules, diffed between snapshots; 0 = 100, 10 drops/sec = 50                                                       |
+| **NAT**         | 5 %    | Conntrack table utilisation (live entries ÷ `nf_conntrack_max`); 70 % = 50, near-saturation drags the grade and fires the NAT-exhaustion anomaly with real numbers                 |
 
-Loss / RTT / Jitter still anchor the grade because those are what users *feel*, but the grade is no longer blind to the rest of the stack: a slow LAN host, a 5xx HTTP endpoint, a flapping NIC, a wireless radio at the edge of coverage, or **a firewall rule suddenly eating traffic** all surface immediately. Each sub-score returns a **neutral 100** when its data source is empty, so a box without WiFi, without HTTP endpoints, or without managed DROP rules doesn't pay a penalty for it.
+Loss / RTT / Jitter still anchor the grade because those are what users *feel*, but the grade is no longer blind to the rest of the stack: a slow LAN host, a 5xx HTTP endpoint, a flapping NIC, a wireless radio at the edge of coverage, **a firewall rule suddenly eating traffic**, **a duplicate IP fighting over an address**, or **a conntrack table about to overflow** all surface immediately. Each sub-score returns a **neutral 100** when its data source is empty, so a box without WiFi, without HTTP endpoints, without managed DROP rules, or without a loaded conntrack table doesn't pay a penalty for it.
 
 ### Target classification
 
@@ -1029,17 +1031,17 @@ This README is the top-level tour. The rest of the project is documented in a sm
 
 The [docs/](./docs/) directory hosts the longer technical writeups. Start at [docs/README.md](./docs/README.md) for the index, or jump straight to a topic:
 
-| Document                                       | Audience             | Summary                                                                                                 |
-| ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
-| [docs/README.md](./docs/README.md)             | everyone             | Index of the docs folder with one-line summaries.                                                       |
-| [docs/architecture.md](./docs/architecture.md) | engineers            | Subsystem map (Mermaid), data flow, module boundaries, lifecycle.                                       |
-| [docs/storage.md](./docs/storage.md)           | engineers, operators | The four storage layers (live ring => flow aggregator => SQLite => selective PCAP) and their lifetimes. |
-| [docs/replay.md](./docs/replay.md)             | operators            | Session capture, the replay engine, timeline navigation, what's persisted and what isn't.               |
-| [docs/firewall.md](./docs/firewall.md)         | operators            | `nftables` (default) and `iptables` (fallback) backends; chain semantics; common rule recipes.          |
-| [docs/topology.md](./docs/topology.md)         | operators            | Passive topology graph - nodes, edges, sources (ARP / LLDP / SNMP / flow observation).                  |
-| [docs/alerts.md](./docs/alerts.md)             | operators            | Severity levels, default thresholds, the anomaly engine, incident bundles.                              |
-| [docs/DIAGNOSTICS_ASSESSMENT.md](./docs/DIAGNOSTICS_ASSESSMENT.md) | engineers | Senior-engineer review of device-level diagnostics: capability matrix, gaps, prioritized roadmap.       |
-| [docs/tasks/](./docs/tasks/README.md)          | engineers            | Implementation specs derived from the assessment - one per roadmap item, each with TUI/Web/grade scope. |
+| Document                                                           | Audience             | Summary                                                                                                 |
+| ------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------- |
+| [docs/README.md](./docs/README.md)                                 | everyone             | Index of the docs folder with one-line summaries.                                                       |
+| [docs/architecture.md](./docs/architecture.md)                     | engineers            | Subsystem map (Mermaid), data flow, module boundaries, lifecycle.                                       |
+| [docs/storage.md](./docs/storage.md)                               | engineers, operators | The four storage layers (live ring => flow aggregator => SQLite => selective PCAP) and their lifetimes. |
+| [docs/replay.md](./docs/replay.md)                                 | operators            | Session capture, the replay engine, timeline navigation, what's persisted and what isn't.               |
+| [docs/firewall.md](./docs/firewall.md)                             | operators            | `nftables` (default) and `iptables` (fallback) backends; chain semantics; common rule recipes.          |
+| [docs/topology.md](./docs/topology.md)                             | operators            | Passive topology graph - nodes, edges, sources (ARP / LLDP / SNMP / flow observation).                  |
+| [docs/alerts.md](./docs/alerts.md)                                 | operators            | Severity levels, default thresholds, the anomaly engine, incident bundles.                              |
+| [docs/DIAGNOSTICS_ASSESSMENT.md](./docs/DIAGNOSTICS_ASSESSMENT.md) | engineers            | Senior-engineer review of device-level diagnostics: capability matrix, gaps, prioritized roadmap.       |
+| [docs/tasks/](./docs/tasks/README.md)                              | engineers            | Implementation specs derived from the assessment - one per roadmap item, each with TUI/Web/grade scope. |
 
 ### Pointing readers to the right place
 

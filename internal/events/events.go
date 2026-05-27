@@ -21,6 +21,8 @@ const (
 	KindFlowUpdate   Kind = "flow_update"
 	KindIncident     Kind = "incident"
 	KindFirewallDrop Kind = "firewall_drop"
+	KindNeighChange  Kind = "neigh_change"
+	KindDuplicateIP  Kind = "duplicate_ip"
 )
 
 // Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
@@ -121,6 +123,28 @@ type FirewallDropPayload struct {
 	DeltaPackets uint64
 	DeltaBytes   uint64
 	Rate         float64 // drops per second over the window
+}
+
+// NeighChangePayload reports a neighbour-table transition between two dumps:
+// a new entry, a MAC reassignment, or a slide into FAILED/INCOMPLETE. The
+// Alerts tab keys off (IP, Dev) so it can point at the exact neighbour.
+type NeighChangePayload struct {
+	IP       string
+	Dev      string
+	Family   string // ipv4 / ipv6
+	OldMAC   string // empty for a brand-new neighbour
+	NewMAC   string
+	OldState string
+	NewState string
+}
+
+// DuplicateIPPayload reports one IP answered by more than one MAC - an IP
+// conflict / rogue device. A hard local-network fault that penalises the LAN
+// sub-score for as long as it persists.
+type DuplicateIPPayload struct {
+	IP   string
+	MACs []string
+	Devs []string
 }
 
 // IncidentPayload bundles the context captured around a CRITICAL anomaly:
@@ -271,6 +295,10 @@ func kindMask(k Kind) uint64 {
 		return 1 << 8
 	case KindFirewallDrop:
 		return 1 << 9
+	case KindNeighChange:
+		return 1 << 10
+	case KindDuplicateIP:
+		return 1 << 11
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

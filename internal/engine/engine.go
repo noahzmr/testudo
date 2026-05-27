@@ -45,6 +45,7 @@ type Engine struct {
 	inventory *discovery.Inventory
 	store     *storage.Store
 	wifi      *collectors.WiFiCollector
+	neigh     *collectors.NeighConntrackCollector
 	sessionID string
 
 	// fwTrack derives a DROP/REJECT velocity from successive firewall-rule
@@ -121,6 +122,12 @@ func (e *Engine) Config() config.Config           { return e.cfg }
 // config — callers must nil-check before invoking Snapshot.
 func (e *Engine) WiFi() *collectors.WiFiCollector { return e.wifi }
 
+// Neigh returns the neighbour/conntrack collector so the TUI and Web UI can
+// read the cached ARP/NDP table, IP conflicts, and live conntrack flows from
+// one source. Returns nil when the collector is disabled or netops are
+// unavailable — callers must nil-check.
+func (e *Engine) Neigh() *collectors.NeighConntrackCollector { return e.neigh }
+
 // FirewallSignal returns the current DROP/REJECT velocity (drops per second
 // across managed blocking rules) and whether any counted blocking rule
 // exists. hasDropRules=false maps to a neutral firewall sub-score so hosts
@@ -149,6 +156,11 @@ func (e *Engine) Start(parent context.Context) error {
 	e.startAnalyzers(ctx)
 	e.startIncidentEngine(ctx)
 	e.startCollectorsNonCapture(ctx)
+	// Once the neighbour/conntrack collector exists, let incident bundles
+	// fold in a live conntrack snapshot.
+	if e.neigh != nil {
+		e.incidents.SetConntrackProvider(func() any { return e.neigh.Conntrack() })
+	}
 	if e.cfg.CaptureEnabled {
 		_ = e.StartCapture(e.cfg.CaptureIfaces)
 	}
@@ -539,6 +551,23 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 			Inventory: e.inventory,
 			Interval:  e.cfg.LANReachInterval,
 		})
+	}
+	if (e.cfg.NeighbourEnabled || e.cfg.ConntrackEnabled) && e.netops != nil {
+		neighInt := e.cfg.NeighbourInterval
+		if !e.cfg.NeighbourEnabled {
+			neighInt = 0
+		}
+		ctInt := e.cfg.ConntrackInterval
+		if !e.cfg.ConntrackEnabled {
+			ctInt = 0
+		}
+		e.neigh = &collectors.NeighConntrackCollector{
+			Netops:            e.netops,
+			NeighInterval:     neighInt,
+			ConntrackInterval: ctInt,
+			ConntrackMaxRows:  e.cfg.ConntrackMaxRows,
+		}
+		cs = append(cs, e.neigh)
 	}
 	if e.cfg.L2Enabled && e.netops != nil {
 		cs = append(cs, &collectors.L2Collector{

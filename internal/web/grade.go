@@ -22,18 +22,20 @@ func computeGradeView(
 	wifi []collectors.WiFiSnapshot,
 	fwDropRate float64,
 	fwHasDropRules bool,
+	l3 collectors.NeighConntrackSignal,
 	th config.Thresholds,
 ) gradeView {
 	const (
 		wLoss     = 0.20
 		wRTT      = 0.15
-		wJitter   = 0.10
+		wJitter   = 0.05
 		wDNS      = 0.10
 		wLAN      = 0.15
 		wHTTP     = 0.05
 		wStab     = 0.10
 		wWiFi     = 0.10
 		wFirewall = 0.05
+		wNAT      = 0.05
 	)
 
 	wan := filterT(targets, isWANTargetW)
@@ -44,20 +46,21 @@ func computeGradeView(
 	hasRTT := hasRTTDataW(wan)
 	hasJit := hasRTTDataW(wan)
 	hasDNS := hasDNSDataW(dns)
-	hasLAN := len(lan) > 0
+	hasLAN := len(lan) > 0 || l3.DuplicateIPs > 0
 	hasHTTP := len(httpT) > 0
-	hasStab := hasStabDataW(ifaces)
+	hasStab := hasStabDataW(ifaces) || l3.HasNeigh
 	hasWiFi := hasWiFiDataW(wifi)
 
 	lossScore := subScore(avgLoss(wan), th.PacketLossPct)
 	rttScore := subScore(avgRTT(wan), th.RTTMs)
 	jitScore := subScore(avgJit(wan), th.JitterMs)
 	dnsScore := subScore(avgDNS(dns), th.DNSLatencyMs)
-	lanScore := scoreLANW(lan, th)
+	lanScore := scoreLANW(lan, l3.DuplicateIPs, th)
 	httpScore := scoreHTTPW(httpT)
-	stabScore := scoreStabilityW(ifaces)
+	stabScore := scoreStabilityW(ifaces, l3.StaleRatio, l3.HasNeigh)
 	wifiScore := scoreWiFiW(wifi)
 	fwScore := scoreFirewallW(fwDropRate, fwHasDropRules)
+	natScore := scoreNATW(l3.ConntrackUtil, l3.HasConntrack)
 
 	// Renormalize over sub-scores that have data so "no measurement yet"
 	// doesn't inflate the overall grade. Mirrors internal/tui/grade.go.
@@ -76,6 +79,7 @@ func computeGradeView(
 		{wStab, stabScore, hasStab, "Stab"},
 		{wWiFi, wifiScore, hasWiFi, "WiFi"},
 		{wFirewall, fwScore, fwHasDropRules, "Firewall"},
+		{wNAT, natScore, l3.HasConntrack, "NAT"},
 	}
 	var weighted, totalW float64
 	noData := []string{}
@@ -93,8 +97,8 @@ func computeGradeView(
 			HasData: false,
 			Loss:    lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-			Firewall: fwScore,
-			NoData:   noData,
+			Firewall: fwScore, NAT: natScore,
+			NoData: noData,
 		}
 	}
 	score := int(weighted/totalW + 0.5)
@@ -109,9 +113,18 @@ func computeGradeView(
 		Score: score, Letter: letter, Verdict: verdict, HasData: true,
 		Loss: lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-		Firewall: fwScore,
-		NoData:   noData,
+		Firewall: fwScore, NAT: natScore,
+		NoData: noData,
 	}
+}
+
+// scoreNATW mirrors tui/grade.go scoreNATSub: conntrack utilisation vs a 70%
+// comfort line. Neutral 100 when nf_conntrack_max is unknown.
+func scoreNATW(conntrackUtil float64, hasConntrack bool) int {
+	if !hasConntrack {
+		return 100
+	}
+	return subScore(conntrackUtil*100, 70)
 }
 
 // scoreFirewallW mirrors tui/grade.go scoreFirewallSub: managed DROP/REJECT
@@ -182,13 +195,29 @@ func subScore(value, threshold float64) int {
 	}
 }
 
-func scoreLANW(ts []metrics.TargetStats, th config.Thresholds) int {
-	if len(ts) == 0 {
+func scoreLANW(ts []metrics.TargetStats, dupIPs int, th config.Thresholds) int {
+	if len(ts) == 0 && dupIPs == 0 {
 		return 100
 	}
-	loss := subScore(avgLoss(ts), th.PacketLossPct)
-	rtt := subScore(avgRTT(ts), 50) // LAN comfort line tighter than WAN
-	return (loss + rtt) / 2
+	score := 100
+	if len(ts) > 0 {
+		loss := subScore(avgLoss(ts), th.PacketLossPct)
+		rtt := subScore(avgRTT(ts), 50) // LAN comfort line tighter than WAN
+		score = (loss + rtt) / 2
+	}
+	if dupIPs > 0 {
+		penalty := 60
+		if dupIPs > 1 {
+			penalty = 80
+		}
+		if score -= penalty; score < 20 {
+			score = 20
+		}
+	}
+	if score < 0 {
+		score = 0
+	}
+	return score
 }
 
 func scoreHTTPW(ts []metrics.TargetStats) int {
@@ -200,7 +229,7 @@ func scoreHTTPW(ts []metrics.TargetStats) int {
 	return (fail + ttfb) / 2
 }
 
-func scoreStabilityW(ifs []netops.IfaceInfo) int {
+func scoreStabilityW(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bool) int {
 	var totalErrors, totalPackets uint64
 	for _, ifi := range ifs {
 		if ifi.Name == "lo" {
@@ -209,11 +238,21 @@ func scoreStabilityW(ifs []netops.IfaceInfo) int {
 		totalErrors += ifi.RxErrors + ifi.TxErrors + ifi.RxDropped + ifi.TxDropped
 		totalPackets += ifi.RxPackets + ifi.TxPackets
 	}
-	if totalPackets == 0 {
+	ifaceHasData := totalPackets > 0
+	if !ifaceHasData && !hasNeigh {
 		return 100
 	}
-	pct := float64(totalErrors) / float64(totalPackets) * 100
-	return subScore(pct, 0.1)
+	sum, n := 0, 0
+	if ifaceHasData {
+		pct := float64(totalErrors) / float64(totalPackets) * 100
+		sum += subScore(pct, 0.1)
+		n++
+	}
+	if hasNeigh {
+		sum += subScore(neighStaleRatio*100, 10)
+		n++
+	}
+	return sum / n
 }
 
 func scoreWiFiW(snaps []collectors.WiFiSnapshot) int {

@@ -282,6 +282,35 @@ func (s *Server) handleNATDel(w http.ResponseWriter, r *http.Request) {
 	writeOK(w)
 }
 
+// handleConntrackFlush deletes one conntrack entry by its original tuple.
+// Same netops-write gate as every other mutation: FlushConntrack returns
+// ErrWritesDisabled when writes are off, surfaced as a 422.
+func (s *Server) handleConntrackFlush(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Proto     string `json:"proto"`
+		OrigSrc   string `json:"orig_src"`
+		OrigDst   string `json:"orig_dst"`
+		OrigSport uint16 `json:"orig_sport"`
+		OrigDport uint16 `json:"orig_dport"`
+		NATed     bool   `json:"natted"`
+	}
+	if !readJSON(w, r, &b) {
+		return
+	}
+	if err := s.Engine.Netops().FlushConntrack(netops.ConntrackFlow{
+		Proto:     b.Proto,
+		OrigSrc:   b.OrigSrc,
+		OrigDst:   b.OrigDst,
+		OrigSport: b.OrigSport,
+		OrigDport: b.OrigDport,
+		NATed:     b.NATed,
+	}); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w)
+}
+
 // ---- TCPDump controls ------------------------------------------------
 
 func (s *Server) handleTCPDumpStart(w http.ResponseWriter, r *http.Request) {

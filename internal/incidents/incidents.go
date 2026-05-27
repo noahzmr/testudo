@@ -25,8 +25,18 @@ type Engine struct {
 	bundleDir string
 	cooldown  time.Duration
 
-	mu       sync.Mutex
-	lastFire time.Time
+	mu          sync.Mutex
+	lastFire    time.Time
+	conntrackFn func() any // optional: live conntrack flows folded into the bundle
+}
+
+// SetConntrackProvider registers a source of live conntrack flows. When set,
+// each incident bundle includes a conntrack snapshot so post-mortems can see
+// what was NAT'd at the moment of the fault. Safe to call after Run starts.
+func (e *Engine) SetConntrackProvider(fn func() any) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.conntrackFn = fn
 }
 
 func New(store *storage.Store, fa *flows.Aggregator, storageDir string, cooldown time.Duration) *Engine {
@@ -85,18 +95,27 @@ func (e *Engine) snapshot(ctx context.Context, sessionID string, ts time.Time, p
 		ts = time.Now()
 	}
 	id := newID(ts)
-	// Bundle = JSON of (trigger, summary, top flows at this moment).
+	e.mu.Lock()
+	ctFn := e.conntrackFn
+	e.mu.Unlock()
+	var conntrack any
+	if ctFn != nil {
+		conntrack = ctFn()
+	}
+	// Bundle = JSON of (trigger, summary, top flows + conntrack at this moment).
 	bundle := struct {
-		IncidentID string             `json:"incident_id"`
-		SessionID  string             `json:"session_id"`
-		TS         time.Time          `json:"ts"`
-		Trigger    string             `json:"trigger"`
-		Summary    string             `json:"summary"`
-		Flows      []flows.FlowStats  `json:"flows"`
+		IncidentID string            `json:"incident_id"`
+		SessionID  string            `json:"session_id"`
+		TS         time.Time         `json:"ts"`
+		Trigger    string            `json:"trigger"`
+		Summary    string            `json:"summary"`
+		Flows      []flows.FlowStats `json:"flows"`
+		Conntrack  any               `json:"conntrack,omitempty"`
 	}{
 		IncidentID: id, SessionID: sessionID, TS: ts,
 		Trigger: p.Severity, Summary: p.Message,
-		Flows: e.flowAgg.TopByRecency(50),
+		Flows:     e.flowAgg.TopByRecency(50),
+		Conntrack: conntrack,
 	}
 
 	_ = os.MkdirAll(e.bundleDir, 0o755)

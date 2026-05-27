@@ -60,6 +60,11 @@ type NetworkGrade struct {
 	// feels ("only some services work"). Neutral 100 when no managed DROP
 	// rules carry counters.
 	Firewall subScore
+
+	// NAT - conntrack table utilisation (live entries / nf_conntrack_max).
+	// Near-saturation means new connections start failing host-wide.
+	// Neutral 100 when nf_conntrack_max is unknown.
+	NAT subScore
 }
 
 type subScore struct {
@@ -90,21 +95,24 @@ func ComputeGrade(
 	wifi []collectors.WiFiSnapshot,
 	fwDropRate float64,
 	fwHasDropRules bool,
+	l3 L3GradeInput,
 	th config.Thresholds,
 ) NetworkGrade {
 	// Weights sum to 1.0. WAN reachability remains the spine of the
-	// grade; new dimensions slot in around it. The firewall signal takes
-	// 5% from the HTTP headroom (the assessment's suggested rebalance).
+	// grade; new dimensions slot in around it. The firewall signal took 5%
+	// from HTTP; the conntrack/NAT signal takes 5% from Jitter (which is
+	// highly correlated with RTT, so the information loss is minimal).
 	const (
 		wLoss     = 0.20
 		wRTT      = 0.15
-		wJitter   = 0.10
+		wJitter   = 0.05
 		wDNS      = 0.10
 		wLAN      = 0.15
 		wHTTP     = 0.05
 		wStab     = 0.10
 		wWiFi     = 0.10
 		wFirewall = 0.05
+		wNAT      = 0.05
 	)
 
 	wan := filterTargets(targets, isWANTarget)
@@ -115,11 +123,12 @@ func ComputeGrade(
 	rtt := scoreRTTSub(wan, th.RTTMs)
 	jit := scoreJitterSub(wan, th.JitterMs)
 	dnsLat := scoreDNSSub(dns, th.DNSLatencyMs)
-	lanScore := scoreLAN(lan, th)
+	lanScore := scoreLAN(lan, l3.DuplicateIPs, th)
 	httpScore := scoreHTTP(httpT)
-	stabScore := scoreStability(ifaces)
+	stabScore := scoreStability(ifaces, l3.NeighStaleRatio, l3.HasNeigh)
 	wifiScore := scoreWiFi(wifi)
 	fwScore := scoreFirewallSub(fwDropRate, fwHasDropRules)
+	natScore := scoreNATSub(l3.ConntrackUtil, l3.HasConntrack)
 
 	// Renormalize over sub-scores that actually have data. A sub-score
 	// with HasData=false drops out of both the numerator and the
@@ -131,7 +140,7 @@ func ComputeGrade(
 	}{
 		{wLoss, loss}, {wRTT, rtt}, {wJitter, jit}, {wDNS, dnsLat},
 		{wLAN, lanScore}, {wHTTP, httpScore}, {wStab, stabScore}, {wWiFi, wifiScore},
-		{wFirewall, fwScore},
+		{wFirewall, fwScore}, {wNAT, natScore},
 	}
 	var weighted, totalW float64
 	for _, p := range parts {
@@ -147,7 +156,7 @@ func ComputeGrade(
 			HasData: false,
 			Loss:    loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-			Firewall: fwScore,
+			Firewall: fwScore, NAT: natScore,
 		}
 	}
 	score := int(weighted/totalW + 0.5)
@@ -162,8 +171,46 @@ func ComputeGrade(
 		Score: score, Letter: letter, Verdict: verdict, HasData: true,
 		Loss: loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-		Firewall: fwScore,
+		Firewall: fwScore, NAT: natScore,
 	}
+}
+
+// L3GradeInput carries the conntrack/neighbour signals into the grade. The
+// zero value is the neutral case (no conflicts, no neighbours, no conntrack),
+// so a host lacking the signal maps to neutral 100.
+type L3GradeInput struct {
+	DuplicateIPs    int     // active IP conflicts -> hard LAN penalty
+	NeighStaleRatio float64 // (FAILED+INCOMPLETE)/total neighbours -> Stability
+	HasNeigh        bool
+	ConntrackUtil   float64 // live entries / nf_conntrack_max -> NAT sub-score
+	HasConntrack    bool
+}
+
+// l3InputFrom adapts the neighbour/conntrack collector's signal into the
+// grade input. Returns the neutral zero value when the collector is absent.
+func l3InputFrom(nc *collectors.NeighConntrackCollector) L3GradeInput {
+	if nc == nil {
+		return L3GradeInput{}
+	}
+	s := nc.Signal()
+	return L3GradeInput{
+		DuplicateIPs:    s.DuplicateIPs,
+		NeighStaleRatio: s.StaleRatio,
+		HasNeigh:        s.HasNeigh,
+		ConntrackUtil:   s.ConntrackUtil,
+		HasConntrack:    s.HasConntrack,
+	}
+}
+
+// scoreNATSub maps conntrack utilisation to the NAT sub-score. Comfort line
+// 70%: a half-full table is fine, near-saturation (where new connections
+// start failing) drags the grade and lines up with the NAT-exhaustion
+// anomaly. Neutral 100 when nf_conntrack_max is unknown.
+func scoreNATSub(conntrackUtil float64, hasConntrack bool) subScore {
+	if !hasConntrack {
+		return subScore{Name: "nat", Unit: "%", OK: true}
+	}
+	return scoreFromMetric("nat", conntrackUtil*100, 70, "%")
 }
 
 // scoreFirewallSub maps the managed DROP/REJECT velocity to a sub-score.
@@ -249,18 +296,40 @@ func scoreDNSSub(ds []metrics.DNSStats, threshold float64) subScore {
 // scoreLAN blends LAN loss and LAN RTT into a single sub-score. LAN
 // RTT comfort line is tighter than WAN (typical LAN ping is <5ms).
 // HasData=false when no LAN targets exist.
-func scoreLAN(ts []metrics.TargetStats, th config.Thresholds) subScore {
-	if len(ts) == 0 {
+// scoreLAN blends LAN loss and LAN RTT, then applies a hard penalty for any
+// active duplicate-IP conflict - a conflict is its own measured LAN fault, so
+// it forces HasData=true even with no LAN ping targets.
+func scoreLAN(ts []metrics.TargetStats, dupIPs int, th config.Thresholds) subScore {
+	if len(ts) == 0 && dupIPs == 0 {
 		return subScore{Name: "lan", Unit: "ms", OK: true}
 	}
-	lossPart := scoreFromMetric("lan-loss", avgLossPct(ts), th.PacketLossPct, "%")
-	// LAN RTT threshold: 50ms is already concerning on a switched LAN.
-	rttPart := scoreFromMetric("lan-rtt", avgRTTms(ts), 50, "ms")
-	score := (lossPart.Score + rttPart.Score) / 2
-	return subScore{
-		Name: "lan", Score: score, Value: rttPart.Value, Unit: "ms",
-		OK: lossPart.OK && rttPart.OK, HasData: true,
+	score := 100
+	value := 0.0
+	ok := true
+	if len(ts) > 0 {
+		lossPart := scoreFromMetric("lan-loss", avgLossPct(ts), th.PacketLossPct, "%")
+		// LAN RTT threshold: 50ms is already concerning on a switched LAN.
+		rttPart := scoreFromMetric("lan-rtt", avgRTTms(ts), 50, "ms")
+		score = (lossPart.Score + rttPart.Score) / 2
+		value = rttPart.Value
+		ok = lossPart.OK && rttPart.OK
 	}
+	if dupIPs > 0 {
+		// Two hosts fighting over an address = intermittent connectivity.
+		// One conflict drops the LAN score hard; multiple, harder.
+		penalty := 60
+		if dupIPs > 1 {
+			penalty = 80
+		}
+		if score -= penalty; score < 20 {
+			score = 20
+		}
+		ok = false
+	}
+	if score < 0 {
+		score = 0
+	}
+	return subScore{Name: "lan", Score: score, Value: value, Unit: "ms", OK: ok, HasData: true}
 }
 
 // scoreHTTP blends HTTP failure rate and TTFB. Comfort line for TTFB
@@ -283,7 +352,13 @@ func scoreHTTP(ts []metrics.TargetStats) subScore {
 // ratio of errored packets to total packets across non-loopback
 // interfaces. Comfort line: 0.1% (one bad packet in a thousand).
 // HasData=false when the kernel hasn't reported any packets yet.
-func scoreStability(ifs []netops.IfaceInfo) subScore {
+// scoreStability blends the kernel interface error/drop ratio with the
+// neighbour unreachable ratio (FAILED+INCOMPLETE neighbours). A failed
+// gateway neighbour is imminent connectivity loss, so it belongs in the same
+// stability dimension as a flaky NIC. Either component may be absent; the
+// score averages whatever has data, and is neutral (no data) when neither
+// does.
+func scoreStability(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bool) subScore {
 	var totalErrors, totalPackets uint64
 	for _, ifi := range ifs {
 		if ifi.Name == "lo" {
@@ -292,11 +367,33 @@ func scoreStability(ifs []netops.IfaceInfo) subScore {
 		totalErrors += ifi.RxErrors + ifi.TxErrors + ifi.RxDropped + ifi.TxDropped
 		totalPackets += ifi.RxPackets + ifi.TxPackets
 	}
-	if totalPackets == 0 {
+	ifaceHasData := totalPackets > 0
+	if !ifaceHasData && !hasNeigh {
 		return subScore{Name: "stab", Unit: "%", OK: true}
 	}
-	pct := float64(totalErrors) / float64(totalPackets) * 100
-	return scoreFromMetric("stab", pct, 0.1, "%")
+
+	sum, n := 0, 0
+	value := 0.0
+	ok := true
+	if ifaceHasData {
+		pct := float64(totalErrors) / float64(totalPackets) * 100
+		s := scoreFromMetric("stab", pct, 0.1, "%")
+		sum += s.Score
+		n++
+		value = pct
+		ok = ok && s.OK
+	}
+	if hasNeigh {
+		// Comfort line: 10% of neighbours unreachable.
+		s := scoreFromMetric("neigh", neighStaleRatio*100, 10, "%")
+		sum += s.Score
+		n++
+		if !ifaceHasData {
+			value = neighStaleRatio * 100
+		}
+		ok = ok && s.OK
+	}
+	return subScore{Name: "stab", Score: sum / n, Value: value, Unit: "%", OK: ok, HasData: true}
 }
 
 // scoreWiFi averages the signal level (dBm) across associated wireless

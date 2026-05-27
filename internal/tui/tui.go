@@ -147,7 +147,7 @@ func (a *App) refreshGrade() {
 		wifi = wc.Snapshot()
 	}
 	fwRate, fwHas := a.eng.FirewallSignal()
-	a.grade = ComputeGrade(targets, dns, ifaces, wifi, fwRate, fwHas, a.eng.Settings().Snapshot())
+	a.grade = ComputeGrade(targets, dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(a.eng.Neigh()), a.eng.Settings().Snapshot())
 }
 
 // refreshActive triggers an immediate one-shot slow-refresh of the

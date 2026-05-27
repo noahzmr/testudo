@@ -115,6 +115,38 @@ CREATE TABLE IF NOT EXISTS firewall_rule_samples (
 );
 CREATE INDEX IF NOT EXISTS idx_fwsamples_session ON firewall_rule_samples(session_id, ts);
 CREATE INDEX IF NOT EXISTS idx_fwsamples_rule ON firewall_rule_samples(session_id, family, tbl, chain, handle, ts);
+
+CREATE TABLE IF NOT EXISTS neighbours (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    ip          TEXT NOT NULL,
+    mac         TEXT NOT NULL,
+    dev         TEXT NOT NULL,
+    family      TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    router      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_neighbours_session ON neighbours(session_id, ts);
+CREATE INDEX IF NOT EXISTS idx_neighbours_ip ON neighbours(session_id, ip, ts);
+
+CREATE TABLE IF NOT EXISTS conntrack_samples (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    proto       TEXT NOT NULL,
+    orig_src    TEXT NOT NULL,
+    orig_dst    TEXT NOT NULL,
+    orig_sport  INTEGER NOT NULL,
+    orig_dport  INTEGER NOT NULL,
+    reply_src   TEXT NOT NULL,
+    reply_dst   TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    natted      INTEGER NOT NULL DEFAULT 0,
+    packets     INTEGER NOT NULL,
+    bytes       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conntrack_session ON conntrack_samples(session_id, ts);
 `
 
 type Store struct {

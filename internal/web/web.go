@@ -109,6 +109,7 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/firewall/reset-counter", s.protect(s.handleFirewallResetCounter))
 	mux.HandleFunc("/api/nat/add", s.protect(s.handleNATAdd))
 	mux.HandleFunc("/api/nat/del", s.protect(s.handleNATDel))
+	mux.HandleFunc("/api/conntrack/flush", s.protect(s.handleConntrackFlush))
 
 	// TCPDump
 	mux.HandleFunc("/api/tcpdump/start", s.protect(s.handleTCPDumpStart))
