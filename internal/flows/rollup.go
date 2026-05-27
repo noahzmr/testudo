@@ -11,8 +11,8 @@ import (
 // rolled up under the **non-local** counterpart so the dashboard shows
 // "talking to nas01.lan" rather than "talking to 192.168.1.20".
 type HostRollup struct {
-	Host      string // remote IP (or DNS name when known)
-	DNS       string
+	Host      string // remote IP - always populated, never replaced by DNS
+	DNS       string // resolved name when known; renderers show it alongside Host
 	Country   string // optional - populated when a GeoIP DB is configured
 	IsLAN     bool   // true when the remote is RFC1918 / link-local
 	Bytes     uint64
@@ -51,20 +51,22 @@ func TopHosts(snap []FlowStats, n int) []HostRollup {
 		// the lexicographically larger one so the rollup is stable.
 		var remoteIP, remotePort, _ = pickRemote(f.Key.A.IP, f.Key.B.IP)
 		_ = remotePort
-		host := remoteIP
-		if f.DNSName != "" {
-			host = f.DNSName
-		}
-		r, ok := agg[host]
+		// Always key on the IP so the address stays visible and rows don't
+		// collapse multiple IPs under one shared name. The DNS name rides
+		// alongside as a separate field.
+		r, ok := agg[remoteIP]
 		if !ok {
 			r = &HostRollup{
-				Host:      host,
+				Host:      remoteIP,
 				DNS:       f.DNSName,
 				IsLAN:     isLocalIP(net.ParseIP(remoteIP)),
 				FirstSeen: f.FirstSeen.UnixMilli(),
 				LastSeen:  f.LastSeen.UnixMilli(),
 			}
-			agg[host] = r
+			agg[remoteIP] = r
+		}
+		if r.DNS == "" && f.DNSName != "" {
+			r.DNS = f.DNSName // backfill once a reverse/forward name lands
 		}
 		r.Bytes += f.Bytes
 		r.Packets += f.Packets

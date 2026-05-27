@@ -537,16 +537,19 @@
       const zone = h.is_lan
         ? '<span class="status-pill">LAN</span>'
         : '<span class="status-pill on">WAN</span>';
-      const name = (h.dns && h.dns !== h.host) ? h.dns : h.host;
+      const dns = (h.dns && h.dns !== h.host)
+        ? escape(h.dns)
+        : '<span class="muted">-</span>';
       return '<tr>'
         + '<td>' + (i + 1) + '</td>'
-        + '<td>' + escape(name) + (h.dns && h.dns !== h.host ? ' <span class="muted">(' + escape(h.host) + ')</span>' : '') + '</td>'
+        + '<td>' + escape(h.host) + '</td>'
+        + '<td>' + dns + '</td>'
         + '<td>' + zone + '</td>'
         + '<td>' + fmtBytes(h.bytes) + '</td>'
         + '<td>' + h.packets + '</td>'
         + '<td>' + h.flows + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="6" class="muted">no flows yet - start capture</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">no flows yet - start capture</td></tr>';
 
     document.getElementById('talkers-procs-body').innerHTML = (procs || []).map((p, i) =>
       '<tr>'

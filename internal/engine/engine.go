@@ -90,6 +90,8 @@ type Engine struct {
 // (may be nil if netops are unavailable).
 func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore, nw *netops.Writer) *Engine {
 	bus := events.NewBus(2048)
+	dnsCache := flows.NewDNSCache()
+	dnsCache.SetReverseEnabled(cfg.ReverseDNSEnabled)
 	return &Engine{
 		cfg:       cfg,
 		bus:       bus,
@@ -98,7 +100,7 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 		bw:        metrics.NewBandwidthHistory(120),
 		flowAgg:   flows.NewAggregator(),
 		deviceBW:  flows.NewDeviceBandwidth(5*time.Second, 120),
-		dnsCache:  flows.NewDNSCache(),
+		dnsCache:  dnsCache,
 		procMatch: flows.NewProcMatcher(),
 		tagger:    flows.NewTagger(),
 		ring:      capture.NewRingBuffer(4096),

@@ -91,6 +91,12 @@ type Config struct {
 	// DNSTimeout is the per-query deadline.
 	DNSTimeout time.Duration
 
+	// ReverseDNSEnabled turns on asynchronous reverse (PTR) resolution of
+	// flow endpoints. When on, any IP seen in a flow - public or private -
+	// that wasn't actively probed forward is resolved to a hostname in the
+	// background and surfaces on a later render tick.
+	ReverseDNSEnabled bool
+
 	// DNSInternalEnabled turns on the internal-resolver probe. It sends
 	// DNSNames directly to LAN DNS servers (not via the stub) so the
 	// operator can tell whether the internal resolver is healthy
@@ -294,6 +300,7 @@ func Default() Config {
 		DNSNames:                      []string{"spiegel.de", "autonubil.de"},
 		DNSInterval:                   5 * time.Second,
 		DNSTimeout:                    3 * time.Second,
+		ReverseDNSEnabled:             true,
 		DNSInternalEnabled:            true,
 		StorageDir:                    storage,
 		SQLitePath:                    filepath.Join(storage, "testudo.db"),

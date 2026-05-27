@@ -2,6 +2,7 @@ package flows
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -9,19 +10,61 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/noahzmr/testudo/internal/services"
 )
 
-// DNSCache maps a destination IP to the most recently seen DNS name that
-// resolved to it. Populated by the engine from KindDNSResult events; queried
-// during flow rendering.
+// reverseNegativeTTL is how long a failed/empty PTR lookup is suppressed
+// before we try the address again. Successful lookups are cached for the
+// process lifetime.
+const reverseNegativeTTL = 5 * time.Minute
+
+// reverseConcurrency bounds the number of in-flight PTR lookups so a sudden
+// burst of new flow endpoints can't spawn an unbounded goroutine fan-out.
+const reverseConcurrency = 8
+
+// DNSCache maps an IP to a human-readable name. Two sources feed it:
+//
+//   - Forward DNS: the engine calls Record from KindDNSResult events, so
+//     names that were actively probed map back to their resolved addresses.
+//   - Reverse DNS: on a Lookup miss, the cache fires an asynchronous PTR
+//     (net.LookupAddr) query for the address. This is what resolves arbitrary
+//     flow endpoints - public and private alike - that were never probed
+//     forward. Results land in the cache and surface on the next render tick;
+//     the caller is never blocked.
+//
+// Forward names always win: a reverse result never clobbers a name already
+// recorded via Record.
 type DNSCache struct {
 	mu  sync.RWMutex
 	ips map[string]string
+
+	revEnabled bool
+	lookupAddr func(ctx context.Context, addr string) ([]string, error)
+	timeout    time.Duration
+	attempted  map[string]time.Time // IP => last PTR attempt (negative-cache)
+	sem        chan struct{}        // bounds concurrent PTR lookups
 }
 
-func NewDNSCache() *DNSCache { return &DNSCache{ips: make(map[string]string)} }
+func NewDNSCache() *DNSCache {
+	return &DNSCache{
+		ips:        make(map[string]string),
+		revEnabled: true,
+		lookupAddr: net.DefaultResolver.LookupAddr,
+		timeout:    2 * time.Second,
+		attempted:  make(map[string]time.Time),
+		sem:        make(chan struct{}, reverseConcurrency),
+	}
+}
+
+// SetReverseEnabled toggles asynchronous reverse (PTR) resolution. Forward
+// recording is unaffected.
+func (c *DNSCache) SetReverseEnabled(v bool) {
+	c.mu.Lock()
+	c.revEnabled = v
+	c.mu.Unlock()
+}
 
 // Record adds (name => resolved IP) mappings. We index by IP because that's
 // what a packet carries.
@@ -40,11 +83,66 @@ func (c *DNSCache) RecordHostByIP(name, ip string) {
 	c.mu.Unlock()
 }
 
-// Lookup returns the most-recent DNS name observed for ip, or "".
+// Lookup returns a known name for ip, or "". On a miss it kicks off a
+// background PTR lookup whose result will be available on a subsequent call.
 func (c *DNSCache) Lookup(ip string) string {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.ips[ip]
+	name, ok := c.ips[ip]
+	c.mu.RUnlock()
+	if ok {
+		return name
+	}
+	c.resolveReverse(ip)
+	return ""
+}
+
+// resolveReverse fires a one-shot background PTR lookup for ip, subject to
+// being enabled, the address being routable, and respecting the negative
+// cache. It returns immediately; the caller is never blocked.
+func (c *DNSCache) resolveReverse(ip string) {
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.IsLoopback() || parsed.IsUnspecified() ||
+		parsed.IsLinkLocalUnicast() || parsed.IsLinkLocalMulticast() || parsed.IsMulticast() {
+		return
+	}
+
+	now := time.Now()
+	c.mu.Lock()
+	if !c.revEnabled {
+		c.mu.Unlock()
+		return
+	}
+	if last, seen := c.attempted[ip]; seen && now.Sub(last) < reverseNegativeTTL {
+		c.mu.Unlock()
+		return
+	}
+	c.attempted[ip] = now
+	lookupAddr, timeout := c.lookupAddr, c.timeout
+	c.mu.Unlock()
+
+	go func() {
+		c.sem <- struct{}{}
+		defer func() { <-c.sem }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		names, err := lookupAddr(ctx, ip)
+		if err != nil || len(names) == 0 {
+			return // leave negative-cache timestamp in place; retry after TTL
+		}
+		name := strings.TrimSuffix(strings.TrimSpace(names[0]), ".")
+		if name == "" {
+			return
+		}
+
+		c.mu.Lock()
+		// Forward DNS wins: only fill if nothing authoritative is recorded.
+		if _, exists := c.ips[ip]; !exists {
+			c.ips[ip] = name
+		}
+		delete(c.attempted, ip) // resolved; drop negative-cache bookkeeping
+		c.mu.Unlock()
+	}()
 }
 
 // ProcMatcher reads /proc/net/{tcp,tcp6,udp,udp6} and /proc/*/fd to map

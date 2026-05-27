@@ -111,20 +111,20 @@ func renderTopHosts(innerW int, rows []flows.HostRollup) string {
 	if len(rows) == 0 {
 		return subtitleStyle.Render("  no flows yet - start capture (Flows tab => 's')")
 	}
-	widths := []int{4, 30, 8, 12, 10, 8}
+	widths := []int{4, 18, 26, 6, 11, 9, 7}
 	out := []string{"  " + renderTableRow(innerW, widths,
-		"#", "HOST / DNS", "ZONE", "BYTES", "PACKETS", "FLOWS")}
+		"#", "IP", "DNS", "ZONE", "BYTES", "PACKETS", "FLOWS")}
 	for i, r := range rows {
 		zone := okStyle.Render("WAN")
 		if r.IsLAN {
 			zone = dimStyle.Render("LAN")
 		}
-		host := r.Host
-		if r.DNS != "" && r.DNS != r.Host {
-			host = r.DNS
+		dns := r.DNS
+		if dns == "" || dns == r.Host {
+			dns = dimStyle.Render("-")
 		}
 		row := renderTableRow(innerW, widths,
-			fmt.Sprintf("%d", i+1), host, zone,
+			fmt.Sprintf("%d", i+1), r.Host, dns, zone,
 			fmtBytes(r.Bytes), fmt.Sprintf("%d", r.Packets), fmt.Sprintf("%d", r.Flows))
 		out = append(out, rowStyle.Render("  "+row))
 	}
