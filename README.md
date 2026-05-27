@@ -150,33 +150,46 @@ A turtle peeking out from under its shell - half forensic, half cozy. The termin
 
 ### Flow Engine
 
-The flow engine aggregates packets into intelligent flow summaries rather than persisting raw packets, and enriches each flow with process ownership, DNS resolution, service classification, and NAT/firewall state.
+The flow engine aggregates packets into intelligent flow summaries rather than persisting raw packets, and enriches each flow with process ownership, DNS resolution, service classification, NAT/firewall state, and an **IP scope/class label** on every endpoint.
 
 ```text
-┌ Live Flows ─────────────────────────────────────────┐
-│ IFACE    PROCESS   SRC               DST           │
-│ eth0     firefox   192.168.1.20      youtube.com   │
-│ wg0      ssh       10.0.0.10         10.0.0.1      │
-│ docker0  redis     172.18.0.2        172.18.0.5    │
-└─────────────────────────────────────────────────────┘
+┌ Live Flows ────────────────────────────────────────────────────┐
+│ IFACE    PROCESS   A => B                       SCOPE          │
+│ eth0     firefox   192.168.1.20 => 142.250.1.1  prv·C→pub·B    │
+│ wg0      ssh       10.0.0.10 => 10.0.0.1         prv·A→prv·A    │
+│ docker0  redis     172.18.0.2 => 172.18.0.5      prv·B→prv·B    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Tracked per flow: source/destination, ports, protocol, throughput, retransmissions, packet loss, ingress interface, egress interface, process ownership, NAT state, firewall state.
+Tracked per flow: source/destination, ports, protocol, throughput, retransmissions, packet loss, ingress interface, egress interface, process ownership, NAT state, firewall state, and per-endpoint IP classification.
+
+#### IP Address Labels
+
+Every IP shown in the **Flows** and **Devices** views - in both the TUI and the web UI - is tagged with its routability **scope** and, for IPv4, its classful **network** (A-E). One classifier (`internal/netlabel`) feeds both interfaces, so the labels are always identical.
+
+| Scope         | Meaning                                          | Ranges                                                  | Colour |
+| ------------- | ------------------------------------------------ | ------------------------------------------------------- | ------ |
+| **public**    | Globally routable                                | everything not below                                    | amber  |
+| **private**   | Routed inside an org, never on the public net    | RFC1918, IPv6 ULA `fc00::/7`, CGNAT `100.64.0.0/10`     | green  |
+| **internal**  | Never crosses a router                           | loopback, link-local, unspecified, limited broadcast    | dim    |
+| **multicast** | One-to-many group address                        | `224.0.0.0/4`, `ff00::/8`                               | cyan   |
+
+The network class is the historical classful bucket derived from the first octet (A = `0-127`, B = `128-191`, C = `192-223`, D = multicast, E = reserved); it is shown only for IPv4. Labels render as a compact `scope·class` tag in the TUI (`prv·C`, `pub·B`, `int·A`) and as a coloured pill beside each address in the web UI, with the precise reason (`RFC1918`, `CGNAT`, `loopback`, …) available on hover.
 
 ### Network Discovery
 
 Testudo runs **layered discovery** - passive listeners are always on when discovery is enabled; active probes are opt-in. The goal is "find every reachable device on every connected subnet, even the ones that drop ICMP."
 
 ```text
-┌ Devices ─────────────────────────────────────────────────────────────┐
-│ HOSTNAME       IP             TYPE       SOURCE        STATUS        │
-│ router.local   192.168.1.1    Router     lldp+snmp     Active        │
-│ sw-core-01     192.168.1.2    Switch     lldp          Active        │
-│ ap-floor3      192.168.1.5    AP         lldp          Active        │
-│ nas01          192.168.1.10   NAS        snmp          Active        │
-│ printer01      192.168.1.40   Printer    arp-sweep     Idle          │
-│ ?              192.168.1.77   Unknown    arp-sweep     Active        │
-└──────────────────────────────────────────────────────────────────────┘
+┌ Devices ─────────────────────────────────────────────────────────────────────┐
+│ HOSTNAME       IP             SCOPE    TYPE       SOURCE        STATUS        │
+│ router.local   192.168.1.1    prv·C    Router     lldp+snmp     Active        │
+│ sw-core-01     192.168.1.2    prv·C    Switch     lldp          Active        │
+│ ap-floor3      192.168.1.5    prv·C    AP         lldp          Active        │
+│ nas01          192.168.1.10   prv·C    NAS        snmp          Active        │
+│ printer01      192.168.1.40   prv·C    Printer    arp-sweep     Idle          │
+│ ?              192.168.1.77   prv·C    Unknown    arp-sweep     Active        │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Each device is tracked with IP, MAC, hostname, vendor (via embedded OUI table), interface, source, device type, first/last-seen timestamps, and - for managed gear - system name, description, object ID, contact, location, uptime, interface count, LLDP chassis/port IDs and capabilities.

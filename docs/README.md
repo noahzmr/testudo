@@ -22,6 +22,3 @@ replayable**. Most of that roadmap has shipped (per-rule nftables counters,
 conntrack/NEIGH introspection, netlink push-vs-poll, the rollup/baseline quality
 table, per-flow TCP telemetry, and privilege separation); IPv6 across the full
 data path is the main remaining item.
-
-If a topic isn't covered yet, check `.claude/CLAUDE.md` - it's the canonical
-project spec - or open an issue.

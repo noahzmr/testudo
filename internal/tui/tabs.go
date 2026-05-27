@@ -405,8 +405,8 @@ func (t *flowsTab) visibleCount() int {
 func (t *flowsTab) View(w, h int) string {
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
-	widths := []int{6, 9, 16, 24, 7, 9, 18, 12, 13, 9}
-	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "PKTS", "BYTES", "RTT·RTX·CWND", "DNS", "AGE", "BYTE A=>B"}
+	widths := []int{6, 9, 16, 24, 14, 7, 9, 18, 12, 13, 9}
+	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "SCOPE", "PKTS", "BYTES", "RTT·RTX·CWND", "DNS", "AGE", "BYTE A=>B"}
 	// Apply filter once per render.
 	visible := t.rows
 	if t.filter != "" {
@@ -489,8 +489,9 @@ func (t *flowsTab) View(w, h int) string {
 		if f.HasTCP() {
 			tcp = fmt.Sprintf("%.0fms %.1f%% %d", f.TCP.RTTms(), f.TCP.RetransRate, f.TCP.Cwnd)
 		}
+		scope := scopePair(f.Key.A.IP, f.Key.B.IP)
 		row := renderTableRow(innerW, widths,
-			strings.ToUpper(f.Key.Proto), f.Key.Iface, proc, ab,
+			strings.ToUpper(f.Key.Proto), f.Key.Iface, proc, ab, scope,
 			fmt.Sprintf("%d", f.Packets), fmtBytes(f.Bytes), tcp, dns,
 			fmt.Sprintf("%s ago", age), fmtBytes(f.BytesAtoB))
 		if i == t.cursor {
@@ -2125,9 +2126,9 @@ func (t *devicesTab) View(w, h int) string {
 	}
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
-	widths := []int{16, 18, 10, 16, 18, 14, 8}
+	widths := []int{16, 9, 18, 10, 16, 18, 14, 8}
 	rows = append(rows, renderTableRow(innerW, widths,
-		"IP", "HOSTNAME", "TYPE", "VENDOR", "PROTOCOLS", "BW (10m TX)", "LAST"))
+		"IP", "SCOPE", "HOSTNAME", "TYPE", "VENDOR", "PROTOCOLS", "BW (10m TX)", "LAST"))
 	bw := t.eng.DeviceBandwidth()
 	for i, d := range t.devices {
 		age := time.Since(d.LastSeen).Truncate(time.Second)
@@ -2158,7 +2159,7 @@ func (t *devicesTab) View(w, h int) string {
 			ipCell = d.IP + " ⚠DUP"
 		}
 		row := renderTableRow(innerW, widths,
-			ipCell, dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
+			ipCell, scopeTag(d.IP), dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
 			dashIfEmpty(d.Vendor), protoCell, bwCell,
 			fmt.Sprintf("%s ago", age))
 		switch {

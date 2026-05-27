@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/noahzmr/testudo/internal/netlabel"
 )
 
 // Shared styles. Bumping any of these globally re-skins the whole TUI.
@@ -22,10 +24,11 @@ var (
 
 	selectedRowStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("63"))
 
-	okStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	critStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("196"))
+	okStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	warnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	critStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("196"))
+	mcastStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("44"))
 
 	cellStyle = lipgloss.NewStyle().PaddingRight(2)
 	boxStyle  = lipgloss.NewStyle().
@@ -72,6 +75,29 @@ func renderRowWidths(widths []int, cells ...string) string {
 		out[i] = cellStyle.Render(padOrTrim(c, w))
 	}
 	return strings.Join(out, "")
+}
+
+// scopeTag renders netlabel's compact "scope·class" badge for an IP, colour
+// coded by routability: green for private LAN, amber for public (traffic
+// leaving the network), cyan for multicast, dim for host-internal/unknown.
+func scopeTag(ip string) string {
+	l := netlabel.Classify(ip)
+	switch l.Scope {
+	case netlabel.ScopePrivate:
+		return okStyle.Render(l.Tag())
+	case netlabel.ScopePublic:
+		return warnStyle.Render(l.Tag())
+	case netlabel.ScopeMulticast:
+		return mcastStyle.Render(l.Tag())
+	default:
+		return dimStyle.Render(l.Tag())
+	}
+}
+
+// scopePair renders the scope badges for both endpoints of a flow joined by a
+// dim arrow, e.g. "prv·C→pub·A".
+func scopePair(aIP, bIP string) string {
+	return scopeTag(aIP) + dimStyle.Render("→") + scopeTag(bIP)
 }
 
 // renderTableRow is the width-aware row renderer. When totalWidth exceeds
@@ -207,4 +233,3 @@ const tuiBanner = `      ___
 (_,\/ \_/ \
   \ \_/_\_/>
   /_/  /_/`
-

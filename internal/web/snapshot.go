@@ -8,6 +8,7 @@ import (
 	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/flows"
+	"github.com/noahzmr/testudo/internal/netlabel"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/quality"
 )
@@ -185,16 +186,32 @@ type dnsView struct {
 	Failures int    `json:"failures"`
 }
 
+// ipLabel is the routability classification of one address, shared by flow
+// endpoints and devices so the SPA renders one badge component everywhere.
+type ipLabel struct {
+	Scope  string `json:"scope"`            // public | private | internal | multicast | unknown
+	Class  string `json:"class,omitempty"`  // IPv4 classful network A-E
+	Detail string `json:"detail,omitempty"` // human reason, used as the badge tooltip
+}
+
+// labelFor classifies ip via netlabel - the same source the TUI renders from.
+func labelFor(ip string) ipLabel {
+	l := netlabel.Classify(ip)
+	return ipLabel{Scope: string(l.Scope), Class: l.Class, Detail: l.Detail}
+}
+
 type flowView struct {
-	Proto   string `json:"proto"`
-	Iface   string `json:"iface"`
-	Process string `json:"process"`
-	A       string `json:"a"`
-	B       string `json:"b"`
-	Service string `json:"service"`
-	DNS     string `json:"dns"`
-	Packets uint64 `json:"packets"`
-	Bytes   uint64 `json:"bytes"`
+	Proto   string  `json:"proto"`
+	Iface   string  `json:"iface"`
+	Process string  `json:"process"`
+	A       string  `json:"a"`
+	ALabel  ipLabel `json:"a_label"`
+	B       string  `json:"b"`
+	BLabel  ipLabel `json:"b_label"`
+	Service string  `json:"service"`
+	DNS     string  `json:"dns"`
+	Packets uint64  `json:"packets"`
+	Bytes   uint64  `json:"bytes"`
 
 	// Per-flow TCP telemetry (INET_DIAG / eBPF). Zero/empty when no telemetry
 	// has been observed for this flow. RTTms is the smoothed RTT.
@@ -219,6 +236,7 @@ type telemetryView struct {
 
 type deviceView struct {
 	IP         string   `json:"ip"`
+	IPLabel    ipLabel  `json:"ip_label"`
 	MAC        string   `json:"mac"`
 	Hostname   string   `json:"hostname"`
 	Vendor     string   `json:"vendor"`
@@ -620,6 +638,7 @@ func (s *Server) buildSnapshot() snapshot {
 		fv := flowView{
 			Proto: f.Key.Proto, Iface: f.Key.Iface,
 			Process: f.Process, A: f.Key.A.String(), B: f.Key.B.String(),
+			ALabel: labelFor(f.Key.A.IP), BLabel: labelFor(f.Key.B.IP),
 			Service: f.Service, DNS: f.DNSName,
 			Packets: f.Packets, Bytes: f.Bytes,
 		}
@@ -657,7 +676,7 @@ func (s *Server) buildSnapshot() snapshot {
 				protoStrs = append(protoStrs, string(p))
 			}
 			snap.Devices = append(snap.Devices, deviceView{
-				IP: d.IP, MAC: d.MAC, Hostname: d.Hostname,
+				IP: d.IP, IPLabel: labelFor(d.IP), MAC: d.MAC, Hostname: d.Hostname,
 				Vendor: d.Vendor, Iface: d.Iface, Source: d.Source,
 				DeviceType: d.DeviceType,
 				OpenPorts:  d.OpenPorts,

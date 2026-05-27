@@ -335,6 +335,18 @@
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+  // ipBadge renders the routability classification from snapshot ipLabel
+  // ({scope, class, detail}) as an inline pill, mirroring the TUI's scope·class
+  // tag. Returns '' for an absent/unknown label so callers can append blindly.
+  const SCOPE_SHORT = { public: 'pub', private: 'prv', internal: 'int', multicast: 'mcast' };
+  function ipBadge(l) {
+    if (!l || !l.scope) return '';
+    let txt = SCOPE_SHORT[l.scope] || '?';
+    if (l.class) txt += '·' + l.class;
+    const title = l.detail ? l.scope + ' · ' + l.detail : l.scope;
+    return '<span class="ipbadge ipbadge-' + escape(l.scope) + '" title="' + escape(title) + '">'
+      + escape(txt) + '</span>';
+  }
   function fmtBytes(n) {
     if (!n) return '0';
     const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
@@ -639,8 +651,8 @@
       + '<td>' + escape(f.proto.toUpperCase()) + '</td>'
       + '<td>' + escape(f.iface) + '</td>'
       + '<td>' + escape(f.process || '-') + '</td>'
-      + '<td>' + escape(f.a) + '</td>'
-      + '<td>' + escape(f.b) + '</td>'
+      + '<td>' + escape(f.a) + ipBadge(f.a_label) + '</td>'
+      + '<td>' + escape(f.b) + ipBadge(f.b_label) + '</td>'
       + '<td>' + escape(f.service || '-') + '</td>'
       + '<td>' + escape(f.dns || '-') + '</td>'
       + '<td>' + f.packets + '</td>'
@@ -653,8 +665,8 @@
       + '<td>' + escape(f.proto.toUpperCase()) + '</td>'
       + '<td>' + escape(f.iface) + '</td>'
       + '<td>' + escape(f.process || '-') + '</td>'
-      + '<td>' + escape(f.a) + '</td>'
-      + '<td>' + escape(f.b) + '</td>'
+      + '<td>' + escape(f.a) + ipBadge(f.a_label) + '</td>'
+      + '<td>' + escape(f.b) + ipBadge(f.b_label) + '</td>'
       + '<td>' + escape(f.service || '-') + '</td>'
       + '<td>' + f.packets + '</td>'
       + '<td>' + fmtBytes(f.bytes) + '</td>'
@@ -676,7 +688,7 @@
       ).join(' ') || '<span class="muted">scan first</span>';
       const ip = escape(d.ip);
       return '<tr>'
-        + '<td><b>' + ip + '</b></td>'
+        + '<td><b>' + ip + '</b>' + ipBadge(d.ip_label) + '</td>'
         + '<td>' + escape(d.hostname || '-') + '</td>'
         + '<td>' + escape(d.vendor || '-') + '</td>'
         + '<td>' + ports + '</td>'
