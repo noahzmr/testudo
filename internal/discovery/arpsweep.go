@@ -189,7 +189,8 @@ func (s *Scanner) recordARPReply(buf []byte, ifaceName string) {
 	}
 	s.Inventory.Observe(Device{
 		IP: senderIP, MAC: senderHW, Iface: ifaceName,
-		Source: "arp-sweep",
-		Vendor: vendorFor(senderHW),
+		Source:  "arp-sweep",
+		Vendor:  vendorFor(senderHW),
+		MACType: classifyMAC(senderHW),
 	})
 }

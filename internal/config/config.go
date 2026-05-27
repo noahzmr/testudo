@@ -144,6 +144,11 @@ type Config struct {
 	// DiscoveryMaxSubnetBits caps prefix expansion for the ARP and ICMP
 	// sweeps. 10 = /22 (1024 hosts) by default; 8 keeps it at /24.
 	DiscoveryMaxSubnetBits int
+	// DiscoveryIntensity tunes scan breadth: "fast", "balanced" (default), or
+	// "aggressive". It controls probe port lists, timeouts, the effective
+	// subnet cap, and which hostname-resolution fallbacks (DHCP/rDNS/NetBIOS)
+	// run each pass.
+	DiscoveryIntensity string
 	// LLDPEnabled toggles the passive LLDP listener. Requires CAP_NET_RAW;
 	// soft-fails per interface when the cap is missing.
 	LLDPEnabled bool
@@ -313,6 +318,7 @@ func Default() Config {
 		DiscoveryActive:               false,
 		DiscoveryInterval:             60 * time.Second,
 		DiscoveryMaxSubnetBits:        10,
+		DiscoveryIntensity:            "balanced",
 		LLDPEnabled:                   true,
 		SNMPCommunity:                 "public",
 		SNMPTimeout:                   time.Second,

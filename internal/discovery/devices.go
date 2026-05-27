@@ -3,8 +3,8 @@
 // on; active probing (ICMP sweep, mDNS queries) runs on a timer.
 //
 // The inventory is in-memory + periodically flushed to the `devices` table
-// in SQLite. Vendor lookup uses an embedded OUI prefix table - small, no
-// network dependency.
+// in SQLite. Vendor lookup uses the embedded IEEE OUI registry (see vendor.go)
+// - no runtime network dependency.
 package discovery
 
 import (
@@ -16,10 +16,14 @@ import (
 
 // Device is the in-memory inventory record.
 type Device struct {
-	IP        string
-	MAC       string
-	Hostname  string
-	Vendor    string
+	IP       string
+	MAC      string
+	Hostname string
+	Vendor   string
+	// MACType classifies the MAC's administration scope: "global" (IEEE OUI),
+	// "randomized" (locally administered / privacy MAC), or "multicast".
+	// Empty until a MAC is observed. See classifyMAC.
+	MACType   string
 	Iface     string
 	OpenPorts []uint16
 	Services  []string
@@ -85,6 +89,9 @@ func (in *Inventory) Observe(d Device) {
 	}
 	if d.Vendor != "" {
 		cur.Vendor = d.Vendor
+	}
+	if d.MACType != "" {
+		cur.MACType = d.MACType
 	}
 	if d.Iface != "" {
 		cur.Iface = d.Iface
@@ -155,6 +162,42 @@ func (in *Inventory) Snapshot() []Device {
 	}
 	sort.Slice(out, func(i, j int) bool { return ipLess(out[i].IP, out[j].IP) })
 	return out
+}
+
+// SetHostname records a resolved name for an existing device without touching
+// LastSeen. Hostname resolution (reverse DNS, DHCP leases) succeeds even for
+// offline hosts, so it must not count as a liveness signal. No-op when the IP
+// is unknown or already has a hostname (authoritative sources win).
+func (in *Inventory) SetHostname(ip, name string) {
+	if ip == "" || name == "" {
+		return
+	}
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if d, ok := in.m[ip]; ok && d.Hostname == "" {
+		d.Hostname = name
+	}
+}
+
+// Enrich updates derived best-effort fields (DeviceType, MACType) on an
+// existing device without touching LastSeen. Empty values and already-set
+// fields are left alone, so a strong classifier result is never downgraded.
+func (in *Inventory) Enrich(ip, deviceType, macType string) {
+	if ip == "" {
+		return
+	}
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	d, ok := in.m[ip]
+	if !ok {
+		return
+	}
+	if deviceType != "" && d.DeviceType == "" {
+		d.DeviceType = deviceType
+	}
+	if macType != "" && d.MACType == "" {
+		d.MACType = macType
+	}
 }
 
 // MarkStale removes devices that haven't been seen in `age` and returns

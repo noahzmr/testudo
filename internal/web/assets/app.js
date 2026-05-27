@@ -690,7 +690,7 @@
       return '<tr>'
         + '<td><b>' + ip + '</b>' + ipBadge(d.ip_label) + '</td>'
         + '<td>' + escape(d.hostname || '-') + '</td>'
-        + '<td>' + escape(d.vendor || '-') + '</td>'
+        + '<td>' + vendorCell(d) + '</td>'
         + '<td>' + ports + '</td>'
         + '<td>' + connectBtns + '</td>'
         + '<td>'
@@ -698,6 +698,15 @@
         + '</td>'
         + '</tr>';
     }).join('') || '<tr><td colspan="6" class="muted">no devices yet</td></tr>';
+  }
+
+  // vendorCell renders the device vendor, or - when there's no vendor and the
+  // MAC is randomized/private - a muted "randomized" tag explaining why no OUI
+  // could be resolved.
+  function vendorCell(d) {
+    if (d.vendor) return escape(d.vendor);
+    if (d.mac_type === 'randomized') return '<span class="muted">randomized</span>';
+    return '-';
   }
 
   // neighStateClass maps a NUD state to a status-pill colour. FAILED /

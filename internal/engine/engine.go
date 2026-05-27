@@ -828,6 +828,7 @@ func (e *Engine) startDiscovery(ctx context.Context) {
 		MaxSubnetBits: e.cfg.DiscoveryMaxSubnetBits,
 		SNMPCommunity: e.cfg.SNMPCommunity,
 		SNMPTimeout:   e.cfg.SNMPTimeout,
+		Intensity:     e.cfg.DiscoveryIntensity,
 	}
 	e.wg.Add(1)
 	go func() {

@@ -2158,9 +2158,15 @@ func (t *devicesTab) View(w, h int) string {
 		if conflicts[d.IP] {
 			ipCell = d.IP + " ⚠DUP"
 		}
+		// A randomized/private MAC has no useful OUI, so explain the empty
+		// vendor cell rather than showing a bare dash.
+		vendorCell := dashIfEmpty(d.Vendor)
+		if d.Vendor == "" && d.MACType == discovery.MACTypeRandomized {
+			vendorCell = dimStyle.Render("randomized")
+		}
 		row := renderTableRow(innerW, widths,
 			ipCell, scopeTag(d.IP), dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
-			dashIfEmpty(d.Vendor), protoCell, bwCell,
+			vendorCell, protoCell, bwCell,
 			fmt.Sprintf("%s ago", age))
 		switch {
 		case i == t.cursor:
@@ -2248,7 +2254,14 @@ func renderDeviceDetail(d discovery.Device) string {
 		}
 		lines = append(lines, fmt.Sprintf("  %-14s %s", label+":", value))
 	}
-	add("MAC", d.MAC)
+	macLine := d.MAC
+	switch d.MACType {
+	case discovery.MACTypeRandomized:
+		macLine += warnStyle.Render("  (randomized/private)")
+	case discovery.MACTypeMulticast:
+		macLine += dimStyle.Render("  (multicast)")
+	}
+	add("MAC", macLine)
 	add("Source", d.Source)
 	add("Hostname", d.Hostname)
 	add("Vendor", d.Vendor)

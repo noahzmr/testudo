@@ -238,6 +238,7 @@ type deviceView struct {
 	IP         string   `json:"ip"`
 	IPLabel    ipLabel  `json:"ip_label"`
 	MAC        string   `json:"mac"`
+	MACType    string   `json:"mac_type,omitempty"`
 	Hostname   string   `json:"hostname"`
 	Vendor     string   `json:"vendor"`
 	Iface      string   `json:"iface"`
@@ -676,7 +677,7 @@ func (s *Server) buildSnapshot() snapshot {
 				protoStrs = append(protoStrs, string(p))
 			}
 			snap.Devices = append(snap.Devices, deviceView{
-				IP: d.IP, IPLabel: labelFor(d.IP), MAC: d.MAC, Hostname: d.Hostname,
+				IP: d.IP, IPLabel: labelFor(d.IP), MAC: d.MAC, MACType: d.MACType, Hostname: d.Hostname,
 				Vendor: d.Vendor, Iface: d.Iface, Source: d.Source,
 				DeviceType: d.DeviceType,
 				OpenPorts:  d.OpenPorts,

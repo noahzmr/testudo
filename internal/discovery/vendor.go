@@ -1,114 +1,146 @@
 package discovery
 
-import "strings"
+import (
+	"strings"
+	"sync"
 
-// vendorFor maps a MAC address to a vendor name using a curated OUI prefix
-// table. Full IEEE OUI database is ~25k entries; this is a tiny curated
-// set covering common consumer/datacenter hardware. Extend at will.
-func vendorFor(mac string) string {
-	if len(mac) < 8 {
-		return ""
-	}
-	prefix := strings.ToUpper(strings.ReplaceAll(mac[:8], "-", ":"))
-	return ouiPrefix[prefix]
+	"github.com/endobit/oui"
+)
+
+// MACType classifies the administration scope of a MAC address. It's surfaced
+// in the UI so randomized/private MACs (which carry no useful OUI) are flagged
+// rather than shown as an unidentified vendor.
+const (
+	MACTypeGlobal     = "global"     // IEEE-assigned OUI - vendor lookup is meaningful
+	MACTypeRandomized = "randomized" // locally administered (privacy/randomized MAC)
+	MACTypeMulticast  = "multicast"  // group address - not a real host NIC
+)
+
+// vendorCache memoizes lookups keyed by the normalized 3-octet OUI prefix.
+// oui.Vendor is itself a generated-map lookup, but caching the (prefix =>
+// vendor) result also shortcuts the normalization on the hot ARP path.
+var vendorCache sync.Map // string -> string
+
+// vendorOverride maps OUI prefixes to friendlier labels than the raw IEEE
+// registration name, or fills gaps the IEEE CSV labels poorly. Checked before
+// the OUI database. Keep this list small and intentional.
+var vendorOverride = map[string]string{
+	"00:15:5D": "Microsoft Hyper-V",
+	"00:50:56": "VMware",
+	"00:1C:42": "Parallels",
+	"08:00:27": "Oracle VirtualBox",
+	"52:54:00": "QEMU/KVM",
 }
 
-// ouiPrefix maps the canonical "AA:BB:CC" first three octets to a vendor.
-var ouiPrefix = map[string]string{
-	"00:00:0C": "Cisco",
-	"00:01:42": "Cisco",
-	"00:03:6B": "Cisco",
-	"00:0A:F7": "Broadcom",
-	"00:0E:08": "Cisco",
-	"00:0F:20": "HP",
-	"00:13:72": "Dell",
-	"00:14:22": "Dell",
-	"00:15:5D": "Microsoft Hyper-V",
-	"00:15:F2": "ASUSTek",
-	"00:17:F2": "Apple",
-	"00:18:8B": "Dell",
-	"00:1A:11": "Google",
-	"00:1B:21": "Intel",
-	"00:1B:63": "Apple",
-	"00:1C:42": "Parallels",
-	"00:1E:C2": "Apple",
-	"00:1F:5B": "Apple",
-	"00:21:9B": "Dell",
-	"00:23:DF": "Apple",
-	"00:25:00": "Apple",
-	"00:25:90": "Super Micro",
-	"00:26:08": "Apple",
-	"00:30:65": "Apple",
-	"00:50:56": "VMware",
-	"00:50:F2": "Microsoft",
-	"00:60:08": "3COM",
-	"00:90:27": "Intel",
-	"08:00:27": "Oracle VirtualBox",
-	"00:E0:4C": "Realtek",
-	"10:9A:DD": "Apple",
-	"14:10:9F": "Apple",
-	"14:DA:E9": "ASUSTek",
-	"18:65:90": "Apple",
-	"1C:1B:0D": "ASUSTek",
-	"1C:7C:11": "ASUSTek",
-	"20:CF:30": "ASUSTek",
-	"24:1E:EB": "ASUSTek",
-	"28:CF:E9": "Apple",
-	"2C:54:CF": "LITEON",
-	"30:9C:23": "Micro-Star",
-	"34:13:E8": "Intel",
-	"38:DE:60": "MOJO Networks",
-	"3C:07:54": "Apple",
-	"3C:15:C2": "Apple",
-	"40:6C:8F": "Apple",
-	"40:B0:34": "Hewlett Packard",
-	"44:65:0D": "Amazon",
-	"48:5D:60": "AzureWave",
-	"4C:32:75": "Cisco",
-	"50:46:5D": "ASUSTek",
-	"50:78:4C": "Belkin",
-	"54:33:CB": "ASUSTek",
-	"54:74:E6": "Adapteva",
-	"58:6D:8F": "Cisco Meraki",
-	"5C:F9:38": "Apple",
-	"60:03:08": "Apple",
-	"60:F4:45": "Apple",
-	"64:B9:E8": "Apple",
-	"68:5B:35": "Apple",
-	"6C:40:08": "Apple",
-	"70:56:81": "Apple",
-	"74:00:BB": "Sagemcom",
-	"74:42:7F": "Apple",
-	"74:E5:F9": "Intel",
-	"78:31:C1": "Apple",
-	"7C:11:BE": "Apple",
-	"80:D2:1D": "Apple",
-	"84:38:35": "Apple",
-	"84:78:8B": "Apple",
-	"88:1F:A1": "Apple",
-	"8C:85:90": "Apple",
-	"90:48:9A": "Cisco",
-	"90:9C:4A": "TP-Link",
-	"94:E6:F7": "Intel",
-	"98:01:A7": "Apple",
-	"9C:04:EB": "Apple",
-	"A0:99:9B": "Apple",
-	"A4:5E:60": "Apple",
-	"A8:60:B6": "Apple",
-	"AC:DE:48": "Private",
-	"B0:48:1A": "Cisco",
-	"B4:18:D1": "Apple",
-	"B8:27:EB": "Raspberry Pi",
-	"BC:5F:F4": "ASRock",
-	"C0:25:5C": "Apple",
-	"C8:1F:66": "Cisco",
-	"CC:08:E0": "Apple",
-	"D8:50:E6": "ASUSTek",
-	"DC:A6:32": "Raspberry Pi",
-	"E4:5F:01": "Raspberry Pi",
-	"E4:B3:18": "Intel",
-	"F0:18:98": "Apple",
-	"F4:5C:89": "Apple",
-	"F4:6D:04": "ASUSTek",
-	"FC:FB:FB": "Cisco",
+// normalizeMAC canonicalizes a MAC string to upper-case colon-separated form
+// ("AA:BB:CC:DD:EE:FF"). Accepts colon, hyphen, and Cisco dot notation. Returns
+// "" if the input has no recognizable hex octets.
+func normalizeMAC(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Strip the common separators, then re-group into octets.
+	r := strings.NewReplacer("-", "", ":", "", ".", "")
+	hex := strings.ToUpper(r.Replace(s))
+	if len(hex) < 12 {
+		return ""
+	}
+	hex = hex[:12]
+	for i := 0; i < 12; i++ {
+		c := hex[i]
+		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')) {
+			return ""
+		}
+	}
+	var b strings.Builder
+	b.Grow(17)
+	for i := 0; i < 12; i += 2 {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		b.WriteString(hex[i : i+2])
+	}
+	return b.String()
+}
+
+// ouiPrefixOf returns the upper-case "AA:BB:CC" prefix of a normalized MAC, or
+// "" if the address is too short.
+func ouiPrefixOf(normMAC string) string {
+	if len(normMAC) < 8 {
+		return ""
+	}
+	return normMAC[:8]
+}
+
+// classifyMAC inspects the first octet's administration bits. The least
+// significant bit of the first octet marks a multicast/group address; the
+// next bit marks a locally administered address (the signature of a randomized
+// or otherwise synthetic MAC). Globally unique IEEE-assigned MACs have both
+// bits clear. Returns "" for an unparseable address.
+func classifyMAC(mac string) string {
+	norm := normalizeMAC(mac)
+	if norm == "" {
+		return ""
+	}
+	// First octet is norm[0:2].
+	first := hexByte(norm[0], norm[1])
+	switch {
+	case first&0x01 != 0:
+		return MACTypeMulticast
+	case first&0x02 != 0:
+		return MACTypeRandomized
+	default:
+		return MACTypeGlobal
+	}
+}
+
+// hexByte decodes two upper-case hex characters into a byte. Callers pass
+// validated input (from normalizeMAC), so unrecognized nibbles decode as 0.
+func hexByte(hi, lo byte) byte {
+	return nibble(hi)<<4 | nibble(lo)
+}
+
+func nibble(c byte) byte {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10
+	default:
+		return 0
+	}
+}
+
+// vendorFor maps a MAC address to a vendor name using the full IEEE OUI
+// registry (via github.com/endobit/oui). Locally administered / randomized and
+// multicast addresses carry no meaningful OUI, so they resolve to "". Results
+// are cached by OUI prefix.
+func vendorFor(mac string) string {
+	norm := normalizeMAC(mac)
+	if norm == "" {
+		return ""
+	}
+	prefix := ouiPrefixOf(norm)
+	if prefix == "" {
+		return ""
+	}
+	if v, ok := vendorCache.Load(prefix); ok {
+		return v.(string)
+	}
+	vendor := lookupVendor(norm, prefix)
+	vendorCache.Store(prefix, vendor)
+	return vendor
+}
+
+// lookupVendor performs the uncached resolution: skip non-global MACs, prefer
+// an explicit override, then fall back to the OUI database.
+func lookupVendor(norm, prefix string) string {
+	if classifyMAC(norm) != MACTypeGlobal {
+		return ""
+	}
+	if v, ok := vendorOverride[prefix]; ok {
+		return v
+	}
+	return oui.Vendor(norm)
 }

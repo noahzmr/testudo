@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.10.1
+	github.com/endobit/oui v0.7.0
 	github.com/getsentry/sentry-go v0.46.2
 	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.3.0

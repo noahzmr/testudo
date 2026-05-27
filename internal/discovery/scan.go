@@ -33,6 +33,74 @@ type Scanner struct {
 
 	// SNMPTimeout is the per-host UDP/161 deadline. Default 1s.
 	SNMPTimeout time.Duration
+
+	// Intensity controls scan breadth: "fast", "balanced" (default), or
+	// "aggressive". It tunes port lists, probe timeouts, the subnet cap, and
+	// which hostname-resolution fallbacks run. See profile.
+	Intensity string
+
+	hres     *hostnameResolver
+	hresOnce sync.Once
+}
+
+// hostnames returns the lazily-initialized hostname resolver. Safe for
+// concurrent first use.
+func (s *Scanner) hostnames() *hostnameResolver {
+	s.hresOnce.Do(func() { s.hres = newHostnameResolver() })
+	return s.hres
+}
+
+// scanProfile is the resolved set of per-pass knobs for an intensity level.
+type scanProfile struct {
+	doICMP     bool
+	doMDNS     bool
+	doUDP      bool
+	tcpPorts   []uint16
+	tcpTimeout time.Duration
+	udpTimeout time.Duration
+	subnetCap  int // 0 = use the scanner's MaxSubnetBits unchanged
+	hostnames  hostnameMethods
+}
+
+// profile maps the configured Intensity to its knobs. Unknown/empty values
+// fall back to "balanced", which preserves the historical behaviour.
+func (s *Scanner) profile() scanProfile {
+	switch strings.ToLower(s.Intensity) {
+	case "fast":
+		// ARP-centric, tight timeouts, cheap hostname fills only. No ICMP/mDNS
+		// flood, no NetBIOS probe.
+		return scanProfile{
+			doICMP:     false,
+			doMDNS:     false,
+			doUDP:      false,
+			tcpPorts:   ConnectionPorts,
+			tcpTimeout: 200 * time.Millisecond,
+			subnetCap:  8, // /24
+			hostnames:  hostnameMethods{DHCP: true, RDNS: true},
+		}
+	case "aggressive":
+		return scanProfile{
+			doICMP:     true,
+			doMDNS:     true,
+			doUDP:      true,
+			tcpPorts:   DefaultProbePorts,
+			tcpTimeout: 500 * time.Millisecond,
+			udpTimeout: 600 * time.Millisecond,
+			subnetCap:  0,
+			hostnames:  hostnameMethods{DHCP: true, RDNS: true, NetBIOS: true},
+		}
+	default: // "balanced"
+		return scanProfile{
+			doICMP:     true,
+			doMDNS:     true,
+			doUDP:      true,
+			tcpPorts:   DefaultProbePorts,
+			tcpTimeout: 300 * time.Millisecond,
+			udpTimeout: 400 * time.Millisecond,
+			subnetCap:  0,
+			hostnames:  hostnameMethods{DHCP: true, RDNS: true, NetBIOS: true},
+		}
+	}
 }
 
 func (s *Scanner) Name() string { return "discovery" }
@@ -66,22 +134,33 @@ func (s *Scanner) Run(ctx context.Context, bus *events.Bus) error {
 // skips anything wider than MaxSubnetBits.
 func (s *Scanner) pass(ctx context.Context, bus *events.Bus) {
 	s.scanARPCache()
+	prof := s.profile()
 	if !s.Active {
+		// Passive mode still benefits from the cheap, no-probe hostname fills
+		// (DHCP leases + reverse DNS) and from classification.
+		s.hostnames().resolve(ctx, s.Inventory, hostnameMethods{DHCP: true, RDNS: true})
+		s.enrich()
 		return
 	}
 	maxBits := s.MaxSubnetBits
 	if maxBits == 0 {
 		maxBits = 10 // /22 - 1024 hosts
 	}
+	if prof.subnetCap > 0 && prof.subnetCap < maxBits {
+		maxBits = prof.subnetCap
+	}
 	// ARP sweep first: the kernel populates /proc/net/arp from replies,
 	// so the next scanARPCache() on the next tick picks up the long tail
 	// of devices that ignored ICMP.
 	s.arpSweepAll(ctx, maxBits)
-	subnets := localIPv4Subnets()
-	for _, sub := range subnets {
-		s.icmpSweep(ctx, sub, maxBits)
+	if prof.doICMP {
+		for _, sub := range localIPv4Subnets() {
+			s.icmpSweep(ctx, sub, maxBits)
+		}
 	}
-	s.mdnsProbe(ctx)
+	if prof.doMDNS {
+		s.mdnsProbe(ctx)
+	}
 	// Refresh hosts after the ARP/ICMP sweeps so the port probes see
 	// everything we just discovered.
 	hosts := make([]string, 0)
@@ -92,8 +171,10 @@ func (s *Scanner) pass(ctx context.Context, bus *events.Bus) {
 		}
 	}
 	if len(hosts) > 0 {
-		s.TCPProbe(ctx, hosts, nil, 300*time.Millisecond)
-		s.UDPProbe(ctx, hosts, nil, 400*time.Millisecond)
+		s.TCPProbe(ctx, hosts, prof.tcpPorts, prof.tcpTimeout)
+		if prof.doUDP {
+			s.UDPProbe(ctx, hosts, nil, prof.udpTimeout)
+		}
 	}
 	if s.SNMPCommunity != "" {
 		timeout := s.SNMPTimeout
@@ -101,6 +182,30 @@ func (s *Scanner) pass(ctx context.Context, bus *events.Bus) {
 			timeout = time.Second
 		}
 		s.snmpProbeAll(ctx, s.SNMPCommunity, timeout)
+	}
+	// Hostname fallbacks + classification run last, over everything the
+	// probes just discovered. Neither bumps LastSeen (see Inventory.SetHostname
+	// / Enrich), so resolving a name for an offline host can't keep it alive.
+	s.hostnames().resolve(ctx, s.Inventory, prof.hostnames)
+	s.enrich()
+}
+
+// enrich derives DeviceType and MACType for every inventory entry that's still
+// missing them, from the signals accumulated so far. It uses the non-liveness
+// Inventory.Enrich mutator so repeated passes don't refresh LastSeen.
+func (s *Scanner) enrich() {
+	for _, d := range s.Inventory.Snapshot() {
+		macType := ""
+		if d.MACType == "" && d.MAC != "" {
+			macType = classifyMAC(d.MAC)
+		}
+		deviceType := ""
+		if d.DeviceType == "" {
+			deviceType = classifyDevice(d)
+		}
+		if macType != "" || deviceType != "" {
+			s.Inventory.Enrich(d.IP, deviceType, macType)
+		}
 	}
 }
 
@@ -128,7 +233,7 @@ func (s *Scanner) scanARPCache() {
 		}
 		d := Device{
 			IP: ip, MAC: mac, Iface: iface, Source: "arp",
-			Vendor: vendorFor(mac),
+			Vendor: vendorFor(mac), MACType: classifyMAC(mac),
 		}
 		s.Inventory.Observe(d)
 	}

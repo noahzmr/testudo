@@ -134,6 +134,7 @@ func cmdDiscover(args []string) error {
 	community := fs.String("snmp-community", "public", "SNMPv2c read community (empty disables SNMP)")
 	wait := fs.Duration("wait", 6*time.Second, "wait for scans / LLDP listening to complete")
 	maxBits := fs.Int("max-subnet-bits", 10, "cap subnet expansion for active sweeps (10 = /22)")
+	intensity := fs.String("intensity", "balanced", "scan intensity: fast, balanced, or aggressive")
 	verbose := fs.Bool("v", false, "print SNMP/LLDP details when available")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -147,6 +148,7 @@ func cmdDiscover(args []string) error {
 		MaxSubnetBits: *maxBits,
 		SNMPCommunity: *community,
 		SNMPTimeout:   time.Second,
+		Intensity:     *intensity,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *wait)
 	defer cancel()
