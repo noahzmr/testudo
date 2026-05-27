@@ -9,6 +9,7 @@ import (
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/quality"
 )
 
 // snapshot is the JSON shape consumed by the SPA. Keep field names stable;
@@ -101,6 +102,21 @@ type gradeView struct {
 	// measurement (e.g. ["WiFi", "HTTP"]). The dashboard renders these
 	// bars violet and excludes them from the overall grade.
 	NoData []string `json:"no_data"`
+
+	// Baseline-relative early warning (mirrors NetworkGrade): worst
+	// current÷normal RTT ratio and the points the modifier shaved off.
+	BaselineRatio   float64 `json:"baseline_ratio"`
+	BaselinePenalty int     `json:"baseline_penalty"`
+	HasBaseline     bool    `json:"has_baseline"`
+
+	// Bufferbloat A–F letter from the idle-vs-loaded delta.
+	BufferbloatGrade string `json:"bufferbloat_grade"`
+	HasBufferbloat   bool   `json:"has_bufferbloat"`
+
+	// ISP-degradation isolation verdict.
+	FaultLayer   string `json:"fault_layer"`
+	FaultVerdict string `json:"fault_verdict"`
+	HasFault     bool   `json:"has_fault"`
 }
 
 type captureView struct {
@@ -112,9 +128,19 @@ type targetView struct {
 	Target    string  `json:"target"`
 	LastRTTus int64   `json:"last_rtt_us"`
 	AvgRTTus  int64   `json:"avg_rtt_us"`
+	P50RTTus  int64   `json:"p50_rtt_us"`
 	P95RTTus  int64   `json:"p95_rtt_us"`
+	P99RTTus  int64   `json:"p99_rtt_us"`
 	LossPct   float64 `json:"loss_pct"`
 	JitterMs  float64 `json:"jitter_ms"`
+
+	// Baseline band for this target's current hour bucket (the learned
+	// normal envelope). HasBaseline is false until a baseline is learned.
+	HasBaseline     bool    `json:"has_baseline"`
+	BaselineP50Ms   float64 `json:"baseline_p50_ms"`
+	BaselineP95Ms   float64 `json:"baseline_p95_ms"`
+	BaselineDescr   string  `json:"baseline_descr"`
+	BaselineSamples int64   `json:"baseline_samples"`
 }
 
 type dnsView struct {
@@ -392,17 +418,31 @@ func (s *Server) buildSnapshot() snapshot {
 		DNSSeries:     map[string][]float64{},
 	}
 
+	// Baseline-relative context (cached; cheap on the request path).
+	qc := eng.QualitySnapshot()
+	gctx := qc.GradeContext()
+
 	// Targets / DNS from the metrics aggregator.
 	targets := eng.Aggregator().SnapshotTargets()
 	for _, t := range targets {
-		snap.Targets = append(snap.Targets, targetView{
+		tv := targetView{
 			Target:    t.Target,
 			LastRTTus: t.LastRTT.Microseconds(),
 			AvgRTTus:  t.AvgRTT.Microseconds(),
+			P50RTTus:  t.P50RTT.Microseconds(),
 			P95RTTus:  t.P95RTT.Microseconds(),
+			P99RTTus:  t.P99RTT.Microseconds(),
 			LossPct:   t.LossPct,
 			JitterMs:  t.JitterMs,
-		})
+		}
+		if b, ok := qc.Baselines[t.Target]; ok && b.Samples > 0 {
+			tv.HasBaseline = true
+			tv.BaselineP50Ms = b.P50RTT
+			tv.BaselineP95Ms = b.P95RTT
+			tv.BaselineSamples = b.Samples
+			tv.BaselineDescr = quality.BaselineDescr(b, quality.Sample{RTTms: float64(t.AvgRTT.Microseconds()) / 1000.0})
+		}
+		snap.Targets = append(snap.Targets, tv)
 		// Per-target rolling sample series - front end renders these as
 		// sparklines so the dashboard mirrors the TUI.
 		samples := eng.Aggregator().LatencySamples(t.Target)
@@ -461,7 +501,7 @@ func (s *Server) buildSnapshot() snapshot {
 			Detail: st.Detail, FlapRate: st.FlapRate, RouteChurn: st.RouteChurn,
 		}
 	}
-	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, th)
+	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, th, gctx)
 
 	// Neighbour (ARP/NDP) table + IP conflicts, and live conntrack flows.
 	if nc := eng.Neigh(); nc != nil {

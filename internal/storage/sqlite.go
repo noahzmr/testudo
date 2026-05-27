@@ -147,6 +147,40 @@ CREATE TABLE IF NOT EXISTS conntrack_samples (
     bytes       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conntrack_session ON conntrack_samples(session_id, ts);
+
+-- Per-(target, day-of-week, hour) baseline rollup. NOT session-scoped: the
+-- baseline is the long-horizon "normal" learned across sessions. Retained far
+-- longer than raw samples (~1 year vs 30 days) so it survives raw rotation.
+CREATE TABLE IF NOT EXISTS quality_rollup (
+    target    TEXT NOT NULL,
+    dow       INTEGER NOT NULL,   -- 0..6
+    hour      INTEGER NOT NULL,   -- 0..23
+    p50_rtt   REAL NOT NULL DEFAULT 0,
+    p95_rtt   REAL NOT NULL DEFAULT 0,
+    p99_rtt   REAL NOT NULL DEFAULT 0,
+    loss_pct  REAL NOT NULL DEFAULT 0,
+    jitter_ms REAL NOT NULL DEFAULT 0,
+    samples   INTEGER NOT NULL DEFAULT 0,
+    updated   INTEGER NOT NULL,   -- unix ms
+    PRIMARY KEY (target, dow, hour)
+);
+
+-- Periodic, timestamped flow snapshots — the time-bucketed counterpart to the
+-- cumulative flows table, so "what was talking at 02:00?" is answerable.
+CREATE TABLE IF NOT EXISTS flow_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    iface       TEXT NOT NULL DEFAULT '',
+    src         TEXT NOT NULL,
+    dst         TEXT NOT NULL,
+    proto       TEXT NOT NULL,
+    bytes_in    INTEGER NOT NULL DEFAULT 0,
+    bytes_out   INTEGER NOT NULL DEFAULT 0,
+    process     TEXT NOT NULL DEFAULT '',
+    dns_name    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_flow_snapshots_session ON flow_snapshots(session_id, ts);
 `
 
 type Store struct {

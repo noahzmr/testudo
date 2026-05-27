@@ -82,6 +82,7 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/logout", s.handleLogout)
 	mux.HandleFunc("/api/snapshot", s.protect(s.handleSnapshot))
 	mux.HandleFunc("/api/settings", s.protect(s.handleSettings))
+	mux.HandleFunc("/api/baseline/reset", s.protect(s.handleBaselineReset))
 	mux.HandleFunc("/api/probe", s.protect(s.handleProbe))
 	mux.HandleFunc("/api/sessions", s.protect(s.handleSessions))
 	mux.HandleFunc("/api/session/detail", s.protect(s.handleSessionDetail))

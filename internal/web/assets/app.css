@@ -286,6 +286,16 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.10); }
 .grade-score { font-size: 22px; font-weight: 700; }
 .grade-verdict { color: var(--fg-dim); font-size: 13px; margin-top: 4px; }
 
+.grade-context { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.grade-ctx { font-size: 13px; color: var(--fg-dim); }
+.grade-ctx.warn { color: var(--accent-warn, #d29922); }
+.grade-ctx.ok { color: var(--accent, #3fb950); }
+.grade-ctx.muted { color: var(--fg-dim); }
+.bb-grade { font-weight: 700; padding: 0 6px; border-radius: 4px; }
+.bb-grade.ok { color: #3fb950; }
+.bb-grade.warn { color: #d29922; }
+.bb-grade.bad { color: #f85149; }
+
 .grade-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }
 .grade-bar {
   display: grid;

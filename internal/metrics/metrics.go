@@ -19,7 +19,9 @@ type TargetStats struct {
 	MinRTT     time.Duration
 	MaxRTT     time.Duration
 	AvgRTT     time.Duration
+	P50RTT     time.Duration
 	P95RTT     time.Duration
+	P99RTT     time.Duration
 	JitterMs   float64
 	UpdatedAt  time.Time
 	rttSamples []time.Duration // bounded ring; newest at the end
@@ -187,7 +189,9 @@ func (t *TargetStats) recompute() {
 	}
 	t.AvgRTT = sum / time.Duration(len(t.rttSamples))
 	t.LossPct = percent(t.Lost, t.Sent)
+	t.P50RTT = percentile(t.rttSamples, 0.50)
 	t.P95RTT = percentile(t.rttSamples, 0.95)
+	t.P99RTT = percentile(t.rttSamples, 0.99)
 	t.JitterMs = jitterMs(t.rttSamples)
 }
 

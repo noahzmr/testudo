@@ -9,6 +9,7 @@ import (
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/quality"
 )
 
 // computeGradeView mirrors the TUI's ComputeGrade so the dashboard's
@@ -25,6 +26,7 @@ func computeGradeView(
 	l3 collectors.NeighConntrackSignal,
 	nlw collectors.NetlinkWatchSignal,
 	th config.Thresholds,
+	qc quality.GradeContext,
 ) gradeView {
 	const (
 		wLoss     = 0.20
@@ -93,7 +95,7 @@ func computeGradeView(
 		totalW += p.w
 	}
 	if totalW == 0 {
-		return gradeView{
+		g := gradeView{
 			Score: 0, Letter: "?", Verdict: "Awaiting probes",
 			HasData: false,
 			Loss:    lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
@@ -101,6 +103,8 @@ func computeGradeView(
 			Firewall: fwScore, NAT: natScore,
 			NoData: noData,
 		}
+		attachQualityView(&g, wan, qc)
+		return g
 	}
 	score := int(weighted/totalW + 0.5)
 	if score < 0 {
@@ -109,14 +113,45 @@ func computeGradeView(
 	if score > 100 {
 		score = 100
 	}
-	letter, verdict := letterVerdict(score)
-	return gradeView{
-		Score: score, Letter: letter, Verdict: verdict, HasData: true,
+	g := gradeView{
+		Score: score, HasData: true,
 		Loss: lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 		Firewall: fwScore, NAT: natScore,
 		NoData: noData,
 	}
+	// Baseline-relative early warning, identical to the TUI: nudge the score
+	// down when tonight is far worse than normal, then derive the letter.
+	attachQualityView(&g, wan, qc)
+	g.Score -= g.BaselinePenalty
+	if g.Score < 0 {
+		g.Score = 0
+	}
+	g.Letter, g.Verdict = letterVerdict(g.Score)
+	return g
+}
+
+// attachQualityView folds the baseline ratio, bufferbloat letter, and ISP
+// isolation verdict onto the grade view. Mirrors tui/grade.go attachQualityContext.
+func attachQualityView(g *gradeView, wan []metrics.TargetStats, qc quality.GradeContext) {
+	current := make(map[string]float64, len(wan))
+	for _, t := range wan {
+		if t.AvgRTT > 0 {
+			current[t.Target] = float64(t.AvgRTT.Microseconds()) / 1000.0
+		}
+	}
+	if ratio, ok := quality.WorstBaselineRatio(qc.Baselines, current); ok {
+		g.BaselineRatio = ratio
+		g.HasBaseline = true
+		if g.HasData {
+			g.BaselinePenalty = quality.GradeModifier(ratio, ok)
+		}
+	}
+	g.BufferbloatGrade = qc.BufferbloatGrade
+	g.HasBufferbloat = qc.HasBufferbloat
+	g.FaultLayer = string(qc.FaultLayer)
+	g.FaultVerdict = qc.FaultVerdict
+	g.HasFault = qc.HasFault
 }
 
 // scoreNATW mirrors tui/grade.go scoreNATSub: conntrack utilisation vs a 70%

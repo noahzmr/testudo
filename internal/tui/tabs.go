@@ -19,6 +19,7 @@ import (
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/probes"
+	"github.com/noahzmr/testudo/internal/quality"
 )
 
 // tickMsg + slowTickMsg are owned by the App, not by individual tabs.
@@ -84,7 +85,8 @@ func (t *dashboardTab) View(w, h int) string {
 		wifi = wc.Snapshot()
 	}
 	fwRate, fwHas := t.eng.FirewallSignal()
-	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), t.eng.Settings().Snapshot())
+	qc := t.eng.QualitySnapshot()
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), t.eng.Settings().Snapshot(), qc.GradeContext())
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -100,6 +102,10 @@ func (t *dashboardTab) View(w, h int) string {
 		renderSubScoreBar(grade.WiFi, w),
 		renderSubScoreBar(grade.Firewall, w),
 		renderSubScoreBar(grade.NAT, w),
+	}
+	if ctxRows := renderQualityContext(grade); len(ctxRows) > 0 {
+		gradeRows = append(gradeRows, "")
+		gradeRows = append(gradeRows, ctxRows...)
 	}
 	if len(t.targets) == 0 && len(t.dns) == 0 {
 		gradeRows = append(gradeRows, "",
@@ -143,8 +149,21 @@ func (t *dashboardTab) View(w, h int) string {
 	} else {
 		for _, tg := range icmpTargets {
 			samples := t.eng.Aggregator().LatencySamples(tg.Target)
-			chartRows = append(chartRows,
-				renderSparklineWithLabel(tg.Target, samples, w))
+			line := renderSparklineWithLabel(tg.Target, samples, w)
+			if b, ok := qc.Baselines[tg.Target]; ok && b.Samples > 0 {
+				descr := quality.BaselineDescr(b, quality.Sample{RTTms: float64(tg.AvgRTT) / float64(time.Millisecond)})
+				if descr != "" {
+					line += "  " + dimStyle.Render("("+descr+")")
+				}
+				chartRows = append(chartRows, line)
+				// The baseline band behind the live line: the learned normal
+				// envelope for this hour-of-day.
+				chartRows = append(chartRows, dimStyle.Render(
+					fmt.Sprintf("                 normal band: p50 %.0fms · p95 %.0fms (n=%d)",
+						b.P50RTT, b.P95RTT, b.Samples)))
+			} else {
+				chartRows = append(chartRows, line)
+			}
 		}
 	}
 	b.WriteString(boxStyle.Render(strings.Join(chartRows, "\n")))
@@ -1521,6 +1540,13 @@ type thresholdRow struct {
 	stringHint       string // shown as the form-field hint
 	applyString      func(*config.Thresholds, string)
 	afterApplyString func(*settingsTab, string)
+
+	// Action rows render a "[run]" value and fire `action` on enter/space.
+	// Used for one-shot operations (e.g. reset learned baselines) rather than
+	// editable values. Write-gated rows set requireWrite.
+	isAction     bool
+	requireWrite bool
+	action       func(*settingsTab) tea.Cmd
 }
 
 func newSettingsTab(eng *engine.Engine, app *App) *settingsTab {
@@ -1604,6 +1630,30 @@ func (t *settingsTab) rows() []thresholdRow {
 				}
 				t.IPFIXDomainID = uint32(v)
 			}},
+		// --- Baseline maintenance ---------------------------------------
+		{label: "Reset learned baselines", isAction: true, requireWrite: true,
+			action: func(s *settingsTab) tea.Cmd { return s.resetBaselines() }},
+	}
+}
+
+// resetBaselines clears the persisted (target, dow, hour) rollup for every
+// real probe target — used when the network legitimately changed (new ISP,
+// moved desk) so a stale baseline stops dragging the grade.
+func (t *settingsTab) resetBaselines() tea.Cmd {
+	targets := t.eng.Aggregator().SnapshotTargets()
+	ctx := context.Background()
+	n := 0
+	for _, ts := range targets {
+		if strings.Contains(ts.Target, ":") {
+			continue // skip synthetic trace:/bufferbloat: targets
+		}
+		if err := t.eng.ResetBaseline(ctx, ts.Target); err == nil {
+			n++
+		}
+	}
+	count := n
+	return func() tea.Msg {
+		return statusMessageMsg(fmt.Sprintf("baseline reset for %d target(s)", count))
 	}
 }
 func (t *settingsTab) Update(msg tea.Msg) tea.Cmd {
@@ -1667,6 +1717,15 @@ func (t *settingsTab) Update(msg tea.Msg) tea.Cmd {
 		mutate(newV)
 	case " ", "enter":
 		r := rows[t.cursor]
+		if r.isAction {
+			if r.requireWrite && !t.eng.Settings().Snapshot().AllowNetopsWrite {
+				return func() tea.Msg { return statusMessageMsg(r.label + ": enable \"Allow netops writes\" first") }
+			}
+			if r.action != nil {
+				return r.action(t)
+			}
+			return nil
+		}
 		if r.isString {
 			return t.openStringEditor(r)
 		}
@@ -1715,6 +1774,8 @@ func (t *settingsTab) View(w, h int) string {
 	for i, r := range thRows {
 		var valStr string
 		switch {
+		case r.isAction:
+			valStr = okStyle.Render("[run]")
 		case r.isString:
 			if r.stringValue == "" {
 				valStr = dimStyle.Render("(unset)")

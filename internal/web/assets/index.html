@@ -45,6 +45,7 @@
           </div>
         </div>
         <div class="grade-bars" id="grade-bars"></div>
+        <div class="grade-context" id="grade-context"></div>
       </div>
 
       <div class="card">
@@ -67,7 +68,7 @@
       <div class="card">
         <h2>ICMP - per-target detail</h2>
         <table>
-          <thead><tr><th>Target</th><th>Last</th><th>Avg</th><th>P95</th><th>Loss%</th><th>Jitter</th></tr></thead>
+          <thead><tr><th>Target</th><th>Last</th><th>Avg</th><th>P50</th><th>P95</th><th>P99</th><th>Loss%</th><th>Jitter</th><th>Baseline</th></tr></thead>
           <tbody id="targets-body"></tbody>
         </table>
       </div>
@@ -409,6 +410,11 @@
           <label>observation domain<input id="s-ipfix-dom" type="number"/></label>
         </div>
         <div class="muted" id="ipfix-status">status: -</div>
+      </div>
+      <div class="card">
+        <h2>Baseline maintenance</h2>
+        <div class="muted">Baselines are auto-learned per (target, hour-of-day). Reset when the network legitimately changed (new ISP, moved desk). Requires "allow netops writes".</div>
+        <div class="row"><button data-action="baseline-reset" class="btn btn-warn">Reset learned baselines</button></div>
       </div>
       <div class="row"><button data-action="settings-save" class="btn btn-go">Save settings</button></div>
     </section>

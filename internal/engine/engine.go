@@ -23,6 +23,7 @@ import (
 	"github.com/noahzmr/testudo/internal/ipfix"
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/quality"
 	"github.com/noahzmr/testudo/internal/storage"
 )
 
@@ -60,6 +61,12 @@ type Engine struct {
 	flowsCacheMu sync.RWMutex
 	flowsCache   []flows.FlowStats
 
+	// baselines caches the current (dow, hour) rollup row per real target so
+	// the render path reads memory, not SQLite. The rollup aggregator worker
+	// refreshes it after each EMA merge (see quality.go).
+	baselinesMu sync.RWMutex
+	baselines   map[string]quality.Rollup
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
@@ -90,6 +97,7 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 		netops:    nw,
 		inventory: discovery.NewInventory(),
 		store:     store,
+		baselines: make(map[string]quality.Rollup),
 	}
 }
 
@@ -176,6 +184,8 @@ func (e *Engine) Start(parent context.Context) error {
 	}
 	e.startSnapshotter(ctx)
 	e.startDownsampler(ctx)
+	e.startRollupAggregator(ctx)
+	e.startFlowSnapshotter(ctx)
 	if e.cfg.PCAPMaxSize > 0 {
 		e.startPCAPWriter(ctx)
 	}
@@ -413,6 +423,11 @@ func (e *Engine) startDownsampler(ctx context.Context) {
 		defer t.Stop()
 		run := func() {
 			_ = e.store.DownsampleSamples(ctx, 30*24*time.Hour, 24*time.Hour, 5*time.Minute)
+			// Enforce retention windows (rollups outlive raw data) and bound the
+			// unbounded tables flagged in the assessment (weakness #6).
+			_ = e.store.Retain(ctx, time.Now())
+			_ = e.store.CapIncidents(ctx, e.sessionID, storage.DefaultMaxIncidents)
+			_ = e.store.CapFlowSnapshots(ctx, storage.DefaultMaxFlowSnapRows)
 		}
 		run()
 		for {

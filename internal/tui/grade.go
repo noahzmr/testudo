@@ -13,6 +13,7 @@ import (
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/quality"
 )
 
 // NetworkGrade is the dashboard's at-a-glance summary of overall network
@@ -65,6 +66,25 @@ type NetworkGrade struct {
 	// Near-saturation means new connections start failing host-wide.
 	// Neutral 100 when nf_conntrack_max is unknown.
 	NAT subScore
+
+	// Baseline-relative early warning: the worst current÷normal RTT ratio
+	// across WAN targets that have a learned baseline. BaselinePenalty is the
+	// points the modifier shaved off the absolute score. HasBaseline is false
+	// on first run / new targets → no modifier was applied.
+	BaselineRatio   float64
+	BaselinePenalty int
+	HasBaseline     bool
+
+	// Bufferbloat A–F letter from the idle-vs-loaded delta. HasBufferbloat is
+	// false until the collector has produced an idle/loaded pair.
+	BufferbloatGrade string
+	HasBufferbloat   bool
+
+	// ISP-degradation isolation: which path segment owns the problem, plus a
+	// human verdict. HasFault is false when the trace path is unavailable.
+	FaultLayer   string
+	FaultVerdict string
+	HasFault     bool
 }
 
 type subScore struct {
@@ -97,6 +117,7 @@ func ComputeGrade(
 	fwHasDropRules bool,
 	l3 L3GradeInput,
 	th config.Thresholds,
+	qc quality.GradeContext,
 ) NetworkGrade {
 	// Weights sum to 1.0. WAN reachability remains the spine of the
 	// grade; new dimensions slot in around it. The firewall signal took 5%
@@ -152,13 +173,15 @@ func ComputeGrade(
 		totalW += p.w
 	}
 	if totalW == 0 {
-		return NetworkGrade{
+		g := NetworkGrade{
 			Score: 0, Letter: "?", Verdict: "Awaiting probes",
 			HasData: false,
 			Loss:    loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 			Firewall: fwScore, NAT: natScore,
 		}
+		attachQualityContext(&g, wan, qc)
+		return g
 	}
 	score := int(weighted/totalW + 0.5)
 	if score < 0 {
@@ -167,13 +190,49 @@ func ComputeGrade(
 	if score > 100 {
 		score = 100
 	}
-	letter, verdict := letterAndVerdict(score)
-	return NetworkGrade{
-		Score: score, Letter: letter, Verdict: verdict, HasData: true,
+
+	g := NetworkGrade{
+		Score: score, HasData: true,
 		Loss: loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 		Firewall: fwScore, NAT: natScore,
 	}
+	// Baseline-relative early warning: nudge the absolute score down when tonight
+	// is far worse than the learned normal, then derive the letter from the
+	// modified score (so the operator sees the warning in the letter, not just a
+	// badge). Empty baseline → zero penalty, grade unchanged.
+	attachQualityContext(&g, wan, qc)
+	g.Score -= g.BaselinePenalty
+	if g.Score < 0 {
+		g.Score = 0
+	}
+	g.Letter, g.Verdict = letterAndVerdict(g.Score)
+	return g
+}
+
+// attachQualityContext folds the baseline ratio, bufferbloat letter, and ISP
+// isolation verdict onto the grade. It computes (but does not apply) the
+// baseline penalty; the caller subtracts it so the "awaiting probes" path can
+// surface context without a misleading penalty.
+func attachQualityContext(g *NetworkGrade, wan []metrics.TargetStats, qc quality.GradeContext) {
+	current := make(map[string]float64, len(wan))
+	for _, t := range wan {
+		if t.AvgRTT > 0 {
+			current[t.Target] = float64(t.AvgRTT) / float64(time.Millisecond)
+		}
+	}
+	if ratio, ok := quality.WorstBaselineRatio(qc.Baselines, current); ok {
+		g.BaselineRatio = ratio
+		g.HasBaseline = true
+		if g.HasData {
+			g.BaselinePenalty = quality.GradeModifier(ratio, ok)
+		}
+	}
+	g.BufferbloatGrade = qc.BufferbloatGrade
+	g.HasBufferbloat = qc.HasBufferbloat
+	g.FaultLayer = string(qc.FaultLayer)
+	g.FaultVerdict = qc.FaultVerdict
+	g.HasFault = qc.HasFault
 }
 
 // L3GradeInput carries the conntrack/neighbour signals into the grade. The
@@ -738,6 +797,55 @@ func renderSubScoreBar(s subScore, width int) string {
 		lipgloss.NewStyle().Foreground(col).Render(bar),
 		dimStyle.Render(value),
 	)
+}
+
+// renderQualityContext renders the baseline-relative early warning, the
+// bufferbloat letter, and the ISP-isolation verdict beneath the sub-score bars.
+// Returns nil when none of the three signals have data, so the card stays quiet
+// on a fresh / unmeasured host.
+func renderQualityContext(g NetworkGrade) []string {
+	var rows []string
+	if g.HasBaseline {
+		switch {
+		case g.BaselinePenalty > 0:
+			rows = append(rows, "  "+warnStyle.Render(
+				fmt.Sprintf("Baseline: %.1f× normal ▲ (grade −%d, early warning)", g.BaselineRatio, g.BaselinePenalty)))
+		case g.BaselineRatio <= 0.66:
+			rows = append(rows, "  "+okStyle.Render(
+				fmt.Sprintf("Baseline: %.1f× normal ▼ (better than usual)", g.BaselineRatio)))
+		default:
+			rows = append(rows, "  "+dimStyle.Render(
+				fmt.Sprintf("Baseline: %.1f× normal (≈ usual for this hour)", g.BaselineRatio)))
+		}
+	}
+	if g.HasBufferbloat {
+		col := gradeColorForLetter(g.BufferbloatGrade)
+		letter := lipgloss.NewStyle().Bold(true).Foreground(col).Render(g.BufferbloatGrade)
+		rows = append(rows, "  "+dimStyle.Render("Bufferbloat: ")+letter+
+			dimStyle.Render(" (idle-vs-loaded latency)"))
+	}
+	if g.HasFault {
+		style := okStyle
+		if g.FaultLayer != "" && g.FaultLayer != "none" {
+			style = warnStyle
+		}
+		rows = append(rows, "  "+style.Render(g.FaultVerdict))
+	}
+	return rows
+}
+
+// gradeColorForLetter maps a bufferbloat A–F letter to its badge colour.
+func gradeColorForLetter(letter string) lipgloss.Color {
+	switch letter {
+	case "A", "A+", "A-":
+		return lipgloss.Color("42")
+	case "B", "B+":
+		return lipgloss.Color("220")
+	case "C":
+		return lipgloss.Color("214")
+	default:
+		return lipgloss.Color("196")
+	}
 }
 
 // renderSparklineWithLabel pairs a target name with a sparkline of its

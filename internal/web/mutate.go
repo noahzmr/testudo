@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,6 +35,32 @@ func writeOK(w http.ResponseWriter) {
 // refused it" - most operator-relevant errors land here.
 func writeErr(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+}
+
+// handleBaselineReset clears the learned (target, dow, hour) baseline for every
+// real probe target. Write-gated behind "allow netops writes" like the TUI's
+// reset action; used when the network legitimately changed (new ISP, moved desk).
+func (s *Server) handleBaselineReset(w http.ResponseWriter, r *http.Request) {
+	var body struct{}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if !s.Engine.Settings().Snapshot().AllowNetopsWrite {
+		http.Error(w, "enable \"allow netops writes\" to reset baselines", http.StatusForbidden)
+		return
+	}
+	ctx := context.Background()
+	n := 0
+	for _, ts := range s.Engine.Aggregator().SnapshotTargets() {
+		if strings.Contains(ts.Target, ":") {
+			continue // skip synthetic trace:/bufferbloat: targets
+		}
+		if err := s.Engine.ResetBaseline(ctx, ts.Target); err == nil {
+			n++
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]int{"reset": n})
 }
 
 // ---- Capture control ------------------------------------------------

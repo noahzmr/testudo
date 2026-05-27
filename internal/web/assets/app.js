@@ -255,6 +255,14 @@
         await post('/api/settings', collectSettings());
         showToast('settings saved');
         break;
+      case 'baseline-reset':
+        try {
+          const r = await post('/api/baseline/reset', {});
+          showToast('baseline reset for ' + (r && r.reset != null ? r.reset : 0) + ' target(s)');
+        } catch (e) {
+          showToast('baseline reset failed: ' + e.message);
+        }
+        break;
 
       // History tab - read-only browse of past sessions.
       case 'history-refresh':
@@ -382,6 +390,41 @@
         + '<span class="grade-bar-value">' + (score || 0) + '</span>'
         + '</div>';
     }).join('');
+    renderQualityContext(g);
+  }
+
+  // renderQualityContext renders the baseline early-warning, bufferbloat letter,
+  // and ISP-isolation verdict beneath the grade bars (mirrors the TUI card).
+  function renderQualityContext(g) {
+    const el = document.getElementById('grade-context');
+    if (!el) return;
+    const lines = [];
+    if (g.has_baseline) {
+      const r = (g.baseline_ratio || 0).toFixed(1);
+      if (g.baseline_penalty > 0) {
+        lines.push('<div class="grade-ctx warn">Baseline: ' + r + '× normal &#9650; (grade &minus;' + g.baseline_penalty + ', early warning)</div>');
+      } else if (g.baseline_ratio <= 0.66) {
+        lines.push('<div class="grade-ctx ok">Baseline: ' + r + '× normal &#9660; (better than usual)</div>');
+      } else {
+        lines.push('<div class="grade-ctx muted">Baseline: ' + r + '× normal (&#8776; usual for this hour)</div>');
+      }
+    }
+    if (g.has_bufferbloat) {
+      const cls = bufferbloatClass(g.bufferbloat_grade);
+      lines.push('<div class="grade-ctx">Bufferbloat: <span class="bb-grade ' + cls + '">' + escape(g.bufferbloat_grade) + '</span> <span class="muted">(idle-vs-loaded latency)</span></div>');
+    }
+    if (g.has_fault) {
+      const cls = (g.fault_layer && g.fault_layer !== 'none') ? 'warn' : 'ok';
+      lines.push('<div class="grade-ctx ' + cls + '">' + escape(g.fault_verdict || '') + '</div>');
+    }
+    el.innerHTML = lines.join('');
+  }
+
+  function bufferbloatClass(letter) {
+    if (letter === 'A' || letter === 'A+' || letter === 'A-') return 'ok';
+    if (letter === 'B' || letter === 'B+') return 'warn';
+    if (letter === 'C') return 'warn';
+    return 'bad';
   }
 
   function renderBandwidth(rows) {
@@ -467,15 +510,26 @@
   function renderTargets(rows) {
     document.getElementById('targets-body').innerHTML = (rows || []).map(t => {
       const lossClass = t.loss_pct >= 8 ? 'loss-err' : t.loss_pct >= 2 ? 'loss-warn' : 'loss-ok';
+      let baseline = '<span class="muted">learning…</span>';
+      if (t.has_baseline) {
+        const d = t.baseline_descr || '';
+        const cls = d.indexOf('▲') >= 0 ? 'loss-warn' : d.indexOf('▼') >= 0 ? 'loss-ok' : '';
+        const band = 'normal band p50 ' + Math.round(t.baseline_p50_ms) + 'ms · p95 '
+          + Math.round(t.baseline_p95_ms) + 'ms (n=' + t.baseline_samples + ')';
+        baseline = '<span class="' + cls + '" title="' + escape(band) + '">' + escape(d) + '</span>';
+      }
       return '<tr>'
         + '<td>' + escape(t.target) + '</td>'
         + '<td>' + fmtUs(t.last_rtt_us) + '</td>'
         + '<td>' + fmtUs(t.avg_rtt_us) + '</td>'
+        + '<td>' + fmtUs(t.p50_rtt_us) + '</td>'
         + '<td>' + fmtUs(t.p95_rtt_us) + '</td>'
+        + '<td>' + fmtUs(t.p99_rtt_us) + '</td>'
         + '<td class="' + lossClass + '">' + t.loss_pct.toFixed(1) + '%</td>'
         + '<td>' + t.jitter_ms.toFixed(1) + 'ms</td>'
+        + '<td>' + baseline + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="6" class="muted">…awaiting first probe</td></tr>';
+    }).join('') || '<tr><td colspan="9" class="muted">…awaiting first probe</td></tr>';
   }
 
   function renderDNS(rows) {
