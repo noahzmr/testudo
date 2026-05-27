@@ -160,6 +160,17 @@
         showToast('rule deleted');
         break;
       }
+      case 'fw-reset': {
+        if (!confirm('Reset counter on ' + btn.dataset.table + '/' + btn.dataset.chain + ' handle ' + btn.dataset.handle + '?')) return;
+        await post('/api/firewall/reset-counter', {
+          family: btn.dataset.family,
+          table:  btn.dataset.table,
+          chain:  btn.dataset.chain,
+          handle: parseInt(btn.dataset.handle, 10),
+        });
+        showToast('counter reset');
+        break;
+      }
       case 'nat-add':
         await post('/api/nat/add', {
           proto:    val('nat-proto'),
@@ -328,10 +339,15 @@
     // from the overall grade instead of contributing a fake 100.
     const noData = new Set(g.no_data || []);
     const rows = [
-      ['Loss',   g.loss_score],
-      ['RTT',    g.rtt_score],
-      ['Jitter', g.jitter_score],
-      ['DNS',    g.dns_score],
+      ['Loss',     g.loss_score],
+      ['RTT',      g.rtt_score],
+      ['Jitter',   g.jitter_score],
+      ['DNS',      g.dns_score],
+      ['LAN',      g.lan_score],
+      ['HTTP',     g.http_score],
+      ['Stab',     g.stab_score],
+      ['WiFi',     g.wifi_score],
+      ['Firewall', g.firewall_score],
     ];
     bars.innerHTML = rows.map(([label, score]) => {
       if (noData.has(label)) {
@@ -695,7 +711,7 @@
     ).join('') || '<tr><td colspan="7" class="muted">no routes</td></tr>';
   }
 
-  function renderFirewall(rules, system) {
+  function renderFirewall(rules, system, ruleCounters) {
     document.getElementById('fw-rules-body').innerHTML = (rules || []).map(r => {
       const dataRule = JSON.stringify(r).replace(/"/g, '&quot;');
       return '<tr>'
@@ -726,6 +742,33 @@
     });
     document.getElementById('fw-system-body').innerHTML =
       sysRows.join('') || '<tr><td colspan="6" class="muted">no nftables tables loaded</td></tr>';
+
+    // Per-rule counters. Rules arrive top-sorted per chain (highest-hit
+    // DROP/REJECT first). A rule without a counter renders pkts/bytes as a
+    // dash and the reset button is disabled with a legacy-rule hint.
+    document.getElementById('fw-rules-counter-body').innerHTML =
+      (ruleCounters || []).map(r => {
+        const pkts = r.has_counter ? r.packets : '—';
+        const bytes = r.has_counter ? fmtBytes(r.bytes) : '—';
+        const chain = escape(r.family + '/' + r.table + '/' + r.chain);
+        const verdictCls = r.blocking ? ' class="status-pill off"' : '';
+        const resetBtn = r.has_counter
+          ? '<button class="btn btn-small" data-action="fw-reset"'
+            + ' data-family="' + escape(r.family) + '"'
+            + ' data-table="' + escape(r.table) + '"'
+            + ' data-chain="' + escape(r.chain) + '"'
+            + ' data-handle="' + r.handle + '">reset</button>'
+          : '<span class="muted" title="legacy rule - recreate via Testudo to enable counting">no counter</span>';
+        return '<tr>'
+          + '<td>' + chain + '</td>'
+          + '<td>' + r.handle + '</td>'
+          + '<td><code>' + escape(r.match || 'any') + '</code></td>'
+          + '<td><span' + verdictCls + '>' + escape(r.verdict || '-') + '</span></td>'
+          + '<td>' + pkts + '</td>'
+          + '<td>' + bytes + '</td>'
+          + '<td>' + resetBtn + '</td>'
+          + '</tr>';
+      }).join('') || '<tr><td colspan="7" class="muted">no kernel rules visible</td></tr>';
   }
 
   function renderNAT(rows) {
@@ -963,7 +1006,7 @@
       renderIfaces(snap.ifaces, snap.wifi);
       renderWiFi(snap.wifi);
       renderRoutes(snap.routes);
-      renderFirewall(snap.filter_rules, snap.firewall);
+      renderFirewall(snap.filter_rules, snap.firewall, snap.firewall_rules);
       renderNAT(snap.nat);
       renderTCPDump(snap.tcpdump);
       renderAlerts(snap.anomalies);

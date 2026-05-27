@@ -54,6 +54,12 @@ type NetworkGrade struct {
 	// WiFi - average signal level across associated wireless
 	// interfaces. Neutral 100 when no wireless NICs are present.
 	WiFi subScore
+
+	// Firewall - DROP/REJECT velocity across managed blocking rules. A
+	// sudden spike of drops against an active flow is connectivity the user
+	// feels ("only some services work"). Neutral 100 when no managed DROP
+	// rules carry counters.
+	Firewall subScore
 }
 
 type subScore struct {
@@ -82,19 +88,23 @@ func ComputeGrade(
 	dns []metrics.DNSStats,
 	ifaces []netops.IfaceInfo,
 	wifi []collectors.WiFiSnapshot,
+	fwDropRate float64,
+	fwHasDropRules bool,
 	th config.Thresholds,
 ) NetworkGrade {
 	// Weights sum to 1.0. WAN reachability remains the spine of the
-	// grade; new dimensions slot in around it.
+	// grade; new dimensions slot in around it. The firewall signal takes
+	// 5% from the HTTP headroom (the assessment's suggested rebalance).
 	const (
-		wLoss   = 0.20
-		wRTT    = 0.15
-		wJitter = 0.10
-		wDNS    = 0.10
-		wLAN    = 0.15
-		wHTTP   = 0.10
-		wStab   = 0.10
-		wWiFi   = 0.10
+		wLoss     = 0.20
+		wRTT      = 0.15
+		wJitter   = 0.10
+		wDNS      = 0.10
+		wLAN      = 0.15
+		wHTTP     = 0.05
+		wStab     = 0.10
+		wWiFi     = 0.10
+		wFirewall = 0.05
 	)
 
 	wan := filterTargets(targets, isWANTarget)
@@ -109,6 +119,7 @@ func ComputeGrade(
 	httpScore := scoreHTTP(httpT)
 	stabScore := scoreStability(ifaces)
 	wifiScore := scoreWiFi(wifi)
+	fwScore := scoreFirewallSub(fwDropRate, fwHasDropRules)
 
 	// Renormalize over sub-scores that actually have data. A sub-score
 	// with HasData=false drops out of both the numerator and the
@@ -120,6 +131,7 @@ func ComputeGrade(
 	}{
 		{wLoss, loss}, {wRTT, rtt}, {wJitter, jit}, {wDNS, dnsLat},
 		{wLAN, lanScore}, {wHTTP, httpScore}, {wStab, stabScore}, {wWiFi, wifiScore},
+		{wFirewall, fwScore},
 	}
 	var weighted, totalW float64
 	for _, p := range parts {
@@ -135,6 +147,7 @@ func ComputeGrade(
 			HasData: false,
 			Loss:    loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
+			Firewall: fwScore,
 		}
 	}
 	score := int(weighted/totalW + 0.5)
@@ -149,7 +162,20 @@ func ComputeGrade(
 		Score: score, Letter: letter, Verdict: verdict, HasData: true,
 		Loss: loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
+		Firewall: fwScore,
 	}
+}
+
+// scoreFirewallSub maps the managed DROP/REJECT velocity to a sub-score.
+// Comfort line: 10 drops/sec - a steady trickle is normal background noise;
+// a sustained burst against an active flow is the connectivity fault the
+// operator feels. HasData=false (neutral 100, excluded from the grade) when
+// no managed blocking rule carries a counter.
+func scoreFirewallSub(dropRate float64, hasDropRules bool) subScore {
+	if !hasDropRules {
+		return subScore{Name: "fw", Unit: "d/s", OK: true}
+	}
+	return scoreFromMetric("fw", dropRate, 10, "d/s")
 }
 
 // scoreFromMetric maps a measurement => 0..100 where:

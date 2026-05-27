@@ -70,6 +70,8 @@ func run() error {
 		return cmdDiscover(args)
 	case "probe":
 		return cmdProbe(args)
+	case "doctor":
+		return cmdDoctor(args)
 	case "version":
 		fmt.Println("testudo (phase 4)")
 		return nil
@@ -99,6 +101,7 @@ func usage() {
 	fmt.Println("  nat del <proto> <wan>                          remove port forward")
 	fmt.Println("  discover [--active] [--lldp] [--snmp-community] one-shot scan (ARP/ICMP/mDNS/LLDP/SNMP)")
 	fmt.Println("  probe <kind> <target> [port]                   one-shot probe (icmp/tcp/udp/dns/throughput/traceroute)")
+	fmt.Println("  doctor [--target-ip] [--json] [--no-captive]   layered connectivity diagnosis (first failing layer = root cause)")
 	fmt.Println("  user passwd [name]                             set/rotate user password (web UI auth)")
 	fmt.Println("  user list                                      list configured users")
 	fmt.Println("  version           print version")

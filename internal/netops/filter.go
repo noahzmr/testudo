@@ -2,6 +2,7 @@ package netops
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -114,6 +115,7 @@ func (w *Writer) AddFilterRule(fr FilterRule) error {
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("flush nft: %w", err)
 	}
+	log.Printf("netops audit: add filter rule %s", ruleKey(fr))
 	return nil
 }
 
@@ -173,6 +175,7 @@ func (w *Writer) DelFilterRule(target FilterRule) error {
 			}
 			if matchesTarget(fr, target) {
 				_ = conn.DelRule(r)
+				log.Printf("netops audit: del filter rule %s (handle=%d)", ruleKey(fr), r.Handle)
 			}
 		}
 	}
@@ -355,6 +358,12 @@ func buildFilterExprs(fr FilterRule) ([]expr.Any, error) {
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: be16(fr.Port)},
 		)
 	}
+	// A counter immediately before the verdict makes every Testudo-managed
+	// rule born countable - ListFirewallRules reads it back per-rule, and
+	// ResetRuleCounter can zero it. Placed before the verdict so it tallies
+	// exactly the packets this rule acts on.
+	exprs = append(exprs, &expr.Counter{})
+
 	verdict := expr.VerdictAccept
 	if fr.Action == "drop" {
 		verdict = expr.VerdictDrop

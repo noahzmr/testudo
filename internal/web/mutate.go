@@ -232,6 +232,27 @@ func (s *Server) handleFirewallDel(w http.ResponseWriter, r *http.Request) {
 	writeOK(w)
 }
 
+// handleFirewallResetCounter zeroes a single rule's counter, identified by
+// its (family, table, chain, handle) tuple. Reuses the same netops-write
+// auth gate as add/del - ResetRuleCounter returns ErrWritesDisabled when
+// writes are off, surfaced to the client as a 422.
+func (s *Server) handleFirewallResetCounter(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Family string `json:"family"`
+		Table  string `json:"table"`
+		Chain  string `json:"chain"`
+		Handle uint64 `json:"handle"`
+	}
+	if !readJSON(w, r, &b) {
+		return
+	}
+	if err := s.Engine.Netops().ResetRuleCounter(b.Family, b.Table, b.Chain, b.Handle); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w)
+}
+
 // ---- NAT controls ----------------------------------------------------
 
 func (s *Server) handleNATAdd(w http.ResponseWriter, r *http.Request) {

@@ -58,3 +58,28 @@ func LoadIntoAggregator(ctx context.Context, store *storage.Store, sessionID str
 	}
 	return nil
 }
+
+// RuleDropPoint is one (time, cumulative counter) reading for a single
+// firewall rule, used to plot how a rule's drops climbed over a session.
+type RuleDropPoint struct {
+	TS      time.Time
+	Packets uint64
+	Bytes   uint64
+}
+
+// FirewallRuleTimeline reconstructs per-rule counter timelines for a session
+// from the persisted firewall_rule_samples - the replay answer to "which
+// rule's drops climbed during the incident". The result is keyed by
+// "family/table/chain/handle" with points in ascending time order.
+func FirewallRuleTimeline(ctx context.Context, store *storage.Store, sessionID string) (map[string][]RuleDropPoint, error) {
+	samples, err := store.FirewallRuleSamplesBySession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("load firewall rule samples: %w", err)
+	}
+	out := make(map[string][]RuleDropPoint, len(samples))
+	for _, sm := range samples {
+		key := fmt.Sprintf("%s/%s/%s/%d", sm.Family, sm.Table, sm.Chain, sm.Handle)
+		out[key] = append(out[key], RuleDropPoint{TS: sm.TS, Packets: sm.Packets, Bytes: sm.Bytes})
+	}
+	return out, nil
+}

@@ -47,6 +47,11 @@ type Engine struct {
 	wifi      *collectors.WiFiCollector
 	sessionID string
 
+	// fwTrack derives a DROP/REJECT velocity from successive firewall-rule
+	// counter snapshots (see snapshotter.go). The grade reads it via
+	// FirewallSignal; updates happen on the snapshot ticker.
+	fwTrack fwRuleTracker
+
 	// flowsCache holds the most recent decorated-flow snapshot. The TUI
 	// reads it on every render; a background goroutine refreshes it once
 	// per second so the render path never pays for /proc reads.
@@ -86,15 +91,15 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 	}
 }
 
-func (e *Engine) Bus() *events.Bus                     { return e.bus }
-func (e *Engine) Aggregator() *metrics.Aggregator      { return e.agg }
-func (e *Engine) Bandwidth() *metrics.BandwidthHistory { return e.bw }
-func (e *Engine) Flows() *flows.Aggregator             { return e.flowAgg }
+func (e *Engine) Bus() *events.Bus                        { return e.bus }
+func (e *Engine) Aggregator() *metrics.Aggregator         { return e.agg }
+func (e *Engine) Bandwidth() *metrics.BandwidthHistory    { return e.bw }
+func (e *Engine) Flows() *flows.Aggregator                { return e.flowAgg }
 func (e *Engine) DeviceBandwidth() *flows.DeviceBandwidth { return e.deviceBW }
-func (e *Engine) DNSCache() *flows.DNSCache            { return e.dnsCache }
-func (e *Engine) ProcMatcher() *flows.ProcMatcher      { return e.procMatch }
-func (e *Engine) Tagger() *flows.Tagger                { return e.tagger }
-func (e *Engine) Ring() *capture.RingBuffer            { return e.ring }
+func (e *Engine) DNSCache() *flows.DNSCache               { return e.dnsCache }
+func (e *Engine) ProcMatcher() *flows.ProcMatcher         { return e.procMatch }
+func (e *Engine) Tagger() *flows.Tagger                   { return e.tagger }
+func (e *Engine) Ring() *capture.RingBuffer               { return e.ring }
 func (e *Engine) TCPDump() *capture.TCPDumpManager {
 	if e.tcpdump == nil {
 		e.tcpdump = capture.NewTCPDumpManager(
@@ -115,6 +120,14 @@ func (e *Engine) Config() config.Config           { return e.cfg }
 // txpower, etc.). Returns nil when WiFi monitoring is disabled in
 // config — callers must nil-check before invoking Snapshot.
 func (e *Engine) WiFi() *collectors.WiFiCollector { return e.wifi }
+
+// FirewallSignal returns the current DROP/REJECT velocity (drops per second
+// across managed blocking rules) and whether any counted blocking rule
+// exists. hasDropRules=false maps to a neutral firewall sub-score so hosts
+// without managed DROP rules aren't penalised.
+func (e *Engine) FirewallSignal() (dropRate float64, hasDropRules bool) {
+	return e.fwTrack.signal()
+}
 
 // Start begins capture. The session row is created immediately; collectors
 // and analyzers run in background goroutines until Stop is called.

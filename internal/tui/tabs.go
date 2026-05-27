@@ -83,7 +83,8 @@ func (t *dashboardTab) View(w, h int) string {
 	if wc := t.eng.WiFi(); wc != nil {
 		wifi = wc.Snapshot()
 	}
-	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, t.eng.Settings().Snapshot())
+	fwRate, fwHas := t.eng.FirewallSignal()
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, t.eng.Settings().Snapshot())
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -97,6 +98,7 @@ func (t *dashboardTab) View(w, h int) string {
 		renderSubScoreBar(grade.HTTP, w),
 		renderSubScoreBar(grade.Stab, w),
 		renderSubScoreBar(grade.WiFi, w),
+		renderSubScoreBar(grade.Firewall, w),
 	}
 	if len(t.targets) == 0 && len(t.dns) == 0 {
 		gradeRows = append(gradeRows, "",
@@ -795,7 +797,7 @@ func (t *routesTab) View(w, h int) string {
 type firewallTab struct {
 	eng     *engine.Engine
 	app     *App
-	summary netops.FirewallSummary
+	rules   []netops.RuleInfo
 	managed []netops.FilterRule
 	err     error
 	cursor  int
@@ -807,9 +809,11 @@ func newFirewallTab(eng *engine.Engine, app *App) *firewallTab {
 
 func (t *firewallTab) HelpHints() []KeyHint {
 	return []KeyHint{
-		{Key: "↑/↓ · j/k", Desc: "select managed rule (system chains are read-only)"},
+		{Key: "↑/↓ · j/k", Desc: "select rule"},
 		{Key: "a", Desc: "add filter rule (chain / action / proto / port / in / out / src / dst)"},
+		{Key: "e", Desc: "edit: open a pre-filled add modal from the selected managed rule"},
 		{Key: "x", Desc: "delete the selected managed rule (full tuple match)"},
+		{Key: "R", Desc: "reset the selected rule's counter (needs netops writes)"},
 		{Key: "r", Desc: "refresh"},
 	}
 }
@@ -821,7 +825,7 @@ func (t *firewallTab) refresh() {
 		t.err = fmt.Errorf("netops not initialized")
 		return
 	}
-	t.summary, t.err = t.eng.Netops().ListFirewall()
+	t.rules, t.err = t.eng.Netops().ListFirewallRules()
 	if t.err == nil {
 		t.managed, _ = t.eng.Netops().ListFilterRules()
 	}
@@ -832,43 +836,28 @@ type firewallRowKind int
 
 const (
 	firewallRowManaged firewallRowKind = iota
-	firewallRowSystem
+	firewallRowRule
 )
 
-// firewallRow is one navigable row. Managed rules carry their slice index;
-// system chains carry their table/family/chain coordinates for display.
+// firewallRow is one navigable row. Managed rules carry their slice index
+// into t.managed; decoded rules carry their index into t.rules (which holds
+// family/table/chain/handle for counter reset).
 type firewallRow struct {
 	kind       firewallRowKind
 	managedIdx int
-	sysFamily  string
-	sysTable   string
-	sysChain   string
-	sysHook    string
-	sysType    string
-	sysRules   int
+	ruleIdx    int
 }
 
-// rows returns every navigable row in the firewall tab: managed rules
-// first, then system nftables chains. The cursor indexes into this slice
-// so j/k always lands on *something* visible regardless of which sections
-// are populated.
+// rows returns every navigable row in the firewall tab: editable managed
+// rules first, then every decoded kernel rule (with per-rule counters). The
+// cursor indexes into this slice so j/k always lands on something visible.
 func (t *firewallTab) rows() []firewallRow {
-	out := make([]firewallRow, 0, len(t.managed)+8)
+	out := make([]firewallRow, 0, len(t.managed)+len(t.rules))
 	for i := range t.managed {
 		out = append(out, firewallRow{kind: firewallRowManaged, managedIdx: i})
 	}
-	for _, tb := range t.summary.Tables {
-		for _, c := range tb.Chains {
-			out = append(out, firewallRow{
-				kind:      firewallRowSystem,
-				sysFamily: tb.Family,
-				sysTable:  tb.Name,
-				sysChain:  c.Name,
-				sysHook:   c.Hook,
-				sysType:   c.Type,
-				sysRules:  c.Rules,
-			})
-		}
+	for i := range t.rules {
+		out = append(out, firewallRow{kind: firewallRowRule, ruleIdx: i})
 	}
 	return out
 }
@@ -900,15 +889,25 @@ func (t *firewallTab) Update(msg tea.Msg) tea.Cmd {
 			t.refresh()
 		case "a":
 			return t.openAddModal()
+		case "e":
+			// Edit = open the add modal pre-filled from the selected managed
+			// rule. Decoded kernel rules aren't Testudo-managed, so editing
+			// them isn't offered.
+			if t.cursor >= 0 && t.cursor < len(rows) && rows[t.cursor].kind == firewallRowManaged {
+				return t.openEditModal(t.managed[rows[t.cursor].managedIdx])
+			}
+			return statusCmd("select a Testudo-managed rule to edit")
 		case "x":
 			// Only managed rules can be deleted from here; tell the user
-			// when they try to delete a system chain.
+			// when they try to delete a decoded kernel rule.
 			if t.cursor >= 0 && t.cursor < len(rows) {
-				if rows[t.cursor].kind == firewallRowSystem {
-					return statusCmd("system chain is read-only - managed rules only")
+				if rows[t.cursor].kind == firewallRowRule {
+					return statusCmd("kernel rule is read-only here - delete managed rules only")
 				}
 			}
 			return t.openDelModal()
+		case "R":
+			return t.resetSelectedCounter()
 		}
 	}
 	return nil
@@ -948,6 +947,69 @@ func (t *firewallTab) openAddModal() tea.Cmd {
 		},
 	)
 	return t.app.SetModal(modal)
+}
+
+// openEditModal opens an add-rule modal pre-filled from an existing managed
+// rule. nftables filter rules aren't mutated in place; "edit" here means
+// "add the corrected rule" (the operator removes the stale one with x), which
+// keeps the modal workflow identical to add.
+func (t *firewallTab) openEditModal(src netops.FilterRule) tea.Cmd {
+	portStr := ""
+	if src.Port != 0 {
+		portStr = fmt.Sprintf("%d", src.Port)
+	}
+	modal := NewFormModal("Edit Filter Rule (adds a new rule)",
+		[]FormField{
+			{Label: "chain", Value: src.Chain, Hint: "input / output / forward"},
+			{Label: "action", Value: src.Action, Hint: "accept or drop"},
+			{Label: "proto", Value: src.Proto, Hint: "tcp / udp / blank=any"},
+			{Label: "port", Value: portStr, Hint: "destination port 1-65535; blank=any (needs proto)"},
+			{Label: "in_iface", Value: src.InIface, Hint: "incoming interface (input/forward); blank=any"},
+			{Label: "out_iface", Value: src.OutIface, Hint: "outgoing interface (output/forward); blank=any"},
+			{Label: "src", Value: src.SrcCIDR, Hint: "source IPv4 or CIDR; blank=any"},
+			{Label: "dst", Value: src.DstCIDR, Hint: "destination IPv4 or CIDR; blank=any"},
+		},
+		func(values map[string]string) error {
+			port := uint16(0)
+			if v := strings.TrimSpace(values["port"]); v != "" {
+				p, err := parseUint16(v)
+				if err != nil {
+					return fmt.Errorf("port: %v", err)
+				}
+				port = p
+			}
+			return t.eng.Netops().AddFilterRule(netops.FilterRule{
+				Chain:    strings.TrimSpace(values["chain"]),
+				Action:   strings.TrimSpace(values["action"]),
+				Proto:    strings.TrimSpace(values["proto"]),
+				Port:     port,
+				InIface:  strings.TrimSpace(values["in_iface"]),
+				OutIface: strings.TrimSpace(values["out_iface"]),
+				SrcCIDR:  strings.TrimSpace(values["src"]),
+				DstCIDR:  strings.TrimSpace(values["dst"]),
+			})
+		},
+	)
+	return t.app.SetModal(modal)
+}
+
+// resetSelectedCounter zeroes the per-rule counter on the highlighted decoded
+// rule. Write-gated: ResetRuleCounter returns ErrWritesDisabled when netops
+// writes are off, surfaced here as a toast.
+func (t *firewallTab) resetSelectedCounter() tea.Cmd {
+	all := t.rows()
+	if t.cursor < 0 || t.cursor >= len(all) || all[t.cursor].kind != firewallRowRule {
+		return statusCmd("select a kernel rule row to reset its counter")
+	}
+	r := t.rules[all[t.cursor].ruleIdx]
+	if !r.HasCounter {
+		return statusCmd("legacy rule has no counter - recreate via Testudo to enable counting")
+	}
+	if err := t.eng.Netops().ResetRuleCounter(r.Family, r.Table, r.Chain, r.Handle); err != nil {
+		return statusCmd("reset counter: " + err.Error())
+	}
+	t.refresh()
+	return statusCmd(fmt.Sprintf("counter reset on %s/%s/%s handle %d", r.Family, r.Table, r.Chain, r.Handle))
 }
 
 func (t *firewallTab) openDelModal() tea.Cmd {
@@ -998,8 +1060,8 @@ func (t *firewallTab) openDelModal() tea.Cmd {
 func (t *firewallTab) View(w, h int) string {
 	all := t.rows()
 	out := []string{headerStyle.Render(fmt.Sprintf(
-		"Firewall - %d managed · %d system chains · ↑/↓ select · a=add · x=del · r=refresh",
-		len(t.managed), len(all)-len(t.managed)))}
+		"Firewall - %d managed · %d kernel rules · ↑/↓ select · a=add · e=edit · x=del · R=reset · r=refresh",
+		len(t.managed), len(t.rules)))}
 	if t.err != nil {
 		out = append(out, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(out, "\n"))
@@ -1020,8 +1082,12 @@ func (t *firewallTab) View(w, h int) string {
 		out = append(out, "  "+renderTableRow(innerW, mw,
 			"CHAIN", "ACTION", "PROTO", "PORT", "IN", "OUT", "SRC", "DST"))
 	}
-	sysHeaderShown := false
-	sysWidths := []int{8, 20, 18, 12, 10, 8}
+	// Decoded per-rule section. Rules arrive already top-sorted per chain
+	// (highest-hit DROP/REJECT first); we print a sub-header whenever the
+	// family/table/chain changes so each chain reads as its own block.
+	ruleWidths := []int{8, 38, 14, 10, 10}
+	ruleHeaderShown := false
+	lastChainKey := ""
 	for i, r := range all {
 		var rendered string
 		switch r.kind {
@@ -1037,17 +1103,30 @@ func (t *firewallTab) View(w, h int) string {
 				orDash(fr.SrcCIDR),
 				orDash(fr.DstCIDR),
 			)
-		case firewallRowSystem:
-			if !sysHeaderShown {
+		case firewallRowRule:
+			ru := t.rules[r.ruleIdx]
+			if !ruleHeaderShown {
 				out = append(out, "")
-				out = append(out, headerStyle.Render("System nftables chains (read-only)"))
-				out = append(out, "  "+renderTableRow(innerW, sysWidths,
-					"FAMILY", "TABLE", "CHAIN", "HOOK", "TYPE", "RULES"))
-				sysHeaderShown = true
+				out = append(out, headerStyle.Render("Kernel rules - per-rule counters (R resets the selected counter)"))
+				ruleHeaderShown = true
 			}
-			rendered = renderTableRow(innerW, sysWidths,
-				r.sysFamily, r.sysTable, r.sysChain, r.sysHook, r.sysType,
-				fmt.Sprintf("%d", r.sysRules))
+			if key := ru.Family + "/" + ru.Table + "/" + ru.Chain; key != lastChainKey {
+				lastChainKey = key
+				out = append(out, dimStyle.Render("  "+key))
+				out = append(out, "  "+renderTableRow(innerW, ruleWidths,
+					"HANDLE", "MATCH", "VERDICT", "PKTS", "BYTES"))
+			}
+			pkts, bytes := "—", "—"
+			if ru.HasCounter {
+				pkts = fmt.Sprintf("%d", ru.Packets)
+				bytes = fmtBytes(ru.Bytes)
+			}
+			match := ru.Match
+			if match == "" {
+				match = "any"
+			}
+			rendered = renderTableRow(innerW, ruleWidths,
+				fmt.Sprintf("%d", ru.Handle), match, orDash(ru.Verdict), pkts, bytes)
 		}
 		marker := "  "
 		if i == t.cursor {
@@ -1056,7 +1135,11 @@ func (t *firewallTab) View(w, h int) string {
 		switch {
 		case i == t.cursor:
 			out = append(out, selectedRowStyle.Render(marker+rendered))
-		case r.kind == firewallRowSystem:
+		case r.kind == firewallRowRule && t.rules[r.ruleIdx].IsBlocking() && t.rules[r.ruleIdx].Packets > 0:
+			// Active blocking rules are the "what's blocking me" signal -
+			// keep them at full intensity so they stand out.
+			out = append(out, rowStyle.Render(marker+rendered))
+		case r.kind == firewallRowRule:
 			out = append(out, dimStyle.Render(marker+rendered))
 		default:
 			out = append(out, rowStyle.Render(marker+rendered))

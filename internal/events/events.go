@@ -20,6 +20,7 @@ const (
 	KindSessionEnd   Kind = "session_end"
 	KindFlowUpdate   Kind = "flow_update"
 	KindIncident     Kind = "incident"
+	KindFirewallDrop Kind = "firewall_drop"
 )
 
 // Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
@@ -104,6 +105,22 @@ type FlowUpdatePayload struct {
 	SrcPort, DstPort uint16
 	Proto            string
 	Bytes            uint64
+}
+
+// FirewallDropPayload reports the growth of a single rule's DROP/REJECT
+// counter between two snapshots. DeltaPackets/DeltaBytes are the increase
+// over the sample window; Rate is drops/sec. The (Family, Table, Chain,
+// Handle) tuple names the exact rule so the Alerts tab can point at it.
+type FirewallDropPayload struct {
+	Family       string
+	Table        string
+	Chain        string
+	Handle       uint64
+	Match        string
+	Verdict      string
+	DeltaPackets uint64
+	DeltaBytes   uint64
+	Rate         float64 // drops per second over the window
 }
 
 // IncidentPayload bundles the context captured around a CRITICAL anomaly:
@@ -252,6 +269,8 @@ func kindMask(k Kind) uint64 {
 		return 1 << 7
 	case KindIncident:
 		return 1 << 8
+	case KindFirewallDrop:
+		return 1 << 9
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

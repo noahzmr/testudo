@@ -655,6 +655,7 @@ testudo <subcommand> [flags]
 | `nat list`     | List NAT and port-forwarding rules                      |
 | `discover`     | One-shot network scan                                   |
 | `probe <host>` | Diagnostic probe against a host                         |
+| `doctor`       | Layered connectivity diagnosis - reports the first failing layer (link → address → route → gateway → DNS → WAN → captive portal) as the root cause; `--json` for scripts, exit code 2 when broken |
 | `user passwd`  | Rotate the local web-UI password                        |
 
 ### Common flags
@@ -814,7 +815,7 @@ The dashboard's most prominent element is a single **letter grade** (A+ through 
 
 ### What goes into the grade
 
-Four live measurements, each pulled from the metrics aggregator. Every measurement is scaled into its own **0-100 sub-score** and the four sub-scores are combined with weights:
+Nine live measurements, each pulled from the metrics aggregator (plus kernel and firewall counters). Every measurement is scaled into its own **0-100 sub-score** and the sub-scores are combined with weights:
 
 | Sub-score       | Weight | What it measures                                                                                                                   |
 | --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -823,11 +824,12 @@ Four live measurements, each pulled from the metrics aggregator. Every measureme
 | **Jitter**      | 10 %   | Rolling RTT variation across WAN-side targets                                                                                      |
 | **DNS latency** | 10 %   | Average resolution time across external + internal resolvers                                                                       |
 | **LAN**         | 15 %   | Reachability to LAN-side hosts (RFC1918 IPs and `.lan` / `.local` / `.home` / `.internal` hostnames) - blends LAN loss and LAN RTT |
-| **HTTP**        | 10 %   | Configured / auto-derived HTTP endpoints - blends failure rate and TTFB                                                            |
+| **HTTP**        | 5 %    | Configured / auto-derived HTTP endpoints - blends failure rate and TTFB                                                            |
 | **Stab**        | 10 %   | Per-interface error / drop ratio across all non-loopback interfaces (`RxErrors+TxErrors+RxDropped+TxDropped` vs total packets)     |
 | **WiFi**        | 10 %   | Average signal level (dBm) across associated wireless interfaces; -60 dBm = 100, -90 dBm = 0 (linear)                              |
+| **Firewall**    | 5 %    | DROP/REJECT velocity (drops/sec) across Testudo-managed blocking rules, diffed between snapshots; 0 = 100, 10 drops/sec = 50       |
 
-Loss / RTT / Jitter still anchor the grade because those are what users *feel*, but the grade is no longer blind to the rest of the stack: a slow LAN host, a 5xx HTTP endpoint, a flapping NIC, or a wireless radio at the edge of coverage all surface immediately. Each sub-score returns a **neutral 100** when its data source is empty, so a box without WiFi or without HTTP endpoints configured doesn't pay a penalty for it.
+Loss / RTT / Jitter still anchor the grade because those are what users *feel*, but the grade is no longer blind to the rest of the stack: a slow LAN host, a 5xx HTTP endpoint, a flapping NIC, a wireless radio at the edge of coverage, or **a firewall rule suddenly eating traffic** all surface immediately. Each sub-score returns a **neutral 100** when its data source is empty, so a box without WiFi, without HTTP endpoints, or without managed DROP rules doesn't pay a penalty for it.
 
 ### Target classification
 
@@ -1036,6 +1038,8 @@ The [docs/](./docs/) directory hosts the longer technical writeups. Start at [do
 | [docs/firewall.md](./docs/firewall.md)         | operators            | `nftables` (default) and `iptables` (fallback) backends; chain semantics; common rule recipes.          |
 | [docs/topology.md](./docs/topology.md)         | operators            | Passive topology graph - nodes, edges, sources (ARP / LLDP / SNMP / flow observation).                  |
 | [docs/alerts.md](./docs/alerts.md)             | operators            | Severity levels, default thresholds, the anomaly engine, incident bundles.                              |
+| [docs/DIAGNOSTICS_ASSESSMENT.md](./docs/DIAGNOSTICS_ASSESSMENT.md) | engineers | Senior-engineer review of device-level diagnostics: capability matrix, gaps, prioritized roadmap.       |
+| [docs/tasks/](./docs/tasks/README.md)          | engineers            | Implementation specs derived from the assessment - one per roadmap item, each with TUI/Web/grade scope. |
 
 ### Pointing readers to the right place
 
@@ -1189,6 +1193,19 @@ Roughly ordered by what's next. Each milestone is shaped around one theme so use
 | `!`    | Infrastructure change         |
 | `#`    | UI / Visualization            |
 | `★`    | Headline goal for the release |
+
+> **Engineering specs.** The deeper diagnostics work below is planned in detail
+> under [docs/tasks/](./docs/tasks/README.md) - one spec per item, derived from
+> the [diagnostics assessment](./docs/DIAGNOSTICS_ASSESSMENT.md). Each spec
+> commits to the same contract: **viewable *and* editable in both the TUI and
+> the web UI**, and **every new measurement feeds the Network Quality grade**.
+> Tracked items: [per-rule nftables counters](./docs/tasks/per-rule-nftables-counters.md),
+> [conntrack/NEIGH introspection](./docs/tasks/conntrack-neigh-introspection.md),
+> [netlink push-vs-poll](./docs/tasks/netlink-push-vs-poll.md),
+> [rollup/baseline quality table](./docs/tasks/rollup-baseline-quality-table.md),
+> [IPv6 across the data path](./docs/tasks/ipv6-data-path.md),
+> [eBPF telemetry](./docs/tasks/ebpf-telemetry.md), and
+> [privilege separation](./docs/tasks/privilege-separation.md).
 
 ### v0.2 - Cross-Platform Compatibility *(next up)*
 

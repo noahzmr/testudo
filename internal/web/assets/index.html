@@ -188,6 +188,13 @@
         </table>
       </div>
       <div class="card">
+        <h2>Per-rule counters <span class="muted">· highest-hit DROP/REJECT first</span></h2>
+        <table>
+          <thead><tr><th>Chain</th><th>Handle</th><th>Match</th><th>Verdict</th><th>Pkts</th><th>Bytes</th><th></th></tr></thead>
+          <tbody id="fw-rules-counter-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
         <h2>System nftables (read-only)</h2>
         <table>
           <thead><tr><th>Family</th><th>Table</th><th>Chain</th><th>Hook</th><th>Type</th><th>Rules</th></tr></thead>

@@ -101,6 +101,20 @@ CREATE TABLE IF NOT EXISTS snapshots (
     payload     TEXT NOT NULL   -- JSON-encoded
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_session ON snapshots(session_id, kind, ts);
+
+CREATE TABLE IF NOT EXISTS firewall_rule_samples (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    family      TEXT NOT NULL,
+    tbl         TEXT NOT NULL,
+    chain       TEXT NOT NULL,
+    handle      INTEGER NOT NULL,
+    pkts        INTEGER NOT NULL,
+    bytes       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fwsamples_session ON firewall_rule_samples(session_id, ts);
+CREATE INDEX IF NOT EXISTS idx_fwsamples_rule ON firewall_rule_samples(session_id, family, tbl, chain, handle, ts);
 `
 
 type Store struct {

@@ -25,6 +25,7 @@ type snapshot struct {
 	Ifaces        []ifaceView          `json:"ifaces"`
 	Routes        []routeView          `json:"routes"`
 	Firewall      []firewallTable      `json:"firewall"`
+	FirewallRules []firewallRuleView   `json:"firewall_rules"`
 	FilterRules   []filterRuleView     `json:"filter_rules"`
 	NAT           []natView            `json:"nat"`
 	Anomalies     []anomalyView        `json:"anomalies"`
@@ -81,15 +82,16 @@ type gradeView struct {
 	// sub-score is still "no data", so the front end can switch the
 	// badge into a violet placeholder rather than rendering an
 	// inflated "A+" derived from a neutral fallback.
-	HasData bool `json:"has_data"`
-	Loss    int  `json:"loss_score"`
-	RTT     int  `json:"rtt_score"`
-	Jitter  int  `json:"jitter_score"`
-	DNS     int  `json:"dns_score"`
-	LAN     int  `json:"lan_score"`
-	HTTP    int  `json:"http_score"`
-	Stab    int  `json:"stab_score"`
-	WiFi    int  `json:"wifi_score"`
+	HasData  bool `json:"has_data"`
+	Loss     int  `json:"loss_score"`
+	RTT      int  `json:"rtt_score"`
+	Jitter   int  `json:"jitter_score"`
+	DNS      int  `json:"dns_score"`
+	LAN      int  `json:"lan_score"`
+	HTTP     int  `json:"http_score"`
+	Stab     int  `json:"stab_score"`
+	WiFi     int  `json:"wifi_score"`
+	Firewall int  `json:"firewall_score"`
 	// NoData lists the sub-score names that have not yet produced a
 	// measurement (e.g. ["WiFi", "HTTP"]). The dashboard renders these
 	// bars violet and excludes them from the overall grade.
@@ -196,6 +198,24 @@ type firewallChain struct {
 	Hook  string `json:"hook"`
 	Type  string `json:"type"`
 	Rules int    `json:"rules"`
+}
+
+// firewallRuleView is one decoded kernel rule with per-rule counters. It
+// mirrors the TUI's per-rule view so the web table and any external consumer
+// see identical data. Rules arrive top-sorted per chain (highest-hit
+// DROP/REJECT first).
+type firewallRuleView struct {
+	Family     string `json:"family"`
+	Table      string `json:"table"`
+	Chain      string `json:"chain"`
+	Handle     uint64 `json:"handle"`
+	Match      string `json:"match"`
+	Verdict    string `json:"verdict"`
+	Comment    string `json:"comment"`
+	Packets    uint64 `json:"packets"`
+	Bytes      uint64 `json:"bytes"`
+	HasCounter bool   `json:"has_counter"`
+	Blocking   bool   `json:"blocking"`
 }
 
 type filterRuleView struct {
@@ -368,7 +388,8 @@ func (s *Server) buildSnapshot() snapshot {
 	if wc := eng.WiFi(); wc != nil {
 		wifiSnap = wc.Snapshot()
 	}
-	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, th)
+	fwRate, fwHas := eng.FirewallSignal()
+	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, th)
 
 	// Capture status.
 	snap.Capture = captureView{
@@ -431,7 +452,7 @@ func (s *Server) buildSnapshot() snapshot {
 				ChannelWMHz: w.ChannelWMHz, Band: w.Band,
 				Signal: w.Signal, SignalAvg: w.SignalAvg, Noise: w.Noise,
 				TXBitrateM: w.TXBitrateM, RXBitrateM: w.RXBitrateM,
-				TXPower: w.TXPower,
+				TXPower:     w.TXPower,
 				LinkQuality: w.LinkQuality, LinkMax: w.LinkMax,
 				Retries: w.Retries, BeaconLoss: w.BeaconLoss, TxFailed: w.TxFailed,
 				RxBytes: w.RxBytes, TxBytes: w.TxBytes,
@@ -479,6 +500,16 @@ func (s *Server) buildSnapshot() snapshot {
 					})
 				}
 				snap.Firewall = append(snap.Firewall, ft)
+			}
+		}
+		if fwRules, err := nw.ListFirewallRules(); err == nil {
+			for _, ru := range fwRules {
+				snap.FirewallRules = append(snap.FirewallRules, firewallRuleView{
+					Family: ru.Family, Table: ru.Table, Chain: ru.Chain,
+					Handle: ru.Handle, Match: ru.Match, Verdict: ru.Verdict,
+					Comment: ru.Comment, Packets: ru.Packets, Bytes: ru.Bytes,
+					HasCounter: ru.HasCounter, Blocking: ru.IsBlocking(),
+				})
 			}
 		}
 		if rules, err := nw.ListFilterRules(); err == nil {

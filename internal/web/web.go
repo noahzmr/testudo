@@ -106,6 +106,7 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/route/del", s.protect(s.handleRouteDel))
 	mux.HandleFunc("/api/firewall/add", s.protect(s.handleFirewallAdd))
 	mux.HandleFunc("/api/firewall/del", s.protect(s.handleFirewallDel))
+	mux.HandleFunc("/api/firewall/reset-counter", s.protect(s.handleFirewallResetCounter))
 	mux.HandleFunc("/api/nat/add", s.protect(s.handleNATAdd))
 	mux.HandleFunc("/api/nat/del", s.protect(s.handleNATDel))
 

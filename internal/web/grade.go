@@ -20,17 +20,20 @@ func computeGradeView(
 	dns []metrics.DNSStats,
 	ifaces []netops.IfaceInfo,
 	wifi []collectors.WiFiSnapshot,
+	fwDropRate float64,
+	fwHasDropRules bool,
 	th config.Thresholds,
 ) gradeView {
 	const (
-		wLoss   = 0.20
-		wRTT    = 0.15
-		wJitter = 0.10
-		wDNS    = 0.10
-		wLAN    = 0.15
-		wHTTP   = 0.10
-		wStab   = 0.10
-		wWiFi   = 0.10
+		wLoss     = 0.20
+		wRTT      = 0.15
+		wJitter   = 0.10
+		wDNS      = 0.10
+		wLAN      = 0.15
+		wHTTP     = 0.05
+		wStab     = 0.10
+		wWiFi     = 0.10
+		wFirewall = 0.05
 	)
 
 	wan := filterT(targets, isWANTargetW)
@@ -54,6 +57,7 @@ func computeGradeView(
 	httpScore := scoreHTTPW(httpT)
 	stabScore := scoreStabilityW(ifaces)
 	wifiScore := scoreWiFiW(wifi)
+	fwScore := scoreFirewallW(fwDropRate, fwHasDropRules)
 
 	// Renormalize over sub-scores that have data so "no measurement yet"
 	// doesn't inflate the overall grade. Mirrors internal/tui/grade.go.
@@ -71,6 +75,7 @@ func computeGradeView(
 		{wHTTP, httpScore, hasHTTP, "HTTP"},
 		{wStab, stabScore, hasStab, "Stab"},
 		{wWiFi, wifiScore, hasWiFi, "WiFi"},
+		{wFirewall, fwScore, fwHasDropRules, "Firewall"},
 	}
 	var weighted, totalW float64
 	noData := []string{}
@@ -88,7 +93,8 @@ func computeGradeView(
 			HasData: false,
 			Loss:    lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-			NoData: noData,
+			Firewall: fwScore,
+			NoData:   noData,
 		}
 	}
 	score := int(weighted/totalW + 0.5)
@@ -103,8 +109,20 @@ func computeGradeView(
 		Score: score, Letter: letter, Verdict: verdict, HasData: true,
 		Loss: lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-		NoData: noData,
+		Firewall: fwScore,
+		NoData:   noData,
 	}
+}
+
+// scoreFirewallW mirrors tui/grade.go scoreFirewallSub: managed DROP/REJECT
+// velocity vs a 10 drops/sec comfort line. Returns a neutral 100 when no
+// managed blocking rule carries a counter (the caller marks it as no-data so
+// it's excluded from the weighted total).
+func scoreFirewallW(dropRate float64, hasDropRules bool) int {
+	if !hasDropRules {
+		return 100
+	}
+	return subScore(dropRate, 10)
 }
 
 func hasRTTDataW(ts []metrics.TargetStats) bool {
@@ -349,4 +367,3 @@ func avgDNS(ds []metrics.DNSStats) float64 {
 	}
 	return sum / float64(n)
 }
-

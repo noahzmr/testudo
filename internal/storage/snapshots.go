@@ -120,6 +120,64 @@ func (s *Store) SnapshotsBySession(ctx context.Context, sessionID, kind string) 
 	return out, rows.Err()
 }
 
+// FirewallRuleSample is one periodic per-rule counter reading. Persisted so
+// replay can answer "which rule's drops climbed during the incident".
+type FirewallRuleSample struct {
+	TS      time.Time
+	Family  string
+	Table   string
+	Chain   string
+	Handle  uint64
+	Packets uint64
+	Bytes   uint64
+}
+
+// InsertFirewallRuleSample appends one per-rule counter reading to the
+// session. TS defaults to now when zero.
+func (s *Store) InsertFirewallRuleSample(ctx context.Context, sessionID string, sm FirewallRuleSample) error {
+	if sessionID == "" {
+		return fmt.Errorf("session id required")
+	}
+	ts := sm.TS
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO firewall_rule_samples (session_id, ts, family, tbl, chain, handle, pkts, bytes)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		sessionID, ts.UnixMilli(), sm.Family, sm.Table, sm.Chain,
+		int64(sm.Handle), int64(sm.Packets), int64(sm.Bytes),
+	)
+	return err
+}
+
+// FirewallRuleSamplesBySession returns every per-rule counter sample for a
+// session, oldest first - the replay source for per-rule drop timelines.
+func (s *Store) FirewallRuleSamplesBySession(ctx context.Context, sessionID string) ([]FirewallRuleSample, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT ts, family, tbl, chain, handle, pkts, bytes
+		 FROM firewall_rule_samples
+		 WHERE session_id = ?
+		 ORDER BY ts ASC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FirewallRuleSample
+	for rows.Next() {
+		var sm FirewallRuleSample
+		var ms int64
+		var handle, pkts, bytes int64
+		if err := rows.Scan(&ms, &sm.Family, &sm.Table, &sm.Chain, &handle, &pkts, &bytes); err != nil {
+			return nil, err
+		}
+		sm.TS = time.UnixMilli(ms)
+		sm.Handle, sm.Packets, sm.Bytes = uint64(handle), uint64(pkts), uint64(bytes)
+		out = append(out, sm)
+	}
+	return out, rows.Err()
+}
+
 // SearchAnomalies returns anomalies whose message matches the query LIKE
 // pattern. Useful for the alerts tab search box.
 func (s *Store) SearchAnomalies(ctx context.Context, sessionID, query string, limit int) ([]AnomalyRow, error) {
