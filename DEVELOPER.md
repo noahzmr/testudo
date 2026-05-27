@@ -42,6 +42,7 @@ Common invocations:
 ./testudo nat list                   # NAT and port-forwarding rules
 ./testudo discover                   # one-shot device scan
 ./testudo probe <host>               # diagnostic probe
+./testudo doctor                     # layered connectivity diagnosis (exit 2 if broken)
 ./testudo web                        # start the web UI
 ./testudo user passwd                # change the local password
 ```
@@ -55,21 +56,27 @@ cmd/testudo/         main + CLI command implementations
 internal/
   analyzers/         anomaly detection (latency, loss, jitter, DNS, …)
   auth/              local user / password hashing
-  capture/           AF_PACKET capture + Layer-1 ring buffer
-  collectors/        ICMP, DNS, and other active probes
+  capture/           AF_PACKET capture + Layer-1 ring buffer + PCAP writer
+  collectors/        ICMP, DNS, HTTP, TLS, traceroute, WiFi, bufferbloat, tcp_info, … probes
   config/            settings persistence
-  discovery/         passive + active device discovery, vendor OUI lookup
-  engine/            top-level orchestrator
+  discovery/         passive + active device discovery (ARP/ICMP/mDNS/LLDP/SNMP), vendor OUI lookup
+  doctor/            layered bottom-up connectivity diagnosis (`doctor` CLI command)
+  engine/            top-level orchestrator + collector supervision
   events/            in-process event bus
   flows/             flow aggregation + correlation (process, DNS, services)
-  incidents/         alerting + severity bookkeeping
+  health/            per-subsystem status (OK / degraded / failed) + remediation hints
+  incidents/         alerting + severity bookkeeping + incident bundles
   integrations/      Guacamole, Sentry
+  ipfix/             IETF IPFIX (RFC 7011) flow exporter + lifecycle manager
   metrics/           time-series counters (latency, loss, etc.)
-  netops/            netlink + nftables + iptables (firewall, route, NAT, iface, dns)
+  netops/            netlink + nftables + iptables (firewall, route, NAT, iface, conntrack, neigh, dns)
+  privsep/           privileged helper, capability dropping, seccomp, FD passing
   probes/            probe runner used by the `probe` CLI command
+  quality/           baseline rollup + Network Quality grade
   replay/            replay engine + session storage
   services/          well-known port => service mapping
-  storage/           SQLite layer
+  storage/           SQLite layer (metrics, sessions, baselines, audit log)
+  telemetry/         per-flow TCP telemetry (INET_DIAG, optional eBPF backend)
   topology/          passive topology graph builder
   tui/               Bubbletea TUI
   web/               HTTP server + embedded assets

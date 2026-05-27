@@ -352,6 +352,7 @@ The web UI mirrors every TUI view: dashboard, flows, devices, interfaces, routes
 
 - **Sentry** - optional, DSN-gated panic and error reporting.
 - **Apache Guacamole** - URL deep-link helper for SSH/RDP/VNC handoff from the discovered device inventory.
+- **IPFIX export** - optional IETF IPFIX (RFC 7011) flow export to an external collector (e.g. opsanio, ipfixcol2, nProbe, Elastic); configured from the Settings tab.
 
 ---
 
@@ -818,10 +819,14 @@ Testudo ships with intelligent defaults. Every threshold is live-tunable from th
 
 ### Integrations
 
-| Setting        | Default | Description                         |
-| -------------- | ------- | ----------------------------------- |
-| Sentry DSN     | unset   | Enable Sentry panic/error reporting |
-| Guacamole base | unset   | Base URL for the Guacamole instance |
+| Setting            | Default | Description                                                       |
+| ------------------ | ------- | ----------------------------------------------------------------- |
+| Sentry DSN         | unset   | Enable Sentry panic/error reporting                               |
+| Guacamole base     | unset   | Base URL for the Guacamole instance                               |
+| `IPFIXEnabled`     | false   | Export flow records over IETF IPFIX (RFC 7011)                    |
+| `IPFIXEndpoint`    | unset   | Collector address (`host:port`) for IPFIX export                  |
+| `IPFIXIntervalSec` | 30      | Seconds between IPFIX data exports                                |
+| `IPFIXDomainID`    | auto    | Observation Domain ID (derived from hostname when left at 0)      |
 
 ### Settings View
 
@@ -1003,21 +1008,28 @@ testudo/
 ├── internal/
 │   ├── tui/                    ← Bubble Tea TUI
 │   ├── web/                    ← HTTP UI + embedded assets
-│   ├── engine/                 ← lifecycle orchestrator
+│   ├── auth/                   ← bcrypt web-UI credentials
+│   ├── engine/                 ← lifecycle orchestrator + collector supervision
 │   ├── events/                 ← event bus + severity ladder
-│   ├── collectors/             ← ICMP, DNS probes
-│   ├── capture/                ← multi-interface AF_PACKET
-│   ├── flows/                  ← flow aggregator + correlators
+│   ├── collectors/             ← ICMP, DNS, HTTP, TLS, traceroute, WiFi, bufferbloat, …
+│   ├── capture/                ← multi-interface AF_PACKET + ring buffer + PCAP
+│   ├── telemetry/              ← per-flow TCP telemetry (INET_DIAG, optional eBPF)
+│   ├── flows/                  ← flow aggregator + correlators + device matrix
 │   ├── analyzers/              ← anomaly detectors
-│   ├── alerts/                 ← alert log + severity escalation
-│   ├── firewall/               ← iptables / nftables
-│   ├── routes/                 ← routing table ops
-│   ├── nat/                    ← NAT + port forwarding
-│   ├── discovery/              ← ARP / ICMP / mDNS scanner
-│   ├── interfaces/             ← interface enumeration & control
+│   ├── incidents/             ← alert log + incident bundles
+│   ├── netops/                 ← netlink/nftables: firewall, route, NAT, iface, conntrack, neigh, dns
+│   ├── privsep/                ← privileged helper, cap-drop, seccomp, FD passing
+│   ├── discovery/              ← ARP / ICMP / mDNS / LLDP / SNMP scanner
+│   ├── topology/               ← passive topology graph
+│   ├── probes/                 ← one-shot diagnostic probe runner
+│   ├── doctor/                 ← layered connectivity diagnosis
+│   ├── health/                 ← subsystem-status tracking
+│   ├── quality/                ← baseline rollup + Network Quality grade
 │   ├── metrics/                ← rolling per-target stats
+│   ├── ipfix/                  ← IETF IPFIX (RFC 7011) flow exporter
+│   ├── services/               ← well-known port → service mapping
 │   ├── replay/                 ← session reconstruction
-│   ├── storage/                ← SQLite persistence
+│   ├── storage/                ← SQLite persistence + audit log
 │   ├── integrations/
 │   │   ├── sentry/             ← optional panic reporting
 │   │   └── guacamole/          ← SSH/RDP/VNC deep-link helper
@@ -1047,19 +1059,28 @@ testudo/
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `internal/tui`                    | Bubble Tea application - tabs, modals, browser, replay UI                                                                                                                                  |
 | `internal/web`                    | HTTP UI, embedded assets, sessions, snapshot endpoint                                                                                                                                      |
-| `internal/engine`                 | Lifecycle orchestrator - wires all subsystems together                                                                                                                                     |
+| `internal/auth`                   | Local web-UI users, bcrypt password hashing and rotation                                                                                                                                   |
+| `internal/engine`                 | Lifecycle orchestrator - wires all subsystems together, supervises/restarts collectors                                                                                                     |
 | `internal/events`                 | Non-blocking fan-out event bus, four-level severity                                                                                                                                        |
-| `internal/collectors`             | ICMP, DNS (external + internal), HTTP-endpoint, TLS-cert, top-talkers (ICMP + TCP), LAN-reachability, traceroute, bufferbloat, WiFi, iface-health, L2 (multicast burst + ARP churn) probes |
-| `internal/capture`                | Multi-interface AF_PACKET capture                                                                                                                                                          |
+| `internal/collectors`             | ICMP, DNS (external + internal), HTTP-endpoint, TLS-cert, top-talkers (ICMP + TCP), LAN-reachability, traceroute, bufferbloat, WiFi, iface-health, L2 (multicast burst + ARP churn), tcp_info probes |
+| `internal/capture`                | Multi-interface AF_PACKET capture, ring buffer, rotated PCAP writer                                                                                                                        |
+| `internal/telemetry`              | Per-flow TCP telemetry (RTT / RTX / cwnd) via INET_DIAG, with an optional eBPF backend (`-tags ebpf`)                                                                                       |
 | `internal/flows`                  | Interface-tagged five-tuple aggregator, correlators, per-device bandwidth history, LAN host-to-host matrix                                                                                 |
-| `internal/firewall`               | iptables / nftables observation and management                                                                                                                                             |
-| `internal/nat`                    | NAT rule management and port-forward bookkeeping                                                                                                                                           |
-| `internal/routes`                 | Routing table observation and management                                                                                                                                                   |
-| `internal/discovery`              | ARP, ICMP, mDNS scanner with device inventory                                                                                                                                              |
+| `internal/netops`                 | Netlink + nftables/iptables backend: firewall, route, NAT/port-forward, interface, conntrack, neighbour, and DNS operations behind a write-gated `Writer`                                  |
+| `internal/privsep`                | Privileged helper process, capability dropping, seccomp-bpf denylist, SCM_RIGHTS FD passing                                                                                                |
+| `internal/discovery`              | ARP, ICMP, mDNS, LLDP, SNMP scanner with device inventory + vendor OUI lookup                                                                                                              |
+| `internal/topology`               | Passive topology graph (nodes / edges) built from flow + discovery data                                                                                                                    |
+| `internal/probes`                 | One-shot diagnostic probe runner (ICMP / TCP / UDP / DNS / throughput / traceroute)                                                                                                        |
+| `internal/doctor`                 | Layered bottom-up connectivity diagnosis with root-cause verdict                                                                                                                           |
+| `internal/health`                 | Per-subsystem status (OK / degraded / failed) with remediation hints                                                                                                                       |
+| `internal/quality`                | Per-(target, day, hour) baseline rollup, baseline-relative scoring, bufferbloat grading                                                                                                    |
 | `internal/analyzers`              | Anomaly detectors - packet loss, latency spike, jitter, DNS burst, firewall drops, route instability, bandwidth spike, NAT exhaustion, retransmissions, per-device chatter                 |
-| `internal/alerts`                 | Severity escalation, alert log                                                                                                                                                             |
+| `internal/incidents`              | Severity escalation, alert log, incident bundles                                                                                                                                           |
+| `internal/metrics`                | Rolling per-target / per-DNS counters and bandwidth windows                                                                                                                                |
+| `internal/ipfix`                  | IETF IPFIX (RFC 7011) flow exporter + lifecycle manager                                                                                                                                    |
+| `internal/services`               | Well-known port → service-name mapping                                                                                                                                                     |
 | `internal/replay`                 | Session reconstruction from persisted events                                                                                                                                               |
-| `internal/storage`                | SQLite persistence (sessions, samples, flows, anomalies, incidents)                                                                                                                        |
+| `internal/storage`                | SQLite persistence (sessions, samples, flows, anomalies, incidents, baselines, audit log)                                                                                                  |
 | `internal/integrations/sentry`    | Optional panic/error reporting                                                                                                                                                             |
 | `internal/integrations/guacamole` | URL deep-link helper for SSH/RDP/VNC handoff                                                                                                                                               |
 | `internal/config`                 | Defaults, thresholds, persistent settings store                                                                                                                                            |
@@ -1126,7 +1147,6 @@ The [docs/](./docs/) directory hosts the longer technical writeups. Start at [do
 | [docs/topology.md](./docs/topology.md)                             | operators            | Passive topology graph - nodes, edges, sources (ARP / LLDP / SNMP / flow observation).                  |
 | [docs/alerts.md](./docs/alerts.md)                                 | operators            | Severity levels, default thresholds, the anomaly engine, incident bundles.                              |
 | [docs/DIAGNOSTICS_ASSESSMENT.md](./docs/DIAGNOSTICS_ASSESSMENT.md) | engineers            | Senior-engineer review of device-level diagnostics: capability matrix, gaps, prioritized roadmap.       |
-| [docs/tasks/](./docs/tasks/README.md)                              | engineers            | Implementation specs derived from the assessment - one per roadmap item, each with TUI/Web/grade scope. |
 
 ### Pointing readers to the right place
 
@@ -1281,18 +1301,15 @@ Roughly ordered by what's next. Each milestone is shaped around one theme so use
 | `#`    | UI / Visualization            |
 | `★`    | Headline goal for the release |
 
-> **Engineering specs.** The deeper diagnostics work below is planned in detail
-> under [docs/tasks/](./docs/tasks/README.md) - one spec per item, derived from
-> the [diagnostics assessment](./docs/DIAGNOSTICS_ASSESSMENT.md). Each spec
-> commits to the same contract: **viewable *and* editable in both the TUI and
-> the web UI**, and **every new measurement feeds the Network Quality grade**.
-> Tracked items: [per-rule nftables counters](./docs/tasks/per-rule-nftables-counters.md),
-> [conntrack/NEIGH introspection](./docs/tasks/conntrack-neigh-introspection.md),
-> [netlink push-vs-poll](./docs/tasks/netlink-push-vs-poll.md),
-> [rollup/baseline quality table](./docs/tasks/rollup-baseline-quality-table.md),
-> [IPv6 across the data path](./docs/tasks/ipv6-data-path.md),
-> [eBPF telemetry](./docs/tasks/ebpf-telemetry.md), and
-> [privilege separation](./docs/tasks/privilege-separation.md).
+> **Engineering specs.** The deeper diagnostics work was scoped from the
+> [diagnostics assessment](./docs/DIAGNOSTICS_ASSESSMENT.md), under the same
+> contract for every item: **viewable *and* editable in both the TUI and the
+> web UI**, and **every new measurement feeds the Network Quality grade**.
+> Most of that roadmap has now shipped - per-rule nftables counters,
+> conntrack/NEIGH introspection, netlink push-vs-poll, the rollup/baseline
+> quality table, per-flow TCP telemetry (with an optional eBPF backend), and
+> privilege separation are all in the tree. **IPv6 across the full data path**
+> is the main remaining item (tracked under v1.0 below).
 
 ### v0.2 - Cross-Platform Compatibility *(next up)*
 
