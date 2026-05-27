@@ -58,8 +58,13 @@ func (w *Writer) ListIfaces() ([]IfaceInfo, error) {
 			Name:    attrs.Name,
 			Index:   attrs.Index,
 			MTU:     attrs.MTU,
-			Up:      attrs.Flags&net.FlagUp != 0,
-			Running: attrs.OperState == netlink.OperUp,
+			Up: attrs.Flags&net.FlagUp != 0,
+			// Carrier-less L3 devices (WireGuard, TUN/TAP, loopback, other
+			// tunnels) never set an operational state, so the kernel reports
+			// OperUnknown even while they are fully up and forwarding. Treat
+			// UNKNOWN as running, matching iproute2; genuinely down links
+			// report OperDown/OperLowerLayerDown and stay not-running.
+			Running: attrs.OperState == netlink.OperUp || attrs.OperState == netlink.OperUnknown,
 			HWAddr:  attrs.HardwareAddr.String(),
 		}
 		if s := attrs.Statistics; s != nil {
