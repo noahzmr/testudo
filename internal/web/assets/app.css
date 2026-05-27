@@ -222,6 +222,10 @@ input:focus, select:focus { outline: none; border-color: var(--accent-blue); }
 .status-pill.off  { background: var(--accent-red); color: white; border-color: var(--accent-red); }
 .status-pill.warn { background: var(--accent-yellow); color: #0d1117; border-color: var(--accent-yellow); }
 
+/* Live/polled freshness badge in the Interfaces / Routes card headers. */
+.watch-badge { font-size: 12px; font-weight: normal; margin-left: 8px; }
+.watch-badge .muted { font-size: 11px; }
+
 /* Duplicate-IP / hard-fault banner shown above the neighbour table. */
 .banner {
   margin: 8px 0;

@@ -125,7 +125,8 @@ func ComputeGrade(
 	dnsLat := scoreDNSSub(dns, th.DNSLatencyMs)
 	lanScore := scoreLAN(lan, l3.DuplicateIPs, th)
 	httpScore := scoreHTTP(httpT)
-	stabScore := scoreStability(ifaces, l3.NeighStaleRatio, l3.HasNeigh)
+	stabScore := scoreStability(ifaces, l3.NeighStaleRatio, l3.HasNeigh,
+		l3.FlapRate, l3.RouteChurn, l3.HasNetlinkWatch)
 	wifiScore := scoreWiFi(wifi)
 	fwScore := scoreFirewallSub(fwDropRate, fwHasDropRules)
 	natScore := scoreNATSub(l3.ConntrackUtil, l3.HasConntrack)
@@ -184,22 +185,36 @@ type L3GradeInput struct {
 	HasNeigh        bool
 	ConntrackUtil   float64 // live entries / nf_conntrack_max -> NAT sub-score
 	HasConntrack    bool
+
+	// Push-derived stability inputs from the RTNETLINK watcher. FlapRate is
+	// link transitions per minute (a flapping NIC / cable); RouteChurn is
+	// default-route changes per minute (uplink / ISP instability). Both feed
+	// the Stab sub-score. HasNetlinkWatch=false maps them to neutral.
+	FlapRate        float64
+	RouteChurn      float64
+	HasNetlinkWatch bool
 }
 
-// l3InputFrom adapts the neighbour/conntrack collector's signal into the
-// grade input. Returns the neutral zero value when the collector is absent.
-func l3InputFrom(nc *collectors.NeighConntrackCollector) L3GradeInput {
-	if nc == nil {
-		return L3GradeInput{}
+// l3InputFrom adapts the neighbour/conntrack and netlink-watch collectors'
+// signals into the grade input. Returns the neutral zero value when both
+// collectors are absent.
+func l3InputFrom(nc *collectors.NeighConntrackCollector, nw *collectors.NetlinkWatchCollector) L3GradeInput {
+	var in L3GradeInput
+	if nc != nil {
+		s := nc.Signal()
+		in.DuplicateIPs = s.DuplicateIPs
+		in.NeighStaleRatio = s.StaleRatio
+		in.HasNeigh = s.HasNeigh
+		in.ConntrackUtil = s.ConntrackUtil
+		in.HasConntrack = s.HasConntrack
 	}
-	s := nc.Signal()
-	return L3GradeInput{
-		DuplicateIPs:    s.DuplicateIPs,
-		NeighStaleRatio: s.StaleRatio,
-		HasNeigh:        s.HasNeigh,
-		ConntrackUtil:   s.ConntrackUtil,
-		HasConntrack:    s.HasConntrack,
+	if nw != nil {
+		s := nw.Signal()
+		in.FlapRate = s.FlapRate
+		in.RouteChurn = s.RouteChurn
+		in.HasNetlinkWatch = s.HasData
 	}
+	return in
 }
 
 // scoreNATSub maps conntrack utilisation to the NAT sub-score. Comfort line
@@ -356,9 +371,15 @@ func scoreHTTP(ts []metrics.TargetStats) subScore {
 // neighbour unreachable ratio (FAILED+INCOMPLETE neighbours). A failed
 // gateway neighbour is imminent connectivity loss, so it belongs in the same
 // stability dimension as a flaky NIC. Either component may be absent; the
-// score averages whatever has data, and is neutral (no data) when neither
-// does.
-func scoreStability(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bool) subScore {
+// score averages whatever has data, and is neutral (no data) when none does.
+//
+// The RTNETLINK push watcher adds two more components: link flap-rate
+// (transitions/min) and default-route churn (changes/min). A 300ms flap that a
+// 5s poll missed entirely now correctly drags the grade. Both use a 2/min
+// comfort line - sustained flapping or an uplink that keeps re-electing its
+// default route is a real instability the operator feels.
+func scoreStability(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bool,
+	flapRate, routeChurn float64, hasNetlinkWatch bool) subScore {
 	var totalErrors, totalPackets uint64
 	for _, ifi := range ifs {
 		if ifi.Name == "lo" {
@@ -368,7 +389,7 @@ func scoreStability(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bo
 		totalPackets += ifi.RxPackets + ifi.TxPackets
 	}
 	ifaceHasData := totalPackets > 0
-	if !ifaceHasData && !hasNeigh {
+	if !ifaceHasData && !hasNeigh && !hasNetlinkWatch {
 		return subScore{Name: "stab", Unit: "%", OK: true}
 	}
 
@@ -392,6 +413,15 @@ func scoreStability(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bo
 			value = neighStaleRatio * 100
 		}
 		ok = ok && s.OK
+	}
+	if hasNetlinkWatch {
+		// Comfort line: 2 link flaps / minute.
+		flap := scoreFromMetric("flap", flapRate, 2, "/min")
+		// Comfort line: 2 default-route changes / minute (uplink churn).
+		churn := scoreFromMetric("churn", routeChurn, 2, "/min")
+		sum += flap.Score + churn.Score
+		n += 2
+		ok = ok && flap.OK && churn.OK
 	}
 	return subScore{Name: "stab", Score: sum / n, Value: value, Unit: "%", OK: ok, HasData: true}
 }

@@ -330,9 +330,20 @@ func (s *Store) InsertSample(ctx context.Context, sessionID string, sm Sample) e
 
 // InsertAnomaly records an analyzer-detected operational issue.
 func (s *Store) InsertAnomaly(ctx context.Context, sessionID, severity, message string) error {
+	return s.InsertAnomalyAt(ctx, sessionID, severity, message, time.Now())
+}
+
+// InsertAnomalyAt records an anomaly/timeline event at a caller-supplied
+// timestamp. Push-based state changes (link/addr/route) use this so replay
+// reconstructs the exact moment the kernel emitted the change rather than
+// quantising it to a poll interval. A zero ts falls back to now.
+func (s *Store) InsertAnomalyAt(ctx context.Context, sessionID, severity, message string, ts time.Time) error {
+	if ts.IsZero() {
+		ts = time.Now()
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO anomalies (session_id, ts, severity, message) VALUES (?, ?, ?, ?)`,
-		sessionID, time.Now().UnixMilli(), severity, message,
+		sessionID, ts.UnixMilli(), severity, message,
 	)
 	return err
 }

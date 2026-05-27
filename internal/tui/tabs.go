@@ -84,7 +84,7 @@ func (t *dashboardTab) View(w, h int) string {
 		wifi = wc.Snapshot()
 	}
 	fwRate, fwHas := t.eng.FirewallSignal()
-	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh()), t.eng.Settings().Snapshot())
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), t.eng.Settings().Snapshot())
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -456,6 +456,31 @@ func (t *flowsTab) View(w, h int) string {
 	return boxStyle.Render(strings.Join(rows, "\n"))
 }
 
+// watchIndicator renders the RTNETLINK push watcher's freshness as a small
+// trailing badge for the Interfaces / Routes headers: a green "● live" when
+// the multicast subscriptions are attached (updates are sub-second), or an
+// amber "● polled" when the watcher soft-failed and falls back to the slow
+// reconcile timer. Empty when the watcher is disabled.
+func watchIndicator(eng *engine.Engine) string {
+	nw := eng.NetlinkWatch()
+	if nw == nil {
+		return ""
+	}
+	st := nw.Status()
+	switch st.Mode {
+	case "live":
+		return okStyle.Render("● live")
+	case "polled":
+		s := warnStyle.Render("● polled — netlink subscribe unavailable")
+		if st.Detail != "" {
+			s = warnStyle.Render("● polled — " + st.Detail)
+		}
+		return s
+	default:
+		return ""
+	}
+}
+
 // ---- Interfaces ----
 
 type ifacesTab struct {
@@ -640,7 +665,11 @@ func (t *ifacesTab) openStaticModal() tea.Cmd {
 }
 
 func (t *ifacesTab) View(w, h int) string {
-	rows := []string{headerStyle.Render("Interfaces - u=up · d=down · a=add addr · x=del addr · m=mtu · h=dhcp · s=static · r=refresh")}
+	header := headerStyle.Render("Interfaces - u=up · d=down · a=add addr · x=del addr · m=mtu · h=dhcp · s=static · r=refresh")
+	if ind := watchIndicator(t.eng); ind != "" {
+		header += "  " + ind
+	}
+	rows := []string{header}
 	if t.err != nil {
 		rows = append(rows, errStyle.Render("  "+t.err.Error()))
 		return boxStyle.Render(strings.Join(rows, "\n"))
@@ -766,7 +795,11 @@ func (t *routesTab) openDelModal() tea.Cmd {
 }
 
 func (t *routesTab) View(w, h int) string {
-	rows := []string{headerStyle.Render(fmt.Sprintf("Routes - %d entries · a=add · x=del · r=refresh", len(t.routes)))}
+	header := headerStyle.Render(fmt.Sprintf("Routes - %d entries · a=add · x=del · r=refresh", len(t.routes)))
+	if ind := watchIndicator(t.eng); ind != "" {
+		header += "  " + ind
+	}
+	rows := []string{header}
 	if t.err != nil {
 		rows = append(rows, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(rows, "\n"))

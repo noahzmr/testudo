@@ -46,6 +46,7 @@ type Engine struct {
 	store     *storage.Store
 	wifi      *collectors.WiFiCollector
 	neigh     *collectors.NeighConntrackCollector
+	netwatch  *collectors.NetlinkWatchCollector
 	sessionID string
 
 	// fwTrack derives a DROP/REJECT velocity from successive firewall-rule
@@ -127,6 +128,12 @@ func (e *Engine) WiFi() *collectors.WiFiCollector { return e.wifi }
 // one source. Returns nil when the collector is disabled or netops are
 // unavailable — callers must nil-check.
 func (e *Engine) Neigh() *collectors.NeighConntrackCollector { return e.neigh }
+
+// NetlinkWatch returns the RTNETLINK push watcher so the TUI and Web UI can
+// read its live/polled status and the flap-rate / route-churn signal. Returns
+// nil when the watcher is disabled or netops are unavailable - callers must
+// nil-check.
+func (e *Engine) NetlinkWatch() *collectors.NetlinkWatchCollector { return e.netwatch }
 
 // FirewallSignal returns the current DROP/REJECT velocity (drops per second
 // across managed blocking rules) and whether any counted blocking rule
@@ -569,6 +576,14 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 		}
 		cs = append(cs, e.neigh)
 	}
+	if e.cfg.NetlinkWatchEnabled && e.netops != nil {
+		e.netwatch = &collectors.NetlinkWatchCollector{
+			Netops:            e.netops,
+			CoalesceWindow:    e.cfg.NetlinkWatchCoalesceWindow,
+			ReconcileInterval: e.cfg.NetlinkWatchReconcileInterval,
+		}
+		cs = append(cs, e.netwatch)
+	}
 	if e.cfg.L2Enabled && e.netops != nil {
 		cs = append(cs, &collectors.L2Collector{
 			Netops:             e.netops,
@@ -846,6 +861,7 @@ func (e *Engine) startMetricsAndStorageConsumer(ctx context.Context) {
 		events.KindLatency, events.KindPacketLoss,
 		events.KindDNSResult, events.KindDNSFailure,
 		events.KindAnomaly,
+		events.KindLinkStateChange, events.KindAddrChange, events.KindRouteChange,
 	)
 	e.wg.Add(1)
 	go func() {
@@ -919,7 +935,43 @@ func (e *Engine) applyEvent(ctx context.Context, ev events.Event) {
 			return
 		}
 		_ = e.store.InsertAnomaly(ctx, e.sessionID, p.Severity, p.Message)
+	case events.KindLinkStateChange, events.KindAddrChange, events.KindRouteChange:
+		// Persist push-based state changes onto the timeline at their precise
+		// kernel timestamp so replay shows sub-second change times rather than
+		// poll-quantised ones.
+		if msg := stateChangeMessage(ev); msg != "" {
+			_ = e.store.InsertAnomalyAt(ctx, e.sessionID, string(events.SevInfo), msg, ev.Time)
+		}
 	}
+}
+
+// stateChangeMessage renders a one-line timeline description for a push-based
+// state-change event. Returns "" for an unrecognised payload.
+func stateChangeMessage(ev events.Event) string {
+	switch p := ev.Payload.(type) {
+	case events.LinkChangePayload:
+		if p.Removed {
+			return fmt.Sprintf("link %s removed", p.Iface)
+		}
+		return fmt.Sprintf("link %s changed: up=%t running=%t", p.Iface, p.Up, p.Running)
+	case events.AddrChangePayload:
+		verb := "added to"
+		if !p.Added {
+			verb = "removed from"
+		}
+		return fmt.Sprintf("addr %s %s %s", p.Addr, verb, p.Iface)
+	case events.RouteChangePayload:
+		verb := "added"
+		if !p.Added {
+			verb = "removed"
+		}
+		via := ""
+		if p.Gateway != "" {
+			via = " via " + p.Gateway
+		}
+		return fmt.Sprintf("route %s%s dev %s %s", p.Dst, via, p.Iface, verb)
+	}
+	return ""
 }
 
 func newSessionID() string {

@@ -24,6 +24,7 @@ type snapshot struct {
 	Devices       []deviceView         `json:"devices"`
 	Ifaces        []ifaceView          `json:"ifaces"`
 	Routes        []routeView          `json:"routes"`
+	Watcher       watcherView          `json:"watcher"`
 	Firewall      []firewallTable      `json:"firewall"`
 	FirewallRules []firewallRuleView   `json:"firewall_rules"`
 	FilterRules   []filterRuleView     `json:"filter_rules"`
@@ -189,6 +190,19 @@ type routeView struct {
 	Iface   string `json:"iface"`
 	Proto   string `json:"proto"`
 	Metric  int    `json:"metric"`
+}
+
+// watcherView surfaces the RTNETLINK push watcher's freshness so the web
+// header can show the same "live / polled" indicator the TUI does. Mode is
+// "live" when the multicast subscriptions are attached, "polled" when the
+// watcher soft-failed to reconcile-only, "off" when disabled.
+type watcherView struct {
+	Mode       string  `json:"mode"`
+	Attached   bool    `json:"attached"`
+	Degraded   bool    `json:"degraded"`
+	Detail     string  `json:"detail"`
+	FlapRate   float64 `json:"flap_rate"`
+	RouteChurn float64 `json:"route_churn"`
 }
 
 type firewallTable struct {
@@ -438,7 +452,16 @@ func (s *Server) buildSnapshot() snapshot {
 	if nc := eng.Neigh(); nc != nil {
 		l3 = nc.Signal()
 	}
-	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, th)
+	var nlw collectors.NetlinkWatchSignal
+	if nw := eng.NetlinkWatch(); nw != nil {
+		nlw = nw.Signal()
+		st := nw.Status()
+		snap.Watcher = watcherView{
+			Mode: st.Mode, Attached: st.Attached, Degraded: st.Degraded,
+			Detail: st.Detail, FlapRate: st.FlapRate, RouteChurn: st.RouteChurn,
+		}
+	}
+	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, th)
 
 	// Neighbour (ARP/NDP) table + IP conflicts, and live conntrack flows.
 	if nc := eng.Neigh(); nc != nil {

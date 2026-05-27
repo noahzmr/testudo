@@ -141,7 +141,7 @@
     <!-- INTERFACES ---------------------------------------------------- -->
     <section data-pane="ifaces" class="pane">
       <div class="card">
-        <h2>Interfaces · live kernel state</h2>
+        <h2>Interfaces · live kernel state <span id="ifaces-watcher" class="watch-badge"></span></h2>
         <p class="muted">All kernel-visible interfaces are monitored. Errors / drops / collisions and a per-radio WiFi badge sit alongside the link state so a degraded NIC is obvious before flows go silent.</p>
         <table>
           <thead><tr>
@@ -168,7 +168,7 @@
         </div>
       </div>
       <div class="card">
-        <h2>Routes</h2>
+        <h2>Routes <span id="routes-watcher" class="watch-badge"></span></h2>
         <table>
           <thead><tr><th>Family</th><th>Dst</th><th>Gateway</th><th>Iface</th><th>Proto</th><th>Metric</th><th></th></tr></thead>
           <tbody id="routes-body"></tbody>

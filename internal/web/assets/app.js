@@ -765,6 +765,29 @@
     ).join('') || '<tr><td colspan="7" class="muted">no routes</td></tr>';
   }
 
+  // renderWatcher mirrors the TUI's live/polled badge: the Interfaces and
+  // Routes tables update the instant the kernel multicasts a change when the
+  // RTNETLINK watcher is attached ("live"); if the subscription was refused it
+  // falls back to the slow reconcile timer ("polled").
+  function renderWatcher(w) {
+    w = w || {};
+    let html = '';
+    if (w.mode === 'live') {
+      const churn = (w.flap_rate || w.route_churn)
+        ? ' · ' + Math.round(w.flap_rate || 0) + ' flaps/min, ' + Math.round(w.route_churn || 0) + ' route chg/min'
+        : '';
+      html = '<span class="status-pill on">● live</span>'
+        + '<span class="muted"> push (sub-second)' + churn + '</span>';
+    } else if (w.mode === 'polled') {
+      html = '<span class="status-pill warn">● polled</span>'
+        + '<span class="muted"> ' + escape(w.detail || 'netlink subscribe unavailable') + '</span>';
+    }
+    ['ifaces-watcher', 'routes-watcher'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = html;
+    });
+  }
+
   function renderFirewall(rules, system, ruleCounters) {
     document.getElementById('fw-rules-body').innerHTML = (rules || []).map(r => {
       const dataRule = JSON.stringify(r).replace(/"/g, '&quot;');
@@ -1098,6 +1121,7 @@
       renderIfaces(snap.ifaces, snap.wifi);
       renderWiFi(snap.wifi);
       renderRoutes(snap.routes);
+      renderWatcher(snap.watcher);
       renderFirewall(snap.filter_rules, snap.firewall, snap.firewall_rules);
       renderNAT(snap.nat);
       renderConntrack(snap.conntrack, snap.thresholds && snap.thresholds.allow_netops_write);

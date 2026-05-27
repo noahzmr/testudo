@@ -23,6 +23,13 @@ const (
 	KindFirewallDrop Kind = "firewall_drop"
 	KindNeighChange  Kind = "neigh_change"
 	KindDuplicateIP  Kind = "duplicate_ip"
+
+	// State-change kinds fed by the RTNETLINK push watcher (see
+	// internal/collectors/netlink_watch.go). Each is emitted the instant the
+	// kernel multicasts the change, rather than on the next poll tick.
+	KindLinkStateChange Kind = "link_state_change"
+	KindAddrChange      Kind = "addr_change"
+	KindRouteChange     Kind = "route_change"
 )
 
 // Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
@@ -145,6 +152,37 @@ type DuplicateIPPayload struct {
 	IP   string
 	MACs []string
 	Devs []string
+}
+
+// LinkChangePayload reports a link-state transition seen on the RTNETLINK
+// RTNLGRP_LINK multicast group. Removed=true marks an interface that was
+// deleted (RTM_DELLINK) rather than a flag change.
+type LinkChangePayload struct {
+	Iface   string
+	Up      bool
+	Running bool
+	Removed bool
+}
+
+// AddrChangePayload reports an address add/del on RTNLGRP_IPV4_IFADDR /
+// RTNLGRP_IPV6_IFADDR. Added=false means the address was removed.
+type AddrChangePayload struct {
+	Iface  string
+	Addr   string // CIDR
+	Family string // ipv4 / ipv6
+	Added  bool
+}
+
+// RouteChangePayload reports a route add/del on RTNLGRP_IPV4_ROUTE /
+// RTNLGRP_IPV6_ROUTE. IsDefault marks a default-route change, the signal that
+// feeds route-churn (uplink instability) into the grade.
+type RouteChangePayload struct {
+	Dst       string // CIDR or "default"
+	Gateway   string
+	Iface     string
+	Family    string // ipv4 / ipv6
+	Added     bool
+	IsDefault bool
 }
 
 // IncidentPayload bundles the context captured around a CRITICAL anomaly:
@@ -299,6 +337,12 @@ func kindMask(k Kind) uint64 {
 		return 1 << 10
 	case KindDuplicateIP:
 		return 1 << 11
+	case KindLinkStateChange:
+		return 1 << 12
+	case KindAddrChange:
+		return 1 << 13
+	case KindRouteChange:
+		return 1 << 14
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

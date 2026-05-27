@@ -23,6 +23,7 @@ func computeGradeView(
 	fwDropRate float64,
 	fwHasDropRules bool,
 	l3 collectors.NeighConntrackSignal,
+	nlw collectors.NetlinkWatchSignal,
 	th config.Thresholds,
 ) gradeView {
 	const (
@@ -48,7 +49,7 @@ func computeGradeView(
 	hasDNS := hasDNSDataW(dns)
 	hasLAN := len(lan) > 0 || l3.DuplicateIPs > 0
 	hasHTTP := len(httpT) > 0
-	hasStab := hasStabDataW(ifaces) || l3.HasNeigh
+	hasStab := hasStabDataW(ifaces) || l3.HasNeigh || nlw.HasData
 	hasWiFi := hasWiFiDataW(wifi)
 
 	lossScore := subScore(avgLoss(wan), th.PacketLossPct)
@@ -57,7 +58,7 @@ func computeGradeView(
 	dnsScore := subScore(avgDNS(dns), th.DNSLatencyMs)
 	lanScore := scoreLANW(lan, l3.DuplicateIPs, th)
 	httpScore := scoreHTTPW(httpT)
-	stabScore := scoreStabilityW(ifaces, l3.StaleRatio, l3.HasNeigh)
+	stabScore := scoreStabilityW(ifaces, l3.StaleRatio, l3.HasNeigh, nlw.FlapRate, nlw.RouteChurn, nlw.HasData)
 	wifiScore := scoreWiFiW(wifi)
 	fwScore := scoreFirewallW(fwDropRate, fwHasDropRules)
 	natScore := scoreNATW(l3.ConntrackUtil, l3.HasConntrack)
@@ -229,7 +230,11 @@ func scoreHTTPW(ts []metrics.TargetStats) int {
 	return (fail + ttfb) / 2
 }
 
-func scoreStabilityW(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bool) int {
+// scoreStabilityW mirrors tui/grade.go scoreStability, including the
+// push-derived link flap-rate and default-route churn components (both with a
+// 2/min comfort line) from the RTNETLINK watcher.
+func scoreStabilityW(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh bool,
+	flapRate, routeChurn float64, hasNetlinkWatch bool) int {
 	var totalErrors, totalPackets uint64
 	for _, ifi := range ifs {
 		if ifi.Name == "lo" {
@@ -239,7 +244,7 @@ func scoreStabilityW(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh b
 		totalPackets += ifi.RxPackets + ifi.TxPackets
 	}
 	ifaceHasData := totalPackets > 0
-	if !ifaceHasData && !hasNeigh {
+	if !ifaceHasData && !hasNeigh && !hasNetlinkWatch {
 		return 100
 	}
 	sum, n := 0, 0
@@ -251,6 +256,11 @@ func scoreStabilityW(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh b
 	if hasNeigh {
 		sum += subScore(neighStaleRatio*100, 10)
 		n++
+	}
+	if hasNetlinkWatch {
+		sum += subScore(flapRate, 2)
+		sum += subScore(routeChurn, 2)
+		n += 2
 	}
 	return sum / n
 }
