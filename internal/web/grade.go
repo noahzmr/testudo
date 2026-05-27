@@ -6,10 +6,12 @@ import (
 
 	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/config"
+	"github.com/noahzmr/testudo/internal/engine"
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/quality"
+	"github.com/noahzmr/testudo/internal/telemetry"
 )
 
 // computeGradeView mirrors the TUI's ComputeGrade so the dashboard's
@@ -25,20 +27,22 @@ func computeGradeView(
 	fwHasDropRules bool,
 	l3 collectors.NeighConntrackSignal,
 	nlw collectors.NetlinkWatchSignal,
+	tcp tcpGradeInputW,
 	th config.Thresholds,
 	qc quality.GradeContext,
 ) gradeView {
 	const (
-		wLoss     = 0.20
-		wRTT      = 0.15
-		wJitter   = 0.05
-		wDNS      = 0.10
-		wLAN      = 0.15
-		wHTTP     = 0.05
-		wStab     = 0.10
-		wWiFi     = 0.10
-		wFirewall = 0.05
-		wNAT      = 0.05
+		wLoss       = 0.20
+		wRTT        = 0.15
+		wJitter     = 0.05
+		wDNS        = 0.10
+		wLAN        = 0.15
+		wHTTP       = 0.05
+		wStab       = 0.10
+		wWiFi       = 0.10
+		wFirewall   = 0.05
+		wNAT        = 0.05
+		wCongestion = 0.05
 	)
 
 	wan := filterT(targets, isWANTargetW)
@@ -56,6 +60,14 @@ func computeGradeView(
 
 	lossScore := subScore(avgLoss(wan), th.PacketLossPct)
 	rttScore := subScore(avgRTT(wan), th.RTTMs)
+	// Worst active-flow RTT can only sharpen the RTT sub-score downward, the
+	// same as the TUI.
+	if tcp.HasWorstRTT {
+		if wf := subScore(tcp.WorstFlowRTTms, th.RTTMs); !hasRTT || wf < rttScore {
+			rttScore = wf
+			hasRTT = true
+		}
+	}
 	jitScore := subScore(avgJit(wan), th.JitterMs)
 	dnsScore := subScore(avgDNS(dns), th.DNSLatencyMs)
 	lanScore := scoreLANW(lan, l3.DuplicateIPs, th)
@@ -64,6 +76,11 @@ func computeGradeView(
 	wifiScore := scoreWiFiW(wifi)
 	fwScore := scoreFirewallW(fwDropRate, fwHasDropRules)
 	natScore := scoreNATW(l3.ConntrackUtil, l3.HasConntrack)
+	congThresh := th.RetransmissionsPct
+	if congThresh <= 0 {
+		congThresh = 5
+	}
+	congScore := subScore(tcp.FlowRTXRate, congThresh)
 
 	// Renormalize over sub-scores that have data so "no measurement yet"
 	// doesn't inflate the overall grade. Mirrors internal/tui/grade.go.
@@ -83,6 +100,7 @@ func computeGradeView(
 		{wWiFi, wifiScore, hasWiFi, "WiFi"},
 		{wFirewall, fwScore, fwHasDropRules, "Firewall"},
 		{wNAT, natScore, l3.HasConntrack, "NAT"},
+		{wCongestion, congScore, tcp.HasFlowRTX, "Congestion"},
 	}
 	var weighted, totalW float64
 	noData := []string{}
@@ -100,8 +118,9 @@ func computeGradeView(
 			HasData: false,
 			Loss:    lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-			Firewall: fwScore, NAT: natScore,
-			NoData: noData,
+			Firewall: fwScore, NAT: natScore, Congestion: congScore,
+			PMTUBlackhole: tcp.PMTUBlackhole,
+			NoData:        noData,
 		}
 		attachQualityView(&g, wan, qc)
 		return g
@@ -117,18 +136,69 @@ func computeGradeView(
 		Score: score, HasData: true,
 		Loss: lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-		Firewall: fwScore, NAT: natScore,
-		NoData: noData,
+		Firewall: fwScore, NAT: natScore, Congestion: congScore,
+		PMTUBlackhole: tcp.PMTUBlackhole,
+		NoData:        noData,
 	}
 	// Baseline-relative early warning, identical to the TUI: nudge the score
 	// down when tonight is far worse than normal, then derive the letter.
 	attachQualityView(&g, wan, qc)
 	g.Score -= g.BaselinePenalty
+	if g.PMTUBlackhole {
+		g.PMTUPenalty = pmtuBlackholePenaltyW
+		g.Score -= g.PMTUPenalty
+	}
 	if g.Score < 0 {
 		g.Score = 0
 	}
 	g.Letter, g.Verdict = letterVerdict(g.Score)
 	return g
+}
+
+// pmtuBlackholePenaltyW mirrors the TUI's fixed PMTU black-hole penalty.
+const pmtuBlackholePenaltyW = 15
+
+// tcpGradeInputW carries per-flow TCP telemetry into the web grade, mirroring
+// the TUI's TCPGradeInput. Built in buildSnapshot from the telemetry collector
+// and the flow table.
+type tcpGradeInputW struct {
+	FlowRTXRate    float64
+	HasFlowRTX     bool
+	WorstFlowRTTms float64
+	HasWorstRTT    bool
+	PMTUBlackhole  bool
+}
+
+// tcpGradeFrom builds the web grade's TCP input from the telemetry collector
+// and the flow table, identical to the TUI's tcpInputFrom. Neutral zero value
+// when telemetry is disabled.
+func tcpGradeFrom(eng *engine.Engine) tcpGradeInputW {
+	var in tcpGradeInputW
+	ti := eng.TCPInfo()
+	fl := eng.Flows()
+	if ti == nil || fl == nil {
+		return in
+	}
+	in.PMTUBlackhole = ti.Status().PMTUBlackhole
+
+	var samples []telemetry.RTXSample
+	var rtts []float64
+	for _, f := range fl.Snapshot() {
+		if !f.HasTCP() {
+			continue
+		}
+		samples = append(samples, telemetry.RTXSample{Rate: f.TCP.RetransRate, Bytes: f.Bytes})
+		rtts = append(rtts, f.TCP.RTTms())
+	}
+	if rate, ok := telemetry.FlowWeightedRTX(samples); ok {
+		in.FlowRTXRate = rate
+		in.HasFlowRTX = true
+	}
+	if worst, ok := telemetry.WorstFlowRTT(rtts); ok {
+		in.WorstFlowRTTms = worst
+		in.HasWorstRTT = true
+	}
+	return in
 }
 
 // attachQualityView folds the baseline ratio, bufferbloat letter, and ISP

@@ -55,7 +55,33 @@ type FlowStats struct {
 	FirewallChain string // e.g. "INPUT/ACCEPT" or "FORWARD/DROP"
 	NATMapping    string // e.g. "DNAT 192.168.1.10:443 => 10.0.0.5:443"
 	RouteVia      string // e.g. "10.0.0.1 dev eth0"
+
+	// TCP carries per-flow TCP quality joined from the telemetry source
+	// (INET_DIAG/ss -ti or eBPF). TCP.Source is empty when no telemetry has
+	// been observed for this flow. See internal/telemetry.
+	TCP FlowTCPStats
 }
+
+// FlowTCPStats holds per-flow TCP quality sampled from tcp_info - delivered by
+// the kernel via INET_DIAG (pure-Go, Stage A) or an eBPF tracepoint (Stage B).
+// It joins the flow table on the same 5-tuple key so the Flows tab enriches in
+// place rather than maintaining a parallel table. Source tags the backend so
+// the UI can label it the way WiFi labels its nl80211/proc backend.
+type FlowTCPStats struct {
+	RTTus       uint32    // smoothed RTT, microseconds (tcpi_rtt)
+	RTTVarus    uint32    // RTT variance, microseconds (tcpi_rttvar)
+	Retrans     uint32    // cumulative total retransmits (tcpi_total_retrans)
+	RetransRate float64   // derived per-interval: % of segments retransmitted
+	Cwnd        uint32    // congestion window in segments (tcpi_snd_cwnd)
+	Source      string    // "inet_diag" | "ebpf"; empty when unobserved
+	Updated     time.Time // when this sample was applied
+}
+
+// HasTCP reports whether per-flow TCP telemetry has been observed for this flow.
+func (fs FlowStats) HasTCP() bool { return fs.TCP.Source != "" }
+
+// RTTms returns the smoothed RTT in milliseconds for rendering/grade math.
+func (s FlowTCPStats) RTTms() float64 { return float64(s.RTTus) / 1000.0 }
 
 // FlowSummary is the Layer-2 storage shape: a flat, persistence-friendly
 // projection of a FlowStats with both directions of byte counters separated
@@ -138,6 +164,33 @@ func (a *Aggregator) Update(iface string, srcIP string, srcPort uint16, dstIP st
 		st.BytesAtoB += bytes
 	} else {
 		st.BytesBtoA += bytes
+	}
+}
+
+// ApplyTCPStats joins a per-flow TCP telemetry sample onto the flow table.
+// The directional (src,dst) tuple is canonicalised to the same key the capture
+// path uses, so telemetry enriches an existing flow in place. When no flow is
+// tracked yet (e.g. capture is disabled) the entry is created so the TCP stats
+// are still surfaced - the socket is, by definition, active. LastSeen is bumped
+// so a telemetry-only flow isn't immediately evicted as stale.
+func (a *Aggregator) ApplyTCPStats(iface, srcIP string, srcPort uint16, dstIP string, dstPort uint16, proto string, st FlowTCPStats) {
+	key, _ := canonicalKey(iface, Endpoint{IP: srcIP, Port: srcPort}, Endpoint{IP: dstIP, Port: dstPort}, proto)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	fs, ok := a.table[key]
+	if !ok {
+		if len(a.table) >= a.maxKeep {
+			a.evictOldest()
+		}
+		fs = &FlowStats{Key: key, FirstSeen: now}
+		a.table[key] = fs
+	}
+	st.Updated = now
+	fs.TCP = st
+	if fs.LastSeen.Before(now) {
+		fs.LastSeen = now
 	}
 }
 

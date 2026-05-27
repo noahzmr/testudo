@@ -48,6 +48,7 @@ type Engine struct {
 	wifi      *collectors.WiFiCollector
 	neigh     *collectors.NeighConntrackCollector
 	netwatch  *collectors.NetlinkWatchCollector
+	tcpinfo   *collectors.TCPInfoCollector
 	sessionID string
 
 	// fwTrack derives a DROP/REJECT velocity from successive firewall-rule
@@ -142,6 +143,12 @@ func (e *Engine) Neigh() *collectors.NeighConntrackCollector { return e.neigh }
 // nil when the watcher is disabled or netops are unavailable - callers must
 // nil-check.
 func (e *Engine) NetlinkWatch() *collectors.NetlinkWatchCollector { return e.netwatch }
+
+// TCPInfo returns the per-flow TCP telemetry collector so the TUI and Web UI
+// can read the source-status card (eBPF attached / inet_diag fallback) and the
+// worst-flow figures. Returns nil when telemetry is disabled - callers must
+// nil-check.
+func (e *Engine) TCPInfo() *collectors.TCPInfoCollector { return e.tcpinfo }
 
 // FirewallSignal returns the current DROP/REJECT velocity (drops per second
 // across managed blocking rules) and whether any counted blocking rule
@@ -598,6 +605,14 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 			ReconcileInterval: e.cfg.NetlinkWatchReconcileInterval,
 		}
 		cs = append(cs, e.netwatch)
+	}
+	if e.cfg.TCPTelemetryEnabled && e.flowAgg != nil {
+		e.tcpinfo = &collectors.TCPInfoCollector{
+			Interval: e.cfg.TCPTelemetryInterval,
+			Flows:    e.flowAgg,
+			Settings: e.settings,
+		}
+		cs = append(cs, e.tcpinfo)
 	}
 	if e.cfg.L2Enabled && e.netops != nil {
 		cs = append(cs, &collectors.L2Collector{

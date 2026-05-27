@@ -818,7 +818,7 @@ The dashboard's most prominent element is a single **letter grade** (A+ through 
 
 ### What goes into the grade
 
-Ten live measurements, each pulled from the metrics aggregator (plus kernel, firewall, neighbour, and conntrack counters). Every measurement is scaled into its own **0-100 sub-score** and the sub-scores are combined with weights:
+Eleven live measurements, each pulled from the metrics aggregator (plus kernel, firewall, neighbour, conntrack, and per-flow TCP counters). Every measurement is scaled into its own **0-100 sub-score** and the sub-scores are combined with weights:
 
 | Sub-score       | Weight | What it measures                                                                                                                                                                   |
 | --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -832,8 +832,11 @@ Ten live measurements, each pulled from the metrics aggregator (plus kernel, fir
 | **WiFi**        | 10 %   | Average signal level (dBm) across associated wireless interfaces; -60 dBm = 100, -90 dBm = 0 (linear)                                                                              |
 | **Firewall**    | 5 %    | DROP/REJECT velocity (drops/sec) across Testudo-managed blocking rules, diffed between snapshots; 0 = 100, 10 drops/sec = 50                                                       |
 | **NAT**         | 5 %    | Conntrack table utilisation (live entries ÷ `nf_conntrack_max`); 70 % = 50, near-saturation drags the grade and fires the NAT-exhaustion anomaly with real numbers                 |
+| **Congestion**  | 5 %    | **Flow-weighted per-flow retransmission rate** from `tcp_info` (sourced pure-Go via INET_DIAG / `ss -ti`, or eBPF when built with `-tags ebpf`) - busy flows dominate the weight, so this replaces the blunt system-wide `/proc/net/snmp` retransmission number. Anchored to the retransmissions threshold; neutral 100 when no active TCP flows carry telemetry |
 
-Loss / RTT / Jitter still anchor the grade because those are what users *feel*, but the grade is no longer blind to the rest of the stack: a slow LAN host, a 5xx HTTP endpoint, a flapping NIC, a wireless radio at the edge of coverage, **a firewall rule suddenly eating traffic**, **a duplicate IP fighting over an address**, or **a conntrack table about to overflow** all surface immediately. Each sub-score returns a **neutral 100** when its data source is empty, so a box without WiFi, without HTTP endpoints, without managed DROP rules, or without a loaded conntrack table doesn't pay a penalty for it.
+On top of the weighted sub-scores, a detected **PMTU black-hole / frag-needed** condition (a flow retransmitting without forward progress - the classic "some sites won't load" fault) applies a fixed **-15** penalty so the letter reflects it even when the averages look fine. The **worst active-flow RTT** can also sharpen the RTT sub-score downward on a busy host - the path the user actually cares about, not just the probe target.
+
+Loss / RTT / Jitter still anchor the grade because those are what users *feel*, but the grade is no longer blind to the rest of the stack: a slow LAN host, a 5xx HTTP endpoint, a flapping NIC, a wireless radio at the edge of coverage, **a firewall rule suddenly eating traffic**, **a duplicate IP fighting over an address**, **a single connection drowning in retransmits**, **a PMTU black-hole silently dropping large packets**, or **a conntrack table about to overflow** all surface immediately. Each sub-score returns a **neutral 100** when its data source is empty, so a box without WiFi, without HTTP endpoints, without managed DROP rules, without a loaded conntrack table, or without active TCP flows doesn't pay a penalty for it.
 
 ### Target classification
 

@@ -295,6 +295,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		IPFIXEndpoint       string  `json:"ipfix_endpoint"`
 		IPFIXIntervalSec    int     `json:"ipfix_interval_sec"`
 		IPFIXDomainID       uint32  `json:"ipfix_domain_id"`
+		EBPFEnabled         bool    `json:"ebpf_enabled"`
+		FlowRetransPct      float64 `json:"flow_retrans_pct"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -317,6 +319,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		t.IPFIXEndpoint = body.IPFIXEndpoint
 		t.IPFIXIntervalSec = body.IPFIXIntervalSec
 		t.IPFIXDomainID = body.IPFIXDomainID
+		t.EBPFEnabled = body.EBPFEnabled
+		t.FlowRetransPct = body.FlowRetransPct
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

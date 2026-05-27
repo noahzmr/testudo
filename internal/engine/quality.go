@@ -209,7 +209,7 @@ func (e *Engine) snapshotFlows(ctx context.Context, now time.Time) {
 	rows := make([]storage.FlowSnapshotRow, 0, len(tagged))
 	for _, f := range tagged {
 		sum := f.Summarize()
-		rows = append(rows, storage.FlowSnapshotRow{
+		row := storage.FlowSnapshotRow{
 			Iface:    f.Key.Iface,
 			Src:      f.Key.A.IP,
 			Dst:      f.Key.B.IP,
@@ -218,7 +218,14 @@ func (e *Engine) snapshotFlows(ctx context.Context, now time.Time) {
 			BytesOut: int64(sum.BytesOut),
 			Process:  sum.ProcessName,
 			DNSName:  sum.DNSName,
-		})
+		}
+		if f.HasTCP() {
+			row.TCPRTTus = int64(f.TCP.RTTus)
+			row.TCPRetransRate = f.TCP.RetransRate
+			row.TCPCwnd = int64(f.TCP.Cwnd)
+			row.TCPSource = f.TCP.Source
+		}
+		rows = append(rows, row)
 	}
 	_ = e.store.InsertFlowSnapshots(ctx, e.sessionID, now, rows)
 }

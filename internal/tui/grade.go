@@ -14,6 +14,7 @@ import (
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/quality"
+	"github.com/noahzmr/testudo/internal/telemetry"
 )
 
 // NetworkGrade is the dashboard's at-a-glance summary of overall network
@@ -67,6 +68,19 @@ type NetworkGrade struct {
 	// Neutral 100 when nf_conntrack_max is unknown.
 	NAT subScore
 
+	// Congestion - flow-weighted per-flow retransmission rate from tcp_info
+	// (INET_DIAG / eBPF). A far better congestion signal than the system-wide
+	// /proc/net/snmp number: busy flows dominate the weighting. Neutral 100
+	// when no active TCP flows carry telemetry.
+	Congestion subScore
+
+	// PMTU black-hole: a frag-needed condition (a flow retransmitting without
+	// forward progress) is a real "some sites won't load" fault. When set, the
+	// grade takes a fixed penalty and the letter reflects it. PMTUPenalty is
+	// the points shaved off so renderers can explain the drop.
+	PMTUBlackhole bool
+	PMTUPenalty   int
+
 	// Baseline-relative early warning: the worst current÷normal RTT ratio
 	// across WAN targets that have a learned baseline. BaselinePenalty is the
 	// points the modifier shaved off the absolute score. HasBaseline is false
@@ -116,6 +130,7 @@ func ComputeGrade(
 	fwDropRate float64,
 	fwHasDropRules bool,
 	l3 L3GradeInput,
+	tcp TCPGradeInput,
 	th config.Thresholds,
 	qc quality.GradeContext,
 ) NetworkGrade {
@@ -124,16 +139,17 @@ func ComputeGrade(
 	// from HTTP; the conntrack/NAT signal takes 5% from Jitter (which is
 	// highly correlated with RTT, so the information loss is minimal).
 	const (
-		wLoss     = 0.20
-		wRTT      = 0.15
-		wJitter   = 0.05
-		wDNS      = 0.10
-		wLAN      = 0.15
-		wHTTP     = 0.05
-		wStab     = 0.10
-		wWiFi     = 0.10
-		wFirewall = 0.05
-		wNAT      = 0.05
+		wLoss       = 0.20
+		wRTT        = 0.15
+		wJitter     = 0.05
+		wDNS        = 0.10
+		wLAN        = 0.15
+		wHTTP       = 0.05
+		wStab       = 0.10
+		wWiFi       = 0.10
+		wFirewall   = 0.05
+		wNAT        = 0.05
+		wCongestion = 0.05
 	)
 
 	wan := filterTargets(targets, isWANTarget)
@@ -142,6 +158,15 @@ func ComputeGrade(
 
 	loss := scoreLossSub(wan, th.PacketLossPct)
 	rtt := scoreRTTSub(wan, th.RTTMs)
+	// On a busy host the connection the user actually cares about may be worse
+	// than the probe target; let the worst active-flow RTT sharpen the RTT
+	// sub-score downward (never upward - probes still set the floor).
+	if tcp.HasWorstRTT {
+		wf := scoreFromMetric("rtt", tcp.WorstFlowRTTms, th.RTTMs, "ms")
+		if !rtt.HasData || wf.Score < rtt.Score {
+			rtt = wf
+		}
+	}
 	jit := scoreJitterSub(wan, th.JitterMs)
 	dnsLat := scoreDNSSub(dns, th.DNSLatencyMs)
 	lanScore := scoreLAN(lan, l3.DuplicateIPs, th)
@@ -151,6 +176,7 @@ func ComputeGrade(
 	wifiScore := scoreWiFi(wifi)
 	fwScore := scoreFirewallSub(fwDropRate, fwHasDropRules)
 	natScore := scoreNATSub(l3.ConntrackUtil, l3.HasConntrack)
+	congScore := scoreCongestionSub(tcp.FlowRTXRate, tcp.HasFlowRTX, th.RetransmissionsPct)
 
 	// Renormalize over sub-scores that actually have data. A sub-score
 	// with HasData=false drops out of both the numerator and the
@@ -162,7 +188,7 @@ func ComputeGrade(
 	}{
 		{wLoss, loss}, {wRTT, rtt}, {wJitter, jit}, {wDNS, dnsLat},
 		{wLAN, lanScore}, {wHTTP, httpScore}, {wStab, stabScore}, {wWiFi, wifiScore},
-		{wFirewall, fwScore}, {wNAT, natScore},
+		{wFirewall, fwScore}, {wNAT, natScore}, {wCongestion, congScore},
 	}
 	var weighted, totalW float64
 	for _, p := range parts {
@@ -178,7 +204,8 @@ func ComputeGrade(
 			HasData: false,
 			Loss:    loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-			Firewall: fwScore, NAT: natScore,
+			Firewall: fwScore, NAT: natScore, Congestion: congScore,
+			PMTUBlackhole: tcp.PMTUBlackhole,
 		}
 		attachQualityContext(&g, wan, qc)
 		return g
@@ -195,7 +222,8 @@ func ComputeGrade(
 		Score: score, HasData: true,
 		Loss: loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-		Firewall: fwScore, NAT: natScore,
+		Firewall: fwScore, NAT: natScore, Congestion: congScore,
+		PMTUBlackhole: tcp.PMTUBlackhole,
 	}
 	// Baseline-relative early warning: nudge the absolute score down when tonight
 	// is far worse than the learned normal, then derive the letter from the
@@ -203,12 +231,23 @@ func ComputeGrade(
 	// badge). Empty baseline → zero penalty, grade unchanged.
 	attachQualityContext(&g, wan, qc)
 	g.Score -= g.BaselinePenalty
+	// PMTU black-hole is a real "some sites won't load" fault: a fixed penalty
+	// on top of the weighted score so the letter reflects it even when the
+	// averages look fine.
+	if g.PMTUBlackhole {
+		g.PMTUPenalty = pmtuBlackholePenalty
+		g.Score -= g.PMTUPenalty
+	}
 	if g.Score < 0 {
 		g.Score = 0
 	}
 	g.Letter, g.Verdict = letterAndVerdict(g.Score)
 	return g
 }
+
+// pmtuBlackholePenalty is the fixed score reduction applied when a frag-needed
+// / PMTU black-hole condition is active.
+const pmtuBlackholePenalty = 15
 
 // attachQualityContext folds the baseline ratio, bufferbloat letter, and ISP
 // isolation verdict onto the grade. It computes (but does not apply) the
@@ -274,6 +313,61 @@ func l3InputFrom(nc *collectors.NeighConntrackCollector, nw *collectors.NetlinkW
 		in.HasNetlinkWatch = s.HasData
 	}
 	return in
+}
+
+// TCPGradeInput carries the per-flow TCP telemetry signals into the grade. The
+// zero value is the neutral case (no active TCP flows), mapping to neutral-100
+// for congestion and leaving the RTT sub-score on the probe target.
+type TCPGradeInput struct {
+	FlowRTXRate    float64 // flow-weighted retransmission rate, percent
+	HasFlowRTX     bool    // false when no active TCP flows -> neutral
+	WorstFlowRTTms float64 // worst active-flow smoothed RTT, ms
+	HasWorstRTT    bool
+	PMTUBlackhole  bool // a flow currently shows the frag-needed shape
+}
+
+// tcpInputFrom adapts the per-flow TCP telemetry collector and the flow table
+// into the grade input: the byte-weighted RTX rate across flows carrying
+// telemetry, the worst flow RTT, and the live PMTU black-hole flag. Returns the
+// neutral zero value when telemetry is absent.
+func tcpInputFrom(ti *collectors.TCPInfoCollector, fl *flows.Aggregator) TCPGradeInput {
+	var in TCPGradeInput
+	if ti == nil || fl == nil {
+		return in
+	}
+	in.PMTUBlackhole = ti.Status().PMTUBlackhole
+
+	var samples []telemetry.RTXSample
+	var rtts []float64
+	for _, f := range fl.Snapshot() {
+		if !f.HasTCP() {
+			continue
+		}
+		samples = append(samples, telemetry.RTXSample{Rate: f.TCP.RetransRate, Bytes: f.Bytes})
+		rtts = append(rtts, f.TCP.RTTms())
+	}
+	if rate, ok := telemetry.FlowWeightedRTX(samples); ok {
+		in.FlowRTXRate = rate
+		in.HasFlowRTX = true
+	}
+	if worst, ok := telemetry.WorstFlowRTT(rtts); ok {
+		in.WorstFlowRTTms = worst
+		in.HasWorstRTT = true
+	}
+	return in
+}
+
+// scoreCongestionSub maps the flow-weighted retransmission rate against the
+// retransmission threshold. Neutral-100 with HasData=false when no active TCP
+// flows carry telemetry, so a quiet host isn't graded on a fabricated zero.
+func scoreCongestionSub(rate float64, has bool, threshold float64) subScore {
+	if !has {
+		return subScore{Name: "cong", Unit: "%", OK: true}
+	}
+	if threshold <= 0 {
+		threshold = 5
+	}
+	return scoreFromMetric("cong", rate, threshold, "%")
 }
 
 // scoreNATSub maps conntrack utilisation to the NAT sub-score. Comfort line

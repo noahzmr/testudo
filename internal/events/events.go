@@ -30,6 +30,15 @@ const (
 	KindLinkStateChange Kind = "link_state_change"
 	KindAddrChange      Kind = "addr_change"
 	KindRouteChange     Kind = "route_change"
+
+	// Per-flow TCP telemetry kinds (see internal/collectors/tcpinfo.go).
+	// KindDropReason carries a kernel drop-reason/fib failure; KindFragNeeded
+	// carries a frag-needed / PMTU black-hole signal - the long-missing
+	// "some sites won't load" fault. Both also raise a derived KindAnomaly so
+	// the existing alert/incident path picks them up unchanged.
+	KindDropReason  Kind = "drop_reason"
+	KindFragNeeded  Kind = "frag_needed"
+	KindFlowTCPStat Kind = "flow_tcp_stat"
 )
 
 // Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
@@ -183,6 +192,48 @@ type RouteChangePayload struct {
 	Family    string // ipv4 / ipv6
 	Added     bool
 	IsDefault bool
+}
+
+// DropReasonPayload reports a packet drop attributed to a kernel reason code
+// or fib lookup failure, naming the flow when known. Sourced from the eBPF
+// drop-path tracepoint (Stage B); the (Src,Dst,Proto) tuple lets the Alerts
+// tab point at the conversation.
+type DropReasonPayload struct {
+	Reason  string // kernel drop reason, e.g. "NO_SOCKET", "FIB_RULE_NO_ROUTE"
+	SrcIP   string
+	DstIP   string
+	DstPort uint16
+	Proto   string
+	Count   uint64 // drops observed this window
+}
+
+// FragNeededPayload reports a frag-needed / PMTU black-hole signal: a path MTU
+// smaller than the sent segment with the DF bit set, or the pure-Go heuristic
+// (a TCP flow retransmitting heavily while making no forward progress). This is
+// the PMTU black-hole fault the grade should reflect. MTU is the advertised
+// next-hop MTU when known (0 for the heuristic path).
+type FragNeededPayload struct {
+	SrcIP   string
+	DstIP   string
+	DstPort uint16
+	MTU     uint32
+	Suspect bool // true = pure-Go heuristic, false = observed ICMP/eBPF signal
+}
+
+// FlowTCPStatPayload reports a per-flow TCP quality sample joined to the flow
+// table. Emitted as a heartbeat so storage/replay can persist periodic
+// snapshots; the live flow enrichment happens via the aggregator directly.
+type FlowTCPStatPayload struct {
+	Iface       string
+	SrcIP       string
+	DstIP       string
+	SrcPort     uint16
+	DstPort     uint16
+	Proto       string
+	RTTus       uint32
+	RetransRate float64
+	Cwnd        uint32
+	Source      string
 }
 
 // IncidentPayload bundles the context captured around a CRITICAL anomaly:
@@ -343,6 +394,12 @@ func kindMask(k Kind) uint64 {
 		return 1 << 13
 	case KindRouteChange:
 		return 1 << 14
+	case KindDropReason:
+		return 1 << 15
+	case KindFragNeeded:
+		return 1 << 16
+	case KindFlowTCPStat:
+		return 1 << 17
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

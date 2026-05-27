@@ -116,6 +116,13 @@ type FlowSnapshotRow struct {
 	BytesOut int64
 	Process  string
 	DNSName  string
+
+	// Per-flow TCP telemetry, joined from tcp_info. Zero/empty when no
+	// telemetry was observed for the flow at snapshot time.
+	TCPRTTus       int64
+	TCPRetransRate float64
+	TCPCwnd        int64
+	TCPSource      string
 }
 
 // InsertFlowSnapshots writes a batch of timestamped flow rows in one tx.
@@ -132,8 +139,8 @@ func (s *Store) InsertFlowSnapshots(ctx context.Context, sessionID string, ts ti
 	}
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO flow_snapshots (session_id, ts, iface, src, dst, proto, bytes_in, bytes_out, process, dns_name)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		`INSERT INTO flow_snapshots (session_id, ts, iface, src, dst, proto, bytes_in, bytes_out, process, dns_name, tcp_rtt_us, tcp_retrans_rate, tcp_cwnd, tcp_source)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -141,7 +148,8 @@ func (s *Store) InsertFlowSnapshots(ctx context.Context, sessionID string, ts ti
 	ms := ts.UnixMilli()
 	for _, r := range rows {
 		if _, err := stmt.ExecContext(ctx, sessionID, ms, r.Iface, r.Src, r.Dst,
-			r.Proto, r.BytesIn, r.BytesOut, r.Process, r.DNSName); err != nil {
+			r.Proto, r.BytesIn, r.BytesOut, r.Process, r.DNSName,
+			r.TCPRTTus, r.TCPRetransRate, r.TCPCwnd, r.TCPSource); err != nil {
 			return err
 		}
 	}
@@ -155,7 +163,7 @@ func (s *Store) FlowSnapshotsAround(ctx context.Context, sessionID string, at ti
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT ts, iface, src, dst, proto, bytes_in, bytes_out, process, dns_name
+		SELECT ts, iface, src, dst, proto, bytes_in, bytes_out, process, dns_name, tcp_rtt_us, tcp_retrans_rate, tcp_cwnd, tcp_source
 		  FROM flow_snapshots
 		 WHERE session_id = ? AND ts <= ?
 		 ORDER BY ts DESC, bytes_in + bytes_out DESC
@@ -169,7 +177,8 @@ func (s *Store) FlowSnapshotsAround(ctx context.Context, sessionID string, at ti
 		var r FlowSnapshotRow
 		var tsMs int64
 		if err := rows.Scan(&tsMs, &r.Iface, &r.Src, &r.Dst, &r.Proto,
-			&r.BytesIn, &r.BytesOut, &r.Process, &r.DNSName); err != nil {
+			&r.BytesIn, &r.BytesOut, &r.Process, &r.DNSName,
+			&r.TCPRTTus, &r.TCPRetransRate, &r.TCPCwnd, &r.TCPSource); err != nil {
 			return nil, err
 		}
 		r.TS = time.UnixMilli(tsMs)

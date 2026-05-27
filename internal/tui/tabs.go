@@ -86,7 +86,7 @@ func (t *dashboardTab) View(w, h int) string {
 	}
 	fwRate, fwHas := t.eng.FirewallSignal()
 	qc := t.eng.QualitySnapshot()
-	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), t.eng.Settings().Snapshot(), qc.GradeContext())
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), tcpInputFrom(t.eng.TCPInfo(), t.eng.Flows()), t.eng.Settings().Snapshot(), qc.GradeContext())
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -102,6 +102,11 @@ func (t *dashboardTab) View(w, h int) string {
 		renderSubScoreBar(grade.WiFi, w),
 		renderSubScoreBar(grade.Firewall, w),
 		renderSubScoreBar(grade.NAT, w),
+		renderSubScoreBar(grade.Congestion, w),
+	}
+	if grade.PMTUBlackhole {
+		gradeRows = append(gradeRows,
+			errStyle.Render(fmt.Sprintf("  ⚠ PMTU black-hole detected (-%d) - a flow is retransmitting without progress", grade.PMTUPenalty)))
 	}
 	if ctxRows := renderQualityContext(grade); len(ctxRows) > 0 {
 		gradeRows = append(gradeRows, "")
@@ -400,8 +405,8 @@ func (t *flowsTab) visibleCount() int {
 func (t *flowsTab) View(w, h int) string {
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
-	widths := []int{6, 10, 18, 26, 8, 10, 14, 16, 10}
-	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "PKTS", "BYTES", "DNS", "AGE", "BYTE A=>B"}
+	widths := []int{6, 9, 16, 24, 7, 9, 18, 12, 13, 9}
+	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "PKTS", "BYTES", "RTT·RTX·CWND", "DNS", "AGE", "BYTE A=>B"}
 	// Apply filter once per render.
 	visible := t.rows
 	if t.filter != "" {
@@ -411,7 +416,19 @@ func (t *flowsTab) View(w, h int) string {
 				visible = append(visible, f)
 			}
 		}
+	} else {
+		visible = append(visible[:0:0], visible...)
 	}
+	// Surface the connection that's actually suffering: flows carrying TCP
+	// telemetry with a high retransmission rate float to the top, otherwise
+	// the existing recency order is preserved.
+	sort.SliceStable(visible, func(i, j int) bool {
+		ri, rj := visible[i].TCP.RetransRate, visible[j].TCP.RetransRate
+		if ri != rj {
+			return ri > rj
+		}
+		return visible[i].LastSeen.After(visible[j].LastSeen)
+	})
 	// Capture status badge - surfaces the live toggle so operators always
 	// know whether the table is reflecting reality.
 	var status string
@@ -430,6 +447,12 @@ func (t *flowsTab) View(w, h int) string {
 	if t.filter != "" {
 		title = fmt.Sprintf("Flows - %d / %d match `%s` · %s",
 			len(visible), len(t.rows), t.filter, status)
+	}
+	// Source tag for the per-flow TCP columns, labelled the way WiFi labels
+	// its nl80211/proc backend.
+	if ti := t.eng.TCPInfo(); ti != nil {
+		st := ti.Status()
+		title += dimStyle.Render(" · tcp:" + st.Source)
 	}
 	rows := []string{
 		headerStyle.Render(title),
@@ -462,9 +485,13 @@ func (t *flowsTab) View(w, h int) string {
 		if proc == "" {
 			proc = "-"
 		}
+		tcp := "-"
+		if f.HasTCP() {
+			tcp = fmt.Sprintf("%.0fms %.1f%% %d", f.TCP.RTTms(), f.TCP.RetransRate, f.TCP.Cwnd)
+		}
 		row := renderTableRow(innerW, widths,
 			strings.ToUpper(f.Key.Proto), f.Key.Iface, proc, ab,
-			fmt.Sprintf("%d", f.Packets), fmtBytes(f.Bytes), dns,
+			fmt.Sprintf("%d", f.Packets), fmtBytes(f.Bytes), tcp, dns,
 			fmt.Sprintf("%s ago", age), fmtBytes(f.BytesAtoB))
 		if i == t.cursor {
 			rows = append(rows, selectedRowStyle.Render(row))
@@ -1630,6 +1657,16 @@ func (t *settingsTab) rows() []thresholdRow {
 				}
 				t.IPFIXDomainID = uint32(v)
 			}},
+		// --- Per-flow TCP telemetry -------------------------------------
+		{label: "Per-flow RTX alert threshold", value: th.FlowRetransPct, unit: "%", stepBig: 1, stepSmall: 0.1,
+			apply: func(t *config.Thresholds, v float64) {
+				if v < 0 {
+					v = 0
+				}
+				t.FlowRetransPct = v
+			}},
+		{label: "Enable eBPF telemetry backend", value: bool01(th.EBPFEnabled), unit: "", isBool: true,
+			apply: func(t *config.Thresholds, v float64) { t.EBPFEnabled = v != 0 }},
 		// --- Baseline maintenance ---------------------------------------
 		{label: "Reset learned baselines", isAction: true, requireWrite: true,
 			action: func(s *settingsTab) tea.Cmd { return s.resetBaselines() }},

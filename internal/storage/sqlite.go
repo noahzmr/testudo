@@ -178,7 +178,11 @@ CREATE TABLE IF NOT EXISTS flow_snapshots (
     bytes_in    INTEGER NOT NULL DEFAULT 0,
     bytes_out   INTEGER NOT NULL DEFAULT 0,
     process     TEXT NOT NULL DEFAULT '',
-    dns_name    TEXT NOT NULL DEFAULT ''
+    dns_name    TEXT NOT NULL DEFAULT '',
+    tcp_rtt_us       INTEGER NOT NULL DEFAULT 0,
+    tcp_retrans_rate REAL NOT NULL DEFAULT 0,
+    tcp_cwnd         INTEGER NOT NULL DEFAULT 0,
+    tcp_source       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_flow_snapshots_session ON flow_snapshots(session_id, ts);
 `
@@ -223,6 +227,32 @@ func migrate(db *sql.DB) error {
 		if !hasIface {
 			if _, err := db.Exec("DROP TABLE flows"); err != nil {
 				return fmt.Errorf("drop old flows table: %w", err)
+			}
+		}
+	}
+
+	// Per-flow TCP telemetry (Task 06): flow_snapshots gained tcp_* columns.
+	// ADD COLUMN is cheap and idempotent-guarded so existing sessions keep
+	// their history and just acquire the new columns with their defaults.
+	hasSnap, err := tableExists(db, "flow_snapshots")
+	if err != nil {
+		return err
+	}
+	if hasSnap {
+		hasTCP, err := columnExists(db, "flow_snapshots", "tcp_source")
+		if err != nil {
+			return err
+		}
+		if !hasTCP {
+			for _, ddl := range []string{
+				"ALTER TABLE flow_snapshots ADD COLUMN tcp_rtt_us INTEGER NOT NULL DEFAULT 0",
+				"ALTER TABLE flow_snapshots ADD COLUMN tcp_retrans_rate REAL NOT NULL DEFAULT 0",
+				"ALTER TABLE flow_snapshots ADD COLUMN tcp_cwnd INTEGER NOT NULL DEFAULT 0",
+				"ALTER TABLE flow_snapshots ADD COLUMN tcp_source TEXT NOT NULL DEFAULT ''",
+			} {
+				if _, err := db.Exec(ddl); err != nil {
+					return fmt.Errorf("add flow_snapshots tcp columns: %w", err)
+				}
 			}
 		}
 	}

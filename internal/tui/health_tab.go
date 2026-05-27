@@ -85,9 +85,81 @@ func (t *healthTab) View(w, h int) string {
 	b.WriteString("\n")
 	renderWiFiSection(&b, innerW, t.wifi)
 	b.WriteString("\n")
+	renderTelemetrySection(&b, innerW, t.eng.TCPInfo())
+	b.WriteString("\n")
 	renderIfaceSection(&b, innerW, t.ifaces, t.wifi)
 
 	return boxStyle.Render(b.String())
+}
+
+// renderTelemetrySection draws the per-flow TCP telemetry source card: which
+// backend is active (eBPF attached / inet_diag fallback / unavailable), how
+// many flows carry stats, and the worst per-flow RTT/RTX seen. ti may be nil
+// when telemetry is disabled in config.
+func renderTelemetrySection(b *strings.Builder, innerW int, ti *collectors.TCPInfoCollector) {
+	b.WriteString(headerStyle.Render("Per-flow TCP Telemetry"))
+	b.WriteString("\n")
+	if ti == nil {
+		b.WriteString("  " + subtitleStyle.Render("disabled (TCPTelemetryEnabled=false)"))
+		b.WriteString("\n")
+		return
+	}
+	st := ti.Status()
+
+	var backend string
+	switch {
+	case st.EBPF.Available:
+		backend = okStyle.Render("eBPF attached")
+	case st.EBPF.Compiled:
+		backend = warnStyle.Render("inet_diag fallback") + dimStyle.Render(" ("+st.EBPF.Detail+")")
+	default:
+		backend = okStyle.Render("inet_diag") + dimStyle.Render(" ("+st.EBPF.Detail+")")
+	}
+	b.WriteString("  source: " + backend)
+	b.WriteString("\n")
+
+	if st.LastErr != "" {
+		b.WriteString("  " + errStyle.Render("error: "+st.LastErr))
+		b.WriteString("\n")
+		return
+	}
+	b.WriteString(fmt.Sprintf("  %s flows with TCP stats · worst RTT %s · worst RTX %s · %s",
+		okStyle.Render(fmt.Sprintf("%d", st.Flows)),
+		rttMsCell(st.WorstRTT),
+		rtxCell(st.WorstRTX),
+		dimStyle.Render(fmtAgo(st.Updated))))
+	b.WriteString("\n")
+}
+
+// rttMsCell colours an RTT figure: green under 50ms, amber under 150ms, red
+// beyond. Used by the telemetry card's worst-RTT figure.
+func rttMsCell(ms float64) string {
+	s := fmt.Sprintf("%.0fms", ms)
+	switch {
+	case ms <= 0:
+		return dimStyle.Render("-")
+	case ms < 50:
+		return okStyle.Render(s)
+	case ms < 150:
+		return warnStyle.Render(s)
+	default:
+		return errStyle.Render(s)
+	}
+}
+
+// rtxCell colours a retransmission-rate figure against the usual comfort line.
+func rtxCell(pct float64) string {
+	s := fmt.Sprintf("%.1f%%", pct)
+	switch {
+	case pct <= 0:
+		return dimStyle.Render("0%")
+	case pct < 2:
+		return okStyle.Render(s)
+	case pct < 5:
+		return warnStyle.Render(s)
+	default:
+		return errStyle.Render(s)
+	}
 }
 
 // renderProbeSection draws a generic table of (target, status, RTT, age)

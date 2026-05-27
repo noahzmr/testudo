@@ -47,6 +47,15 @@ type Thresholds struct {
 	IPFIXEndpoint    string // "host:port" of the collector (UDP)
 	IPFIXIntervalSec int    // export cadence in seconds; default 30
 	IPFIXDomainID    uint32 // observation domain id; 0 = derive from hostname
+
+	// Per-flow TCP telemetry (internal/telemetry, internal/collectors/tcpinfo.go).
+	// EBPFEnabled opts into the eBPF backend when the binary is built with
+	// -tags ebpf and the kernel supports it; it's a no-op (INET_DIAG fallback)
+	// otherwise. FlowRetransPct is the per-flow retransmission-rate alert
+	// threshold - a single suffering connection raises a WARN at this rate even
+	// when the host-wide rate is fine.
+	EBPFEnabled    bool    // enable eBPF backend (requires -tags ebpf + caps)
+	FlowRetransPct float64 // per-flow RTX-rate alert threshold, percent
 }
 
 func DefaultThresholds() Thresholds {
@@ -62,6 +71,8 @@ func DefaultThresholds() Thresholds {
 		IPFIXEndpoint:      "",
 		IPFIXIntervalSec:   30,
 		IPFIXDomainID:      0,
+		EBPFEnabled:        false,
+		FlowRetransPct:     5,
 	}
 }
 
@@ -235,6 +246,14 @@ type Config struct {
 	NetlinkWatchCoalesceWindow    time.Duration
 	NetlinkWatchReconcileInterval time.Duration
 
+	// TCPTelemetryEnabled turns on the per-flow TCP telemetry collector
+	// (internal/collectors/tcpinfo.go). It samples tcp_info via INET_DIAG on
+	// TCPTelemetryInterval, joins per-flow RTT/RTX/cwnd onto the flow table,
+	// and raises per-flow RTX and PMTU-black-hole anomalies. Pure-Go by
+	// default; the eBPF backend is opted into via the EBPFEnabled threshold.
+	TCPTelemetryEnabled  bool
+	TCPTelemetryInterval time.Duration
+
 	// DeviceChatterEnabled turns on the per-device baseline anomaly.
 	// Reads from the in-memory DeviceBandwidth aggregator, so it
 	// requires capture to be running to be useful.
@@ -324,6 +343,8 @@ func Default() Config {
 		NetlinkWatchEnabled:           true,
 		NetlinkWatchCoalesceWindow:    250 * time.Millisecond,
 		NetlinkWatchReconcileInterval: 60 * time.Second,
+		TCPTelemetryEnabled:           true,
+		TCPTelemetryInterval:          10 * time.Second,
 		DeviceChatterEnabled:          true,
 		DeviceChatterFactor:           3.0,
 		WebEnabled:                    false,

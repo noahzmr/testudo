@@ -43,6 +43,7 @@ type snapshot struct {
 	TopHosts      []hostRollupView     `json:"top_hosts"`
 	TopProcesses  []procRollupView     `json:"top_processes"`
 	TopServices   []serviceRollupView  `json:"top_services"`
+	Telemetry     telemetryView        `json:"telemetry"`
 	WiFi          []wifiView           `json:"wifi"`
 }
 
@@ -87,17 +88,23 @@ type gradeView struct {
 	// sub-score is still "no data", so the front end can switch the
 	// badge into a violet placeholder rather than rendering an
 	// inflated "A+" derived from a neutral fallback.
-	HasData  bool `json:"has_data"`
-	Loss     int  `json:"loss_score"`
-	RTT      int  `json:"rtt_score"`
-	Jitter   int  `json:"jitter_score"`
-	DNS      int  `json:"dns_score"`
-	LAN      int  `json:"lan_score"`
-	HTTP     int  `json:"http_score"`
-	Stab     int  `json:"stab_score"`
-	WiFi     int  `json:"wifi_score"`
-	Firewall int  `json:"firewall_score"`
-	NAT      int  `json:"nat_score"`
+	HasData    bool `json:"has_data"`
+	Loss       int  `json:"loss_score"`
+	RTT        int  `json:"rtt_score"`
+	Jitter     int  `json:"jitter_score"`
+	DNS        int  `json:"dns_score"`
+	LAN        int  `json:"lan_score"`
+	HTTP       int  `json:"http_score"`
+	Stab       int  `json:"stab_score"`
+	WiFi       int  `json:"wifi_score"`
+	Firewall   int  `json:"firewall_score"`
+	NAT        int  `json:"nat_score"`
+	Congestion int  `json:"congestion_score"`
+
+	// PMTUBlackhole mirrors NetworkGrade: a frag-needed condition is active,
+	// and PMTUPenalty is the points it shaved off the score.
+	PMTUBlackhole bool `json:"pmtu_blackhole"`
+	PMTUPenalty   int  `json:"pmtu_penalty"`
 	// NoData lists the sub-score names that have not yet produced a
 	// measurement (e.g. ["WiFi", "HTTP"]). The dashboard renders these
 	// bars violet and excludes them from the overall grade.
@@ -161,6 +168,26 @@ type flowView struct {
 	DNS     string `json:"dns"`
 	Packets uint64 `json:"packets"`
 	Bytes   uint64 `json:"bytes"`
+
+	// Per-flow TCP telemetry (INET_DIAG / eBPF). Zero/empty when no telemetry
+	// has been observed for this flow. RTTms is the smoothed RTT.
+	TCPSource   string  `json:"tcp_source,omitempty"`
+	RTTms       float64 `json:"rtt_ms,omitempty"`
+	RetransRate float64 `json:"retrans_rate,omitempty"`
+	Cwnd        uint32  `json:"cwnd,omitempty"`
+}
+
+// telemetryView mirrors the TUI Health card's per-flow TCP telemetry source
+// status: the active backend, the eBPF detection detail, and the worst-flow
+// figures.
+type telemetryView struct {
+	Source    string  `json:"source"`
+	EBPFOn    bool    `json:"ebpf_available"`
+	Detail    string  `json:"detail"`
+	Flows     int     `json:"flows"`
+	WorstRTX  float64 `json:"worst_rtx"`
+	WorstRTT  float64 `json:"worst_rtt_ms"`
+	LastError string  `json:"last_error,omitempty"`
 }
 
 type deviceView struct {
@@ -343,6 +370,8 @@ type thresholdsView struct {
 	IPFIXEndpoint       string  `json:"ipfix_endpoint"`
 	IPFIXIntervalSec    int     `json:"ipfix_interval_sec"`
 	IPFIXDomainID       uint32  `json:"ipfix_domain_id"`
+	EBPFEnabled         bool    `json:"ebpf_enabled"`
+	FlowRetransPct      float64 `json:"flow_retrans_pct"`
 }
 
 type tcpdumpView struct {
@@ -501,7 +530,7 @@ func (s *Server) buildSnapshot() snapshot {
 			Detail: st.Detail, FlapRate: st.FlapRate, RouteChurn: st.RouteChurn,
 		}
 	}
-	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, th, gctx)
+	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, tcpGradeFrom(eng), th, gctx)
 
 	// Neighbour (ARP/NDP) table + IP conflicts, and live conntrack flows.
 	if nc := eng.Neigh(); nc != nil {
@@ -535,14 +564,37 @@ func (s *Server) buildSnapshot() snapshot {
 		Ifaces:  eng.CaptureIfaces(),
 	}
 
-	// Flows (top 100 by recency, decorated).
+	// Flows (top 100 by recency, decorated). Per-flow TCP telemetry rides
+	// along on the same row so the dashboard renders identical numbers to the
+	// TUI - one flow table, source-tagged.
 	for _, f := range flows.Decorate(eng.Flows().TopByRecency(100), eng.DNSCache(), eng.ProcMatcher()) {
-		snap.Flows = append(snap.Flows, flowView{
+		fv := flowView{
 			Proto: f.Key.Proto, Iface: f.Key.Iface,
 			Process: f.Process, A: f.Key.A.String(), B: f.Key.B.String(),
 			Service: f.Service, DNS: f.DNSName,
 			Packets: f.Packets, Bytes: f.Bytes,
-		})
+		}
+		if f.HasTCP() {
+			fv.TCPSource = f.TCP.Source
+			fv.RTTms = f.TCP.RTTms()
+			fv.RetransRate = f.TCP.RetransRate
+			fv.Cwnd = f.TCP.Cwnd
+		}
+		snap.Flows = append(snap.Flows, fv)
+	}
+
+	// Per-flow TCP telemetry source status (mirrors the TUI Health card).
+	if ti := eng.TCPInfo(); ti != nil {
+		st := ti.Status()
+		snap.Telemetry = telemetryView{
+			Source:    st.Source,
+			EBPFOn:    st.EBPF.Available,
+			Detail:    st.EBPF.Detail,
+			Flows:     st.Flows,
+			WorstRTX:  st.WorstRTX,
+			WorstRTT:  st.WorstRTT,
+			LastError: st.LastErr,
+		}
 	}
 
 	// Devices from inventory - enriched with the connection-protocol
@@ -756,6 +808,8 @@ func (s *Server) buildSnapshot() snapshot {
 		IPFIXEndpoint:       th.IPFIXEndpoint,
 		IPFIXIntervalSec:    th.IPFIXIntervalSec,
 		IPFIXDomainID:       th.IPFIXDomainID,
+		EBPFEnabled:         th.EBPFEnabled,
+		FlowRetransPct:      th.FlowRetransPct,
 	}
 	return snap
 }
