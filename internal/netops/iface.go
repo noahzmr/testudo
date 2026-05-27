@@ -20,8 +20,15 @@ var ErrWritesDisabled = errors.New("netops writes are disabled - toggle in Setti
 
 // Writer is the entry point for both reads and writes. Construct one per
 // process and pass it around; it has no fields that change after init.
+//
+// backend selects where privileged mutations execute: a nil backend runs them
+// in-process (the default, preserving existing `&Writer{AllowWrites: x}`
+// literals and the CLI/helper paths), while a helperBackend forwards them to
+// the privileged helper so the engine itself can run unprivileged. Reads always
+// run in-process - they need no capabilities.
 type Writer struct {
 	AllowWrites bool
+	backend     Backend
 }
 
 // IfaceInfo is a denormalised view of one network interface.
@@ -55,10 +62,10 @@ func (w *Writer) ListIfaces() ([]IfaceInfo, error) {
 	for _, l := range links {
 		attrs := l.Attrs()
 		info := IfaceInfo{
-			Name:    attrs.Name,
-			Index:   attrs.Index,
-			MTU:     attrs.MTU,
-			Up: attrs.Flags&net.FlagUp != 0,
+			Name:  attrs.Name,
+			Index: attrs.Index,
+			MTU:   attrs.MTU,
+			Up:    attrs.Flags&net.FlagUp != 0,
 			// Carrier-less L3 devices (WireGuard, TUN/TAP, loopback, other
 			// tunnels) never set an operational state, so the kernel reports
 			// OperUnknown even while they are fully up and forwarding. Treat
@@ -90,11 +97,16 @@ func (w *Writer) ListIfaces() ([]IfaceInfo, error) {
 }
 
 // SetIfaceUp brings the named interface up. Returns ErrWritesDisabled when
-// writes are off.
+// writes are off. The mutation runs in the privileged helper when the Writer is
+// helper-backed.
 func (w *Writer) SetIfaceUp(name string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpSetIfaceUp, Name: name})
+}
+
+func (w *Writer) setIfaceUpDirect(name string) error {
 	link, err := netlink.LinkByName(name)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", name, err)
@@ -107,6 +119,10 @@ func (w *Writer) SetIfaceDown(name string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpSetIfaceDown, Name: name})
+}
+
+func (w *Writer) setIfaceDownDirect(name string) error {
 	link, err := netlink.LinkByName(name)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", name, err)
@@ -119,6 +135,10 @@ func (w *Writer) AddAddr(iface, cidr string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpAddAddr, Iface: iface, CIDR: cidr})
+}
+
+func (w *Writer) addAddrDirect(iface, cidr string) error {
 	link, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", iface, err)
@@ -135,6 +155,10 @@ func (w *Writer) DelAddr(iface, cidr string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpDelAddr, Iface: iface, CIDR: cidr})
+}
+
+func (w *Writer) delAddrDirect(iface, cidr string) error {
 	link, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", iface, err)
@@ -152,6 +176,10 @@ func (w *Writer) FlushAddrs(iface string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpFlushAddrs, Iface: iface})
+}
+
+func (w *Writer) flushAddrsDirect(iface string) error {
 	link, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", iface, err)
@@ -171,6 +199,10 @@ func (w *Writer) SetMTU(iface string, mtu int) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpSetMTU, Iface: iface, MTU: mtu})
+}
+
+func (w *Writer) setMTUDirect(iface string, mtu int) error {
 	link, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", iface, err)

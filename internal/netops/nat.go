@@ -13,11 +13,11 @@ const natTableName = "testudo_nat"
 
 // PortForward describes a destination-NAT rule managed by Testudo.
 type PortForward struct {
-	Proto     string // "tcp" or "udp"
-	WANPort   uint16 // port reachable from the outside
-	LANIP     string // internal target IP
-	LANPort   uint16 // internal target port (defaults to WANPort if 0)
-	Comment   string
+	Proto   string // "tcp" or "udp"
+	WANPort uint16 // port reachable from the outside
+	LANIP   string // internal target IP
+	LANPort uint16 // internal target port (defaults to WANPort if 0)
+	Comment string
 }
 
 // AddPortForward installs a DNAT rule in our private nftables table.
@@ -27,6 +27,10 @@ func (w *Writer) AddPortForward(pf PortForward) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpAddPortForward, PortFwd: &pf})
+}
+
+func (w *Writer) addPortForwardDirect(pf PortForward) error {
 	if pf.Proto != "tcp" && pf.Proto != "udp" {
 		return fmt.Errorf("proto must be tcp or udp, got %q", pf.Proto)
 	}
@@ -102,6 +106,10 @@ func (w *Writer) DelPortForward(proto string, wanPort uint16) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpDelPortForward, PortFwd: &PortForward{Proto: proto, WANPort: wanPort}})
+}
+
+func (w *Writer) delPortForwardDirect(proto string, wanPort uint16) error {
 	conn, err := nftables.New()
 	if err != nil {
 		return fmt.Errorf("nftables new: %w", err)

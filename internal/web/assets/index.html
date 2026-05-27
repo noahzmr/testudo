@@ -27,6 +27,7 @@
       <button data-tab="probes" class="tab">Probes</button>
       <button data-tab="alerts" class="tab">Alerts</button>
       <button data-tab="history" class="tab">History</button>
+      <button data-tab="health" class="tab">Health</button>
       <button data-tab="settings" class="tab">Settings</button>
     </nav>
     <button id="logout" class="logout">logout</button>
@@ -42,6 +43,7 @@
           <div class="grade-meta">
             <div class="grade-score"><span id="grade-score">-</span> / 100</div>
             <div class="grade-verdict" id="grade-verdict">awaiting probes…</div>
+            <div class="grade-selfhealth" id="grade-selfhealth"></div>
           </div>
         </div>
         <div class="grade-bars" id="grade-bars"></div>
@@ -377,6 +379,24 @@
     </section>
 
     <!-- SETTINGS ------------------------------------------------------ -->
+    <section data-pane="health" class="pane">
+      <div class="card">
+        <h2>Subsystems · supervised health</h2>
+        <div class="muted" id="privsep-info"></div>
+        <table>
+          <thead><tr><th>Subsystem</th><th>State</th><th>Restarts</th><th>Last error / privilege</th></tr></thead>
+          <tbody id="subsystems-body"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Audit Log · privileged mutations</h2>
+        <table>
+          <thead><tr><th>Time</th><th>Op</th><th>UID</th><th>Result</th></tr></thead>
+          <tbody id="audit-body"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section data-pane="settings" class="pane">
       <div class="card">
         <h2>Thresholds</h2>

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/noahzmr/testudo/internal/health"
 )
 
 // inputMode tracks which on-screen single-line editor (if any) currently
@@ -277,7 +279,30 @@ func (a *App) renderGradePanel() string {
 		miniSubScoreBar(g.RTT),
 		miniSubScoreBar(g.DNS),
 	}
+	// Self-health badge: if a core signal collector (ICMP/DNS/capture) is
+	// degraded or unprivileged, the grade is measured with reduced coverage -
+	// flag it so an A isn't mistaken for "all good" while half the collectors
+	// are down.
+	if badge := a.selfHealthBadge(); badge != "" {
+		lines = append(lines, badge)
+	}
 	return strings.Join(lines, "\n")
+}
+
+// selfHealthBadge returns a one-line coverage warning when subsystem health is
+// degraded, or "" when everything is OK.
+func (a *App) selfHealthBadge() string {
+	worst, coreDegraded := a.eng.SelfHealth()
+	switch {
+	case coreDegraded:
+		return warnStyle.Render("⚠ reduced coverage")
+	case worst == health.StateFailed:
+		return warnStyle.Render("⚠ subsystem failed")
+	case worst == health.StateDegraded, worst == health.StateUnprivileged:
+		return dimStyle.Render("· some subsystems degraded")
+	default:
+		return ""
+	}
 }
 
 // miniSubScoreBar is a narrower variant of renderSubScoreBar tuned for the

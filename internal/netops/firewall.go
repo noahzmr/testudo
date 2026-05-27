@@ -174,6 +174,10 @@ func (w *Writer) ResetRuleCounter(family, table, chain string, handle uint64) er
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpResetRuleCounter, Family: family, Table: table, Chain: chain, Handle: handle})
+}
+
+func (w *Writer) resetRuleCounterDirect(family, table, chain string, handle uint64) error {
 	fam, ok := parseFamily(family)
 	if !ok {
 		return fmt.Errorf("unknown family %q", family)

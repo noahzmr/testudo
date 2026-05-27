@@ -551,6 +551,9 @@ Testudo is **pure Go**. There is no `cgo` dependency, no `libpcap`, no `libsqlit
    sudo setcap cap_net_raw,cap_net_admin=+ep /usr/local/bin/testudo
    ```
 
+   The capabilities are held by a **thin privileged helper**, not the whole
+   process — see [Privilege Separation](#privilege-separation) below.
+
 4. **Run from anywhere** in your terminal:
 
    ```bash
@@ -566,6 +569,46 @@ Testudo is **pure Go**. There is no `cgo` dependency, no `libpcap`, no `libsqlit
    ```bash
    testudo user passwd
    ```
+
+---
+
+## Privilege Separation
+
+Testudo no longer runs the web server, TUI, collectors, and analyzers in one PID
+holding `CAP_NET_RAW`+`CAP_NET_ADMIN`. Instead:
+
+- A **thin privileged helper** (`testudo __helper`, a re-exec of the same binary)
+  holds the capabilities and performs only the narrow set of operations that need
+  them — netlink/nftables mutations (route/iface/addr/MTU/NAT/filter/conntrack)
+  and raw-socket opening. It talks to the engine over an anonymous
+  `SOCK_SEQPACKET` socket, file descriptors travel back via `SCM_RIGHTS`, and the
+  helper authenticates the engine with `SO_PEERCRED`.
+- The **engine — including the web server and TUI — runs unprivileged.** After
+  spawning the helper it sets `PR_SET_NO_NEW_PRIVS`, clears its capability
+  bounding set, and drops all capabilities (`capset`). A web-plane compromise no
+  longer inherits raw-socket / netlink-write power.
+- The helper applies a **seccomp-bpf denylist** (blocking `execve`, `ptrace`,
+  module loading, `mount`/namespace manipulation, raw memory injection) so its
+  attack surface stays small even while holding caps.
+- The [`netops.Writer`](internal/netops/iface.go) gained a **backend seam**:
+  every call site (`ListIfaces`, `AddRoute`, `AddPortForward`, …) keeps its exact
+  signature; only the backend swaps between in-process (`directBackend`) and
+  helper-RPC (`helperBackend`).
+
+Every privileged mutation is **audit-logged** (`audit_log`: `ts, op, args,
+peer_uid, result`) and viewable read-only in both UIs. Each collector is
+**supervised**: a panic recovers into a bounded-backoff restart and a *degraded*
+health state rather than crashing the engine; after the restart budget is spent
+the subsystem is marked permanently *failed* (no crash-loop). A missing
+capability soft-fails to an *unprivileged* state carrying the exact `setcap`
+hint. The **Health** tab (TUI) and the web dashboard surface this as a
+first-class subsystem-status table, and the Network Quality card shows a
+**"⚠ reduced coverage"** badge when a core signal collector (ICMP/DNS/capture)
+is degraded — so an A grade isn't mistaken for "all good" while collectors are
+down.
+
+Privilege separation is on by default; pass `--privsep=false` to `testudo live`
+for the legacy single-process behaviour.
 
 ---
 

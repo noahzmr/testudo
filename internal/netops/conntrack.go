@@ -131,6 +131,10 @@ func (w *Writer) FlushConntrack(f ConntrackFlow) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpFlushConntrack, Conntrack: &f})
+}
+
+func (w *Writer) flushConntrackDirect(f ConntrackFlow) error {
 	proto, ok := protoNumber(f.Proto)
 	if !ok {
 		return fmt.Errorf("conntrack flush: unsupported proto %q", f.Proto)

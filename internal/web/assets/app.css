@@ -355,6 +355,9 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.10); }
 .warn { color: var(--accent-yellow); }
 .err  { color: var(--accent-red); }
 .mono { font-family: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace; font-size: 12px; }
+.grade-selfhealth { font-size: 12px; margin-top: 4px; }
+.grade-selfhealth.warn { color: var(--accent-yellow); font-weight: 600; }
+.grade-selfhealth.muted { color: var(--fg-dim); }
 
 /* Interface-type badge in the Interfaces table. Keeps the wired /
    wifi / tunnel / container distinction visible at a glance without

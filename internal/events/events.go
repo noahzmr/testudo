@@ -39,6 +39,13 @@ const (
 	KindDropReason  Kind = "drop_reason"
 	KindFragNeeded  Kind = "frag_needed"
 	KindFlowTCPStat Kind = "flow_tcp_stat"
+
+	// KindSubsystemDegraded is emitted by the engine's per-collector supervisor
+	// (see internal/engine/supervise.go) whenever a subsystem changes health
+	// state: recovered from a panic, exhausted its restart budget, or soft-failed
+	// for lack of capabilities. It drives the self-status surface in both UIs and
+	// is persisted so replay shows "capture went degraded at 19:44".
+	KindSubsystemDegraded Kind = "subsystem_degraded"
 )
 
 // Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
@@ -236,6 +243,18 @@ type FlowTCPStatPayload struct {
 	Source      string
 }
 
+// SubsystemStatePayload reports a subsystem health transition from the
+// supervisor. State is one of health.State ("ok"/"degraded"/"failed"/
+// "unprivileged"); Restarts is the cumulative restart count; Hint carries an
+// actionable remediation (e.g. a setcap command) for the unprivileged state.
+type SubsystemStatePayload struct {
+	Name     string
+	State    string
+	LastErr  string
+	Hint     string
+	Restarts int
+}
+
 // IncidentPayload bundles the context captured around a CRITICAL anomaly:
 // the trigger reason plus the IDs of correlated artifacts.
 type IncidentPayload struct {
@@ -400,6 +419,8 @@ func kindMask(k Kind) uint64 {
 		return 1 << 16
 	case KindFlowTCPStat:
 		return 1 << 17
+	case KindSubsystemDegraded:
+		return 1 << 18
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

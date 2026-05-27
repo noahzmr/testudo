@@ -391,6 +391,59 @@
         + '</div>';
     }).join('');
     renderQualityContext(g);
+    // Self-health badge: a degraded core signal collector means the grade is
+    // measured with reduced coverage - flag it so an A isn't read as "all good".
+    const sh = document.getElementById('grade-selfhealth');
+    if (sh) {
+      if (g.self_health_degraded) {
+        sh.textContent = '⚠ measuring with reduced coverage';
+        sh.className = 'grade-selfhealth warn';
+      } else if (g.self_health_state && g.self_health_state !== 'ok') {
+        sh.textContent = '· some subsystems degraded';
+        sh.className = 'grade-selfhealth muted';
+      } else {
+        sh.textContent = '';
+        sh.className = 'grade-selfhealth';
+      }
+    }
+  }
+
+  // renderHealth renders the subsystem-status table, the privilege-separation
+  // posture, and the read-only audit log of privileged mutations (mirrors the
+  // TUI Health tab). The web server itself is unprivileged - the privsep line
+  // states it explicitly.
+  function renderHealth(subsystems, audit, privsep) {
+    const info = document.getElementById('privsep-info');
+    if (info) info.textContent = privsep || '';
+
+    const sbody = document.getElementById('subsystems-body');
+    if (sbody) {
+      const stateClass = s => s === 'ok' ? 'ok'
+        : s === 'failed' ? 'err'
+        : 'warn';
+      sbody.innerHTML = (subsystems || []).map(s => {
+        const detail = (s.state === 'unprivileged' && s.hint) ? s.hint : (s.last_err || '-');
+        return '<tr>'
+          + '<td>' + escape(s.name) + (s.core ? ' <span class="muted">(core)</span>' : '') + '</td>'
+          + '<td class="' + stateClass(s.state) + '">' + escape(s.state) + '</td>'
+          + '<td>' + (s.restarts || 0) + '</td>'
+          + '<td>' + escape(detail) + '</td>'
+          + '</tr>';
+      }).join('') || '<tr><td colspan="4" class="muted">no subsystems registered yet</td></tr>';
+    }
+
+    const abody = document.getElementById('audit-body');
+    if (abody) {
+      abody.innerHTML = (audit || []).map(e => {
+        const ok = (e.result === 'ok' || !e.result);
+        return '<tr>'
+          + '<td>' + escape(e.ts || '-') + '</td>'
+          + '<td>' + escape(e.op) + '</td>'
+          + '<td>' + (e.peer_uid || 0) + '</td>'
+          + '<td class="' + (ok ? 'ok' : 'err') + '">' + escape(ok ? 'ok' : e.result) + '</td>'
+          + '</tr>';
+      }).join('') || '<tr><td colspan="4" class="muted">no privileged mutations recorded</td></tr>';
+    }
   }
 
   // renderQualityContext renders the baseline early-warning, bufferbloat letter,
@@ -1183,6 +1236,7 @@
       renderAlerts(snap.anomalies);
       renderCapture(snap.capture || { running: false, ifaces: [] });
       renderIPFIX(snap.ipfix);
+      renderHealth(snap.subsystems, snap.audit, snap.privsep);
       renderSettings(snap.thresholds);
     } catch (e) {
       console.error('refresh failed', e);

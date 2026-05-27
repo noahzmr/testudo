@@ -70,6 +70,10 @@ func (w *Writer) AddFilterRule(fr FilterRule) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpAddFilterRule, Filter: &fr})
+}
+
+func (w *Writer) addFilterRuleDirect(fr FilterRule) error {
 	if err := validateFilterRule(fr); err != nil {
 		return err
 	}
@@ -128,6 +132,10 @@ func (w *Writer) DelFilterRule(target FilterRule) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpDelFilterRule, Filter: &target})
+}
+
+func (w *Writer) delFilterRuleDirect(target FilterRule) error {
 	conn, err := nftables.New()
 	if err != nil {
 		return fmt.Errorf("nftables new: %w", err)

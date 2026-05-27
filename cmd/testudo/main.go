@@ -24,6 +24,7 @@ import (
 	"github.com/noahzmr/testudo/internal/engine"
 	sentryx "github.com/noahzmr/testudo/internal/integrations/sentry"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/privsep"
 	"github.com/noahzmr/testudo/internal/storage"
 	"github.com/noahzmr/testudo/internal/tui"
 )
@@ -43,6 +44,13 @@ func main() {
 }
 
 func run() error {
+	// The privileged helper is a re-exec of this binary with a reserved
+	// subcommand and the privsep socket on fd 3. Dispatch it before any normal
+	// startup so it never touches the TUI / storage-open path.
+	if len(os.Args) > 1 && os.Args[1] == privsep.HelperArg {
+		return runHelper()
+	}
+
 	cmd := "live"
 	args := os.Args[1:]
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -110,6 +118,10 @@ func usage() {
 	fmt.Println("Flow capture requires CAP_NET_RAW. Grant it once with:")
 	fmt.Println("  sudo setcap cap_net_raw,cap_net_admin=+ep ./testudo")
 	fmt.Println()
+	fmt.Println("Privileged netops run in a separate helper process; the engine, web UI,")
+	fmt.Println("and TUI drop capabilities at startup. Use `live --privsep=false` for the")
+	fmt.Println("legacy single-process mode.")
+	fmt.Println()
 	fmt.Println("Network management writes (route add/del, iface up/down, NAT add/del)")
 	fmt.Println("are disabled by default. Enable with:")
 	fmt.Println("  ./testudo live --allow-netops-write")
@@ -127,6 +139,7 @@ func cmdLive(args []string) error {
 	enableCapture := fs.Bool("capture", false, "enable packet capture (needs CAP_NET_RAW)")
 	iface := fs.String("iface", "", "comma-separated interfaces to capture on; empty = auto-discover all")
 	allowWrites := fs.Bool("allow-netops-write", false, "permit netlink writes (iface up/down, route add/del, NAT add/del)")
+	usePrivsep := fs.Bool("privsep", true, "run privileged netops in a separate helper process and drop the engine's capabilities (set false for legacy single-process mode)")
 	bufferbloat := fs.Bool("bufferbloat", false, "enable bufferbloat probe (saturates link periodically to measure loaded-RTT delta)")
 	bufferbloatTarget := fs.String("bufferbloat-target", cfg.BufferbloatTarget, "ping target during bufferbloat probe")
 	bufferbloatEvery := fs.Duration("bufferbloat-interval", cfg.BufferbloatInterval, "gap between bufferbloat runs")
@@ -170,7 +183,13 @@ func cmdLive(args []string) error {
 		_ = settings.Update(func(t *config.Thresholds) { t.AllowNetopsWrite = true })
 	}
 	cfg.Thresholds = settings.Snapshot()
-	nw := &netops.Writer{AllowWrites: cfg.Thresholds.AllowNetopsWrite}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	// Privilege separation: spawn the helper and drop the engine's caps before
+	// wiring anything else, so the web server / TUI / collectors run unprivileged.
+	nw, helperState := setupNetops(ctx, cfg, cfg.Thresholds.AllowNetopsWrite, *usePrivsep)
 
 	// Hook Sentry from persisted Settings (CLAUDE.md: "The Sentry DSN is
 	// configured in Settings"). Empty DSN is a no-op; the Settings tab can
@@ -178,13 +197,11 @@ func cmdLive(args []string) error {
 	_ = sentryx.Init(cfg.Thresholds.SentryDSN, "testudo")
 	defer sentryx.Flush()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
 	eng := engine.New(cfg, store, settings, nw)
 	if err := eng.Start(ctx); err != nil {
 		return err
 	}
+	helperState.report(eng)
 
 	runErr := tui.Run(ctx, tui.NewApp(eng))
 

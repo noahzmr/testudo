@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/engine"
+	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/storage"
 )
 
 // healthTab is the operational view for the new probe collectors. Every
@@ -24,6 +27,7 @@ type healthTab struct {
 	app    *App
 	ifaces []netops.IfaceInfo
 	wifi   []collectors.WiFiSnapshot
+	audit  []storage.AuditEntry
 }
 
 func newHealthTab(eng *engine.Engine, app *App) *healthTab {
@@ -48,6 +52,9 @@ func (t *healthTab) Update(msg tea.Msg) tea.Cmd {
 		if wc := t.eng.WiFi(); wc != nil {
 			t.wifi = wc.Snapshot()
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		t.audit, _ = t.eng.RecentAudit(ctx, 50)
+		cancel()
 	}
 	return nil
 }
@@ -66,6 +73,11 @@ func (t *healthTab) View(w, h int) string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Health · live results from probe collectors"))
 	b.WriteString("\n\n")
+
+	renderSubsystemSection(&b, innerW, t.eng.Health(), t.eng.PrivsepInfo())
+	b.WriteString("\n")
+	renderAuditSection(&b, innerW, t.audit)
+	b.WriteString("\n")
 
 	renderProbeSection(&b, innerW, "Top Talkers · ICMP+TCP to busiest LAN hosts",
 		state.BySource("top-talkers"),
@@ -90,6 +102,85 @@ func (t *healthTab) View(w, h int) string {
 	renderIfaceSection(&b, innerW, t.ifaces, t.wifi)
 
 	return boxStyle.Render(b.String())
+}
+
+// renderSubsystemSection draws the first-class self-status surface: one row per
+// supervised subsystem with its state, last error, restart count, and privilege
+// posture. A capture that soft-failed for lack of caps shows "unprivileged"
+// with the exact setcap hint, turning a silent no-op into an actionable list.
+// The privsep one-line status sits above the table.
+func renderSubsystemSection(b *strings.Builder, innerW int, statuses []health.Status, privsep string) {
+	b.WriteString(titleStyle.Render("Subsystems · supervised health"))
+	b.WriteString("\n")
+	if privsep != "" {
+		b.WriteString("  " + dimStyle.Render(privsep))
+		b.WriteString("\n")
+	}
+	if len(statuses) == 0 {
+		b.WriteString(subtitleStyle.Render("  no subsystems registered yet"))
+		b.WriteString("\n")
+		return
+	}
+	widths := []int{18, 13, 8, 40}
+	b.WriteString("  " + dimStyle.Render(renderTableRow(innerW, widths,
+		"SUBSYSTEM", "STATE", "RESTARTS", "LAST ERROR / PRIVILEGE")))
+	b.WriteString("\n")
+	for _, st := range statuses {
+		detail := st.LastErr
+		if st.State == health.StateUnprivileged && st.Hint != "" {
+			detail = st.Hint
+		}
+		if detail == "" {
+			detail = dimStyle.Render("-")
+		}
+		b.WriteString("  " + renderTableRow(innerW, widths,
+			st.Name,
+			subsystemStateCell(st.State),
+			fmt.Sprintf("%d", st.Restarts),
+			truncTarget(detail, 60)))
+		b.WriteString("\n")
+	}
+}
+
+// subsystemStateCell colours a health state.
+func subsystemStateCell(s health.State) string {
+	switch s {
+	case health.StateOK:
+		return okStyle.Render("ok")
+	case health.StateDegraded:
+		return warnStyle.Render("degraded")
+	case health.StateUnprivileged:
+		return warnStyle.Render("unprivileged")
+	case health.StateFailed:
+		return errStyle.Render("failed")
+	}
+	return dimStyle.Render(string(s))
+}
+
+// renderAuditSection draws the read-only audit log of privileged mutations:
+// every netops write funnelled through the helper, who requested it, and how it
+// turned out. Closes the "no audit log of changes" security gap in the UI.
+func renderAuditSection(b *strings.Builder, innerW int, entries []storage.AuditEntry) {
+	b.WriteString(titleStyle.Render("Audit Log · privileged mutations"))
+	b.WriteString("\n")
+	if len(entries) == 0 {
+		b.WriteString(subtitleStyle.Render("  no privileged mutations recorded"))
+		b.WriteString("\n")
+		return
+	}
+	widths := []int{12, 16, 8, 30}
+	b.WriteString("  " + dimStyle.Render(renderTableRow(innerW, widths,
+		"WHEN", "OP", "UID", "RESULT")))
+	b.WriteString("\n")
+	for _, e := range entries {
+		result := okStyle.Render("ok")
+		if e.Result != "ok" && e.Result != "" {
+			result = errStyle.Render(truncTarget(e.Result, 28))
+		}
+		b.WriteString("  " + renderTableRow(innerW, widths,
+			fmtAgo(e.TS), e.Op, fmt.Sprintf("%d", e.PeerUID), result))
+		b.WriteString("\n")
+	}
 }
 
 // renderTelemetrySection draws the per-flow TCP telemetry source card: which

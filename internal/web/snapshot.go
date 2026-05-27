@@ -45,6 +45,9 @@ type snapshot struct {
 	TopServices   []serviceRollupView  `json:"top_services"`
 	Telemetry     telemetryView        `json:"telemetry"`
 	WiFi          []wifiView           `json:"wifi"`
+	Subsystems    []subsystemView      `json:"subsystems"`
+	Audit         []auditView          `json:"audit"`
+	Privsep       string               `json:"privsep"`
 }
 
 // wifiView is the per-interface wireless snapshot the dashboard
@@ -80,10 +83,34 @@ type wifiView struct {
 	Source       string  `json:"source"`
 }
 
+// subsystemView mirrors health.Status for the Web self-status table.
+type subsystemView struct {
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	LastErr  string `json:"last_err"`
+	Hint     string `json:"hint"`
+	Restarts int    `json:"restarts"`
+	Core     bool   `json:"core"`
+}
+
+// auditView mirrors storage.AuditEntry for the Web read-only audit log.
+type auditView struct {
+	TS      string `json:"ts"`
+	Op      string `json:"op"`
+	Args    string `json:"args"`
+	PeerUID uint32 `json:"peer_uid"`
+	Result  string `json:"result"`
+}
+
 type gradeView struct {
 	Score   int    `json:"score"`
 	Letter  string `json:"letter"`
 	Verdict string `json:"verdict"`
+	// SelfHealth flags the grade as measured with reduced coverage when a core
+	// signal collector (ICMP/DNS/capture) is degraded or unprivileged, so the
+	// front end can show a "⚠ reduced coverage" badge on the grade card.
+	SelfHealthDegraded bool   `json:"self_health_degraded"`
+	SelfHealthState    string `json:"self_health_state"`
 	// HasData mirrors NetworkGrade.HasData in the TUI: false when every
 	// sub-score is still "no data", so the front end can switch the
 	// badge into a violet placeholder rather than rendering an
@@ -531,6 +558,28 @@ func (s *Server) buildSnapshot() snapshot {
 		}
 	}
 	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, tcpGradeFrom(eng), th, gctx)
+
+	// Self-status surface: subsystem health table, privsep posture, and the
+	// grade self-health badge. The web server is now unprivileged - the privsep
+	// line states it explicitly.
+	snap.Privsep = eng.PrivsepInfo()
+	worst, coreDegraded := eng.SelfHealth()
+	snap.Grade.SelfHealthState = string(worst)
+	snap.Grade.SelfHealthDegraded = coreDegraded
+	for _, st := range eng.Health() {
+		snap.Subsystems = append(snap.Subsystems, subsystemView{
+			Name: st.Name, State: string(st.State), LastErr: st.LastErr,
+			Hint: st.Hint, Restarts: st.Restarts, Core: st.Core,
+		})
+	}
+	if auditEntries, err := eng.RecentAudit(context.Background(), 100); err == nil {
+		for _, e := range auditEntries {
+			snap.Audit = append(snap.Audit, auditView{
+				TS: e.TS.Format(time.RFC3339), Op: e.Op, Args: e.Args,
+				PeerUID: e.PeerUID, Result: e.Result,
+			})
+		}
+	}
 
 	// Neighbour (ARP/NDP) table + IP conflicts, and live conntrack flows.
 	if nc := eng.Neigh(); nc != nil {

@@ -185,6 +185,21 @@ CREATE TABLE IF NOT EXISTS flow_snapshots (
     tcp_source       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_flow_snapshots_session ON flow_snapshots(session_id, ts);
+
+-- Audit log of every privileged mutation performed via the netops helper. NOT
+-- session-scoped: it is a security record that must survive session rotation.
+-- Appended by the privileged helper (which knows the requesting peer's uid via
+-- SO_PEERCRED); read-only in both UIs. Closes the "no audit log of changes"
+-- security gap from the assessment.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        INTEGER NOT NULL,
+    op        TEXT NOT NULL,    -- op kind, e.g. "route_add"
+    args      TEXT NOT NULL,    -- JSON-encoded arguments
+    peer_uid  INTEGER NOT NULL, -- SO_PEERCRED uid of the requesting process
+    result    TEXT NOT NULL     -- "ok" or the error string
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
 `
 
 type Store struct {
@@ -627,6 +642,72 @@ func (s *Store) AnomaliesBySession(ctx context.Context, sessionID string) ([]Ano
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// AuditEntry is one row in the audit_log: a privileged mutation, who requested
+// it, and how it turned out.
+type AuditEntry struct {
+	TS      time.Time
+	Op      string
+	Args    string // JSON-encoded
+	PeerUID uint32
+	Result  string // "ok" or the error message
+}
+
+// InsertAudit appends one privileged-mutation record. Called by the helper.
+func (s *Store) InsertAudit(ctx context.Context, e AuditEntry) error {
+	ts := e.TS
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	result := e.Result
+	if result == "" {
+		result = "ok"
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO audit_log (ts, op, args, peer_uid, result) VALUES (?, ?, ?, ?, ?)`,
+		ts.UnixMilli(), e.Op, e.Args, int64(e.PeerUID), result,
+	)
+	return err
+}
+
+// RecentAudit returns the most-recent privileged mutations, newest first.
+func (s *Store) RecentAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT ts, op, args, peer_uid, result FROM audit_log ORDER BY ts DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		var ms int64
+		var uid int64
+		if err := rows.Scan(&ms, &e.Op, &e.Args, &uid, &e.Result); err != nil {
+			return nil, err
+		}
+		e.TS = time.UnixMilli(ms)
+		e.PeerUID = uint32(uid)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// CapAuditLog trims the audit log to the newest maxRows entries so the security
+// record stays bounded like the other unbounded tables.
+func (s *Store) CapAuditLog(ctx context.Context, maxRows int) error {
+	if maxRows <= 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM audit_log WHERE id NOT IN (
+			SELECT id FROM audit_log ORDER BY ts DESC LIMIT ?
+		)`, maxRows)
+	return err
 }
 
 // SamplesBySession returns all samples for a session in chronological order.

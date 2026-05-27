@@ -10,14 +10,14 @@ import (
 
 // RouteInfo is a denormalised view of one kernel route.
 type RouteInfo struct {
-	Dst       string // CIDR or "default"
-	Gateway   string // empty if direct
-	Iface     string // outgoing interface name
-	Protocol  string // human-readable RTPROT_*
-	Scope     string // human-readable RT_SCOPE_*
-	Metric    int
-	Family    string // ipv4 / ipv6
-	Table     int    // 254 = main
+	Dst      string // CIDR or "default"
+	Gateway  string // empty if direct
+	Iface    string // outgoing interface name
+	Protocol string // human-readable RTPROT_*
+	Scope    string // human-readable RT_SCOPE_*
+	Metric   int
+	Family   string // ipv4 / ipv6
+	Table    int    // 254 = main
 }
 
 // ListRoutes returns the kernel's full routing table (all tables) ordered
@@ -45,6 +45,10 @@ func (w *Writer) AddDefaultRoute(iface, gateway string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpAddDefaultRoute, Iface: iface, Gateway: gateway})
+}
+
+func (w *Writer) addDefaultRouteDirect(iface, gateway string) error {
 	link, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", iface, err)
@@ -69,6 +73,10 @@ func (w *Writer) AddRoute(cidr, gateway, iface string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpAddRoute, CIDR: cidr, Gateway: gateway, Iface: iface})
+}
+
+func (w *Writer) addRouteDirect(cidr, gateway, iface string) error {
 	_, dst, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return fmt.Errorf("parse cidr %q: %w", cidr, err)
@@ -96,6 +104,10 @@ func (w *Writer) DelRoute(cidr string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
+	return w.be().Mutate(Op{Kind: OpDelRoute, CIDR: cidr})
+}
+
+func (w *Writer) delRouteDirect(cidr string) error {
 	_, dst, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return fmt.Errorf("parse cidr %q: %w", cidr, err)

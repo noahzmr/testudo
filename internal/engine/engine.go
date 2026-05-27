@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/events"
 	"github.com/noahzmr/testudo/internal/flows"
+	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/incidents"
 	"github.com/noahzmr/testudo/internal/ipfix"
 	"github.com/noahzmr/testudo/internal/metrics"
@@ -49,7 +49,13 @@ type Engine struct {
 	neigh     *collectors.NeighConntrackCollector
 	netwatch  *collectors.NetlinkWatchCollector
 	tcpinfo   *collectors.TCPInfoCollector
+	sup       *supervisor
 	sessionID string
+
+	// privsepInfo is a one-line description of the privilege-separation posture
+	// ("running unprivileged; privileged ops via helper (pid N)"). Set once at
+	// startup before the UIs run, then read-only.
+	privsepInfo string
 
 	// fwTrack derives a DROP/REJECT velocity from successive firewall-rule
 	// counter snapshots (see snapshotter.go). The grade reads it via
@@ -83,9 +89,11 @@ type Engine struct {
 // New wires the engine. settings must already be loaded; nw is optional
 // (may be nil if netops are unavailable).
 func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore, nw *netops.Writer) *Engine {
+	bus := events.NewBus(2048)
 	return &Engine{
 		cfg:       cfg,
-		bus:       events.NewBus(2048),
+		bus:       bus,
+		sup:       newSupervisor(bus),
 		agg:       metrics.NewAggregator(),
 		bw:        metrics.NewBandwidthHistory(120),
 		flowAgg:   flows.NewAggregator(),
@@ -313,9 +321,13 @@ func (e *Engine) StartCapture(ifaces []string) error {
 	e.captureWG.Add(1)
 	go func() {
 		defer e.captureWG.Done()
-		if err := multi.Run(ctx, e.bus); err != nil {
-			log.Printf("capture exited: %v", err)
-		}
+		// Supervise capture like any collector: a missing CAP_NET_RAW soft-fails
+		// to the unprivileged health state (with a setcap hint) instead of a
+		// silent no-op, and a panic in the decode path degrades+restarts capture
+		// rather than crashing the engine.
+		e.sup.run(ctx, "capture", true, func(ctx context.Context) error {
+			return multi.Run(ctx, e.bus)
+		})
 	}()
 	e.captureWG.Add(1)
 	go func() {
@@ -626,18 +638,68 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 		e.wg.Add(1)
 		go func() {
 			defer e.wg.Done()
-			if err := c.Run(ctx, e.bus); err != nil {
-				log.Printf("collector %s exited: %v", c.Name(), err)
-				e.bus.Publish(events.Event{
-					Kind: events.KindAnomaly, Source: c.Name(),
-					Payload: events.AnomalyPayload{
-						Severity: string(events.SevError),
-						Message:  fmt.Sprintf("%s collector failed: %v", c.Name(), err),
-					},
-				})
-			}
+			// Each collector runs under the supervisor: a panic recovers into a
+			// bounded-backoff restart and a degraded health state, so one bad
+			// subsystem never takes the engine down.
+			e.sup.run(ctx, c.Name(), isCoreCollector(c.Name()), func(ctx context.Context) error {
+				return c.Run(ctx, e.bus)
+			})
 		}()
 	}
+}
+
+// isCoreCollector marks the signal-bearing collectors whose degradation should
+// flag the Network Quality grade as "measuring with reduced coverage". A
+// degraded peripheral collector (wifi, tls-cert) doesn't undermine the headline
+// connectivity grade; a degraded ICMP/DNS/capture collector does.
+func isCoreCollector(name string) bool {
+	switch name {
+	case "icmp", "dns", "capture":
+		return true
+	}
+	return false
+}
+
+// Health returns the current subsystem-status table for the TUI and Web UIs.
+func (e *Engine) Health() []health.Status { return e.sup.Registry().Snapshot() }
+
+// RecentAudit returns the most-recent privileged mutations from the audit log
+// for the read-only audit views in both UIs.
+func (e *Engine) RecentAudit(ctx context.Context, limit int) ([]storage.AuditEntry, error) {
+	return e.store.RecentAudit(ctx, limit)
+}
+
+// SetPrivsepInfo records the one-line privilege-separation status, set once at
+// startup before the UIs run.
+func (e *Engine) SetPrivsepInfo(s string) { e.privsepInfo = s }
+
+// PrivsepInfo returns the one-line privilege-separation status for the UIs.
+func (e *Engine) PrivsepInfo() string { return e.privsepInfo }
+
+// SelfHealth summarises overall subsystem health for the Network Quality
+// self-health badge: the worst state across subsystems and whether a core
+// signal collector (ICMP/DNS/capture) is degraded/unprivileged.
+func (e *Engine) SelfHealth() (worst health.State, coreDegraded bool) {
+	return e.sup.Registry().Worst()
+}
+
+// MarkSubsystem lets non-collector code (capture control, the privileged
+// helper handshake) report a subsystem state into the same registry the UIs
+// render. It publishes the transition like the supervisor does.
+func (e *Engine) MarkSubsystem(name string, core bool, state health.State, lastErr, hint string) {
+	reg := e.sup.Registry()
+	reg.Register(name, core)
+	switch state {
+	case health.StateOK:
+		reg.MarkOK(name)
+	case health.StateDegraded:
+		reg.MarkDegraded(name, lastErr)
+	case health.StateFailed:
+		reg.MarkFailed(name, lastErr)
+	case health.StateUnprivileged:
+		reg.MarkUnprivileged(name, lastErr, hint)
+	}
+	e.sup.publish(name)
 }
 
 func (e *Engine) startAnalyzers(ctx context.Context) {
@@ -892,6 +954,7 @@ func (e *Engine) startMetricsAndStorageConsumer(ctx context.Context) {
 		events.KindDNSResult, events.KindDNSFailure,
 		events.KindAnomaly,
 		events.KindLinkStateChange, events.KindAddrChange, events.KindRouteChange,
+		events.KindSubsystemDegraded,
 	)
 	e.wg.Add(1)
 	go func() {
@@ -965,6 +1028,26 @@ func (e *Engine) applyEvent(ctx context.Context, ev events.Event) {
 			return
 		}
 		_ = e.store.InsertAnomaly(ctx, e.sessionID, p.Severity, p.Message)
+	case events.KindSubsystemDegraded:
+		// Persist subsystem health transitions onto the timeline so replay shows
+		// "capture went degraded at 19:44" alongside the incident. Only non-OK
+		// transitions are worth a timeline entry; an OK recovery is logged at INFO.
+		p, ok := ev.Payload.(events.SubsystemStatePayload)
+		if !ok {
+			return
+		}
+		if p.State == string(health.StateOK) {
+			return
+		}
+		sev := string(events.SevWarn)
+		if p.State == string(health.StateFailed) {
+			sev = string(events.SevError)
+		}
+		msg := fmt.Sprintf("subsystem %s → %s", p.Name, p.State)
+		if p.LastErr != "" {
+			msg += ": " + p.LastErr
+		}
+		_ = e.store.InsertAnomalyAt(ctx, e.sessionID, sev, msg, ev.Time)
 	case events.KindLinkStateChange, events.KindAddrChange, events.KindRouteChange:
 		// Persist push-based state changes onto the timeline at their precise
 		// kernel timestamp so replay shows sub-second change times rather than
