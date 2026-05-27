@@ -137,13 +137,13 @@ func (e *Engine) Config() config.Config           { return e.cfg }
 // WiFi returns the WiFi collector so the TUI / Web UI can read the
 // rich per-interface snapshot (SSID, BSSID, frequency, bitrate,
 // txpower, etc.). Returns nil when WiFi monitoring is disabled in
-// config — callers must nil-check before invoking Snapshot.
+// config - callers must nil-check before invoking Snapshot.
 func (e *Engine) WiFi() *collectors.WiFiCollector { return e.wifi }
 
 // Neigh returns the neighbour/conntrack collector so the TUI and Web UI can
 // read the cached ARP/NDP table, IP conflicts, and live conntrack flows from
 // one source. Returns nil when the collector is disabled or netops are
-// unavailable — callers must nil-check.
+// unavailable - callers must nil-check.
 func (e *Engine) Neigh() *collectors.NeighConntrackCollector { return e.neigh }
 
 // NetlinkWatch returns the RTNETLINK push watcher so the TUI and Web UI can

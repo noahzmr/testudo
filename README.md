@@ -552,7 +552,7 @@ Testudo is **pure Go**. There is no `cgo` dependency, no `libpcap`, no `libsqlit
    ```
 
    The capabilities are held by a **thin privileged helper**, not the whole
-   process — see [Privilege Separation](#privilege-separation) below.
+   process - see [Privilege Separation](#privilege-separation) below.
 
 4. **Run from anywhere** in your terminal:
 
@@ -579,11 +579,11 @@ holding `CAP_NET_RAW`+`CAP_NET_ADMIN`. Instead:
 
 - A **thin privileged helper** (`testudo __helper`, a re-exec of the same binary)
   holds the capabilities and performs only the narrow set of operations that need
-  them — netlink/nftables mutations (route/iface/addr/MTU/NAT/filter/conntrack)
+  them - netlink/nftables mutations (route/iface/addr/MTU/NAT/filter/conntrack)
   and raw-socket opening. It talks to the engine over an anonymous
   `SOCK_SEQPACKET` socket, file descriptors travel back via `SCM_RIGHTS`, and the
   helper authenticates the engine with `SO_PEERCRED`.
-- The **engine — including the web server and TUI — runs unprivileged.** After
+- The **engine - including the web server and TUI - runs unprivileged.** After
   spawning the helper it sets `PR_SET_NO_NEW_PRIVS`, clears its capability
   bounding set, and drops all capabilities (`capset`). A web-plane compromise no
   longer inherits raw-socket / netlink-write power.
@@ -604,7 +604,7 @@ capability soft-fails to an *unprivileged* state carrying the exact `setcap`
 hint. The **Health** tab (TUI) and the web dashboard surface this as a
 first-class subsystem-status table, and the Network Quality card shows a
 **"⚠ reduced coverage"** badge when a core signal collector (ICMP/DNS/capture)
-is degraded — so an A grade isn't mistaken for "all good" while collectors are
+is degraded - so an A grade isn't mistaken for "all good" while collectors are
 down.
 
 Privilege separation is on by default; pass `--privsep=false` to `testudo live`
@@ -932,7 +932,7 @@ The four sub-scores are weighted, summed, rounded, and run through this ladder:
 | 50 - 59     | **D**  | Poor       | red    | Multiple sub-scores in the painful zone; expect complaints.               |
 | 0 - 49      | **F**  | Failing    | red    | Network is meaningfully broken; open the Alerts tab and start digging.    |
 
-### Baseline-relative modifier — *is tonight worse than normal?*
+### Baseline-relative modifier - *is tonight worse than normal?*
 
 Absolute thresholds answer "is this bad?"; they can't answer "is this *unusual*?". Testudo learns a per-target, per-hour-of-day **baseline** (a rolling `quality_rollup` table keyed `(target, day-of-week, hour)` holding p50/p95/p99/loss/jitter, merged with an exponential moving average so recent weeks dominate and old data decays). The dashboard compares the live RTT against the baseline for *this* hour and shows a badge per target:
 
@@ -941,11 +941,11 @@ RTT to 1.1.1.1   18ms  (≈ normal)
 RTT to 1.1.1.1   55ms  (3.1× normal ▲)
 ```
 
-When the live metric is far worse than the learned normal **even if the absolute threshold isn't breached yet**, the grade is nudged down (up to −25 points) as an *early warning* — the letter drops before users start complaining. Within the normal envelope the modifier is neutral. An **empty baseline** (first run, or a freshly-added target) applies **no penalty**, consistent with the "nothing measured → nothing wrong" contract. When the network legitimately changes (new ISP, moved desk), use **Settings → Reset learned baselines** (write-gated) to clear the stale rows.
+When the live metric is far worse than the learned normal **even if the absolute threshold isn't breached yet**, the grade is nudged down (up to −25 points) as an *early warning* - the letter drops before users start complaining. Within the normal envelope the modifier is neutral. An **empty baseline** (first run, or a freshly-added target) applies **no penalty**, consistent with the "nothing measured → nothing wrong" contract. When the network legitimately changes (new ISP, moved desk), use **Settings → Reset learned baselines** (write-gated) to clear the stale rows.
 
 ### Tail latency: p50 / p95 / p99
 
-The RTT and jitter sub-scores are fed by the live percentile set, now **p50 / p95 / p99** (previously only avg/p95). p99 surfaces the tail — the occasional 400 ms spike a healthy average hides — so the grade reflects what a latency-sensitive call or game actually experiences.
+The RTT and jitter sub-scores are fed by the live percentile set, now **p50 / p95 / p99** (previously only avg/p95). p99 surfaces the tail - the occasional 400 ms spike a healthy average hides - so the grade reflects what a latency-sensitive call or game actually experiences.
 
 ### Bufferbloat letter (A–F)
 
@@ -954,12 +954,12 @@ The bufferbloat probe's idle-vs-loaded RTT delta is mapped to its own A–F lett
 | Loaded-vs-idle delta | Letter | Meaning                                  |
 | -------------------- | ------ | ---------------------------------------- |
 | `< 30 ms`            | **A**  | Imperceptible.                           |
-| `30 – 100 ms`        | **B**  | Mild — noticeable under load.            |
+| `30 – 100 ms`        | **B**  | Mild - noticeable under load.            |
 | `100 – 200 ms`       | **C**  | Significant.                             |
-| `200 – 300 ms`       | **D**  | Heavy — calls/gaming stutter under load. |
-| `≥ 300 ms`           | **F**  | Severe — VoIP/gaming unusable.           |
+| `200 – 300 ms`       | **D**  | Heavy - calls/gaming stutter under load. |
+| `≥ 300 ms`           | **F**  | Severe - VoIP/gaming unusable.           |
 
-### ISP-degradation isolation — *where's the problem?*
+### ISP-degradation isolation - *where's the problem?*
 
 When latency climbs, Testudo decomposes the path (reusing the traceroute hops plus the gateway/WAN reference RTTs) into **first-hop / gateway / WAN / target** segments and names the one contributing the dominant incremental delay:
 
@@ -967,7 +967,7 @@ When latency climbs, Testudo decomposes the path (reusing the traceroute hops pl
 Degradation isolated to: WAN (gateway healthy)
 ```
 
-A healthy path reports "path healthy (no segment dominates)". This turns "the internet is slow" into "the ISP path is slow but your LAN and router are fine" — the difference between opening a ticket with your ISP and rebooting your access point.
+A healthy path reports "path healthy (no segment dominates)". This turns "the internet is slow" into "the ISP path is slow but your LAN and router are fine" - the difference between opening a ticket with your ISP and rebooting your access point.
 
 ### When to expect each grade
 

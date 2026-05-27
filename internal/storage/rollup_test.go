@@ -73,7 +73,7 @@ func TestRetentionSeparation(t *testing.T) {
 	if err := st.InsertSample(ctx, sid, Sample{Kind: "rtt", Value: 10, TS: old}); err != nil {
 		t.Fatal(err)
 	}
-	// Rollup updated 40 days ago — should survive (rollup retention is 1y).
+	// Rollup updated 40 days ago - should survive (rollup retention is 1y).
 	if err := st.PutRollup(ctx, RollupRow{Target: "1.1.1.1", DOW: 1, Hour: 2, P50RTT: 12, Samples: 5, Updated: old}); err != nil {
 		t.Fatal(err)
 	}

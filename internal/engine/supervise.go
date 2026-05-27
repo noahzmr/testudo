@@ -157,7 +157,7 @@ func privilegeHint(name string, err error) (string, bool) {
 		strings.Contains(low, "permission denied") ||
 		strings.Contains(low, "eperm") ||
 		strings.Contains(low, "eacces") {
-		return "needs CAP_NET_RAW/CAP_NET_ADMIN — run via the privileged helper, " +
+		return "needs CAP_NET_RAW/CAP_NET_ADMIN - run via the privileged helper, " +
 			"or: sudo setcap cap_net_raw,cap_net_admin=eip ./testudo", true
 	}
 	return "", false

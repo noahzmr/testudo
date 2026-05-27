@@ -3,23 +3,107 @@
 <head>
   <meta charset="utf-8">
   <title>Testudo · login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="/static/app.css">
   <style>
-    body { display: grid; place-items: center; min-height: 100vh; }
-    .login-card { width: 22rem; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
-    .login-card h1 { font-size: 18px; color: var(--accent); margin: 0 0 1rem 0; text-align: center; }
-    .login-card form { display: grid; gap: 0.75rem; }
-    .login-card input { width: 100%; padding: 0.5rem 0.6rem; background: var(--bg-row); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); font: inherit; }
-    .login-card button { padding: 0.55rem; background: var(--accent-strong); color: white; border: 0; border-radius: 4px; cursor: pointer; }
-    .err-line { color: var(--err); min-height: 1.3em; text-align: center; font-size: 13px; }
+    body {
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      background:
+        radial-gradient(70% 90% at 50% -10%, rgba(163,113,247,0.16), transparent 60%),
+        var(--bg);
+    }
+    .login-card {
+      width: 30rem;
+      max-width: calc(100vw - 2rem);
+      padding: 2rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-pop);
+    }
+    /* Terminal-native brand banner - the same ASCII turtle the CLI prints
+       on boot, scaled to fit the card and tinted in the brand violet. */
+    .login-banner {
+      margin: 0 auto 0.75rem;
+      width: max-content;
+      max-width: 100%;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: clamp(5px, 1.45vw, 8px);
+      line-height: 1.05;
+      color: var(--accent-violet);
+      text-shadow: 0 0 12px rgba(163,113,247,0.35);
+      text-align: left;
+      white-space: pre;
+    }
+    .login-brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--accent-violet);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 0.35rem;
+    }
+    .login-brand .brand-mark { filter: drop-shadow(0 0 10px rgba(163,113,247,0.5)); }
+    .login-sub {
+      text-align: center;
+      color: var(--fg-dim);
+      font-size: 12.5px;
+      margin: 0 0 1.5rem 0;
+    }
+    .login-card form { display: grid; gap: 0.85rem; }
+    .login-card label {
+      display: grid;
+      gap: 0.3rem;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--fg-dim);
+    }
+    .login-card button {
+      margin-top: 0.35rem;
+      padding: 0.65rem;
+      background: var(--accent);
+      color: #06210d;
+      border: 0;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+      transition: background 0.12s;
+    }
+    .login-card button:hover { background: #56d364; }
+    .err-line {
+      color: var(--accent-red);
+      min-height: 1.3em;
+      text-align: center;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
   <div class="login-card">
-    <h1>Testudo</h1>
+    <pre class="login-banner" aria-hidden="true">      ___    __________ ________   ______ __________  __   __   _______     ______
+ ,,  // \\   \__    __/ |  ____/  /  ___/ \__    __/ |  | |  | |   ___  \  /  __   \
+(_,\/ \_/ \     |  |    |  |___   \  \       |  |    |  | |  | |  |   \  \ |  |  |  |
+  \ \_/_\_/&gt;    |  |    |   ___|   \  \      |  |    |  | |  | |  |   |  | |  |  |  |
+  /_/  /_/      |  |    |  |_____  /  /      |  |    |  |_|  | |  |___/  / |  |__|  |
+                |__|    |_______/ /__/       |__|     \_____/  |________/   \______/</pre>
+    <p class="login-sub">Network observability &amp; operations console</p>
     <form method="post" action="/login">
-      <input name="username" placeholder="username" autocomplete="username" autofocus>
-      <input name="password" placeholder="password" type="password" autocomplete="current-password">
+      <label>Username
+        <input name="username" placeholder="username" autocomplete="username" autofocus>
+      </label>
+      <label>Password
+        <input name="password" placeholder="password" type="password" autocomplete="current-password">
+      </label>
       <button type="submit">Sign in</button>
       <div class="err-line">{{.Error}}</div>
     </form>

@@ -19,7 +19,7 @@ package privsep
 import "errors"
 
 // Opcodes name the privileged operations the helper exposes. Bodies are opaque
-// to privsep — the caller and handler agree on their encoding.
+// to privsep - the caller and handler agree on their encoding.
 const (
 	OpPing       byte = 0x01 // liveness handshake; empty body
 	OpMutate     byte = 0x02 // body = encoded netops mutation descriptor

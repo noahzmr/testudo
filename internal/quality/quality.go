@@ -73,7 +73,7 @@ type Sample struct {
 
 // BaselineRatio returns current RTT ÷ baseline median RTT for the bucket and
 // ok=true when a usable baseline exists. ok=false (ratio 1.0) means "no opinion"
-// — an empty baseline (first run / new target) or a non-positive median — and
+// - an empty baseline (first run / new target) or a non-positive median - and
 // per the Network Quality contract must be treated as neutral, never a penalty.
 func BaselineRatio(b Rollup, now Sample) (ratio float64, ok bool) {
 	if b.Samples <= 0 || b.P50RTT <= 0 || now.RTTms <= 0 {
@@ -194,7 +194,7 @@ const isolateFloorMs = 25.0
 // segments and names the one contributing the dominant incremental delay, with a
 // human verdict. hops are traceroute hops in TTL order; gwRTT and wanRTT are
 // reference RTTs (ms) for the gateway and a WAN anchor (e.g. 1.1.1.1). Returns
-// FaultNone when no segment's incremental delay clears the floor — the answer to
+// FaultNone when no segment's incremental delay clears the floor - the answer to
 // "where's the problem?" when there isn't one.
 func IsolateFault(hops []probes.TraceHop, gwRTT, wanRTT float64) (FaultLayer, string) {
 	firstHop, targetRTT := hopBounds(hops)

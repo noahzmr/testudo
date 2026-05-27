@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS quality_rollup (
     PRIMARY KEY (target, dow, hour)
 );
 
--- Periodic, timestamped flow snapshots — the time-bucketed counterpart to the
+-- Periodic, timestamped flow snapshots - the time-bucketed counterpart to the
 -- cumulative flows table, so "what was talking at 02:00?" is answerable.
 CREATE TABLE IF NOT EXISTS flow_snapshots (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -517,9 +517,9 @@ func watchIndicator(eng *engine.Engine) string {
 	case "live":
 		return okStyle.Render("● live")
 	case "polled":
-		s := warnStyle.Render("● polled — netlink subscribe unavailable")
+		s := warnStyle.Render("● polled - netlink subscribe unavailable")
 		if st.Detail != "" {
-			s = warnStyle.Render("● polled — " + st.Detail)
+			s = warnStyle.Render("● polled - " + st.Detail)
 		}
 		return s
 	default:
@@ -1196,7 +1196,7 @@ func (t *firewallTab) View(w, h int) string {
 				out = append(out, "  "+renderTableRow(innerW, ruleWidths,
 					"HANDLE", "MATCH", "VERDICT", "PKTS", "BYTES"))
 			}
-			pkts, bytes := "—", "—"
+			pkts, bytes := "-", "-"
 			if ru.HasCounter {
 				pkts = fmt.Sprintf("%d", ru.Packets)
 				bytes = fmtBytes(ru.Bytes)
@@ -1674,7 +1674,7 @@ func (t *settingsTab) rows() []thresholdRow {
 }
 
 // resetBaselines clears the persisted (target, dow, hour) rollup for every
-// real probe target — used when the network legitimately changed (new ISP,
+// real probe target - used when the network legitimately changed (new ISP,
 // moved desk) so a stale baseline stops dragging the grade.
 func (t *settingsTab) resetBaselines() tea.Cmd {
 	targets := t.eng.Aggregator().SnapshotTargets()

@@ -7,35 +7,99 @@
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">⛯ Testudo</div>
-    <div class="session">
-      <span id="session-id">-</span>
-      <span class="dot">·</span>
-      <span>uptime <span id="uptime">-</span></span>
-    </div>
-    <nav class="tabs">
-      <button data-tab="dashboard" class="tab active">Dashboard</button>
-      <button data-tab="flows" class="tab">Flows</button>
-      <button data-tab="devices" class="tab">Devices</button>
-      <button data-tab="ifaces" class="tab">Interfaces</button>
-      <button data-tab="routes" class="tab">Routes</button>
-      <button data-tab="firewall" class="tab">Firewall</button>
-      <button data-tab="nat" class="tab">NAT</button>
-      <button data-tab="tcpdump" class="tab">TCPDump</button>
-      <button data-tab="talkers" class="tab">Talkers</button>
-      <button data-tab="probes" class="tab">Probes</button>
-      <button data-tab="alerts" class="tab">Alerts</button>
-      <button data-tab="history" class="tab">History</button>
-      <button data-tab="health" class="tab">Health</button>
-      <button data-tab="settings" class="tab">Settings</button>
-    </nav>
-    <button id="logout" class="logout">logout</button>
-  </header>
+  <a href="#main" class="skip-link">Skip to content</a>
 
-  <main>
+  <!-- Icon sprite: stroke icons referenced by nav items via <use>. Defined
+       once so the markup stays compact. currentColor lets .tab styling tint. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-dash" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></symbol>
+      <symbol id="i-flows" viewBox="0 0 24 24"><polyline points="3 13 8 13 11 5 16 19 19 11 21 11"/></symbol>
+      <symbol id="i-talkers" viewBox="0 0 24 24"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="9"/></symbol>
+      <symbol id="i-probes" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></symbol>
+      <symbol id="i-alerts" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+      <symbol id="i-devices" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="17" x2="7.01" y2="17"/></symbol>
+      <symbol id="i-ifaces" viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="11" rx="2"/><line x1="6" y1="9" x2="6" y2="5"/><line x1="12" y1="9" x2="12" y2="5"/><line x1="18" y1="9" x2="18" y2="5"/></symbol>
+      <symbol id="i-routes" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v3a4 4 0 0 0 4 4h5.5"/></symbol>
+      <symbol id="i-firewall" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+      <symbol id="i-nat" viewBox="0 0 24 24"><polyline points="7 4 3 8 7 12"/><line x1="3" y1="8" x2="17" y2="8"/><polyline points="17 12 21 16 17 20"/><line x1="21" y1="16" x2="7" y2="16"/></symbol>
+      <symbol id="i-tcpdump" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></symbol>
+      <symbol id="i-health" viewBox="0 0 24 24"><path d="M3 12h4l2 6 4-14 2 8h6"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="15" cy="17" r="2.2"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- ===================== SIDEBAR (primary nav) ===================== -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand">Testudo</span>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Primary">
+        <div class="nav-group">
+          <div class="nav-group-label">Monitoring</div>
+          <button data-tab="dashboard" class="tab active" aria-current="page"><svg class="nav-ico"><use href="#i-dash"/></svg> Dashboard</button>
+          <button data-tab="flows" class="tab"><svg class="nav-ico"><use href="#i-flows"/></svg> Flows</button>
+          <button data-tab="talkers" class="tab"><svg class="nav-ico"><use href="#i-talkers"/></svg> Talkers</button>
+          <button data-tab="probes" class="tab"><svg class="nav-ico"><use href="#i-probes"/></svg> Probes</button>
+          <button data-tab="alerts" class="tab"><svg class="nav-ico"><use href="#i-alerts"/></svg> Alerts</button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">Network</div>
+          <button data-tab="devices" class="tab"><svg class="nav-ico"><use href="#i-devices"/></svg> Devices</button>
+          <button data-tab="ifaces" class="tab"><svg class="nav-ico"><use href="#i-ifaces"/></svg> Interfaces</button>
+          <button data-tab="routes" class="tab"><svg class="nav-ico"><use href="#i-routes"/></svg> Routes</button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">Security</div>
+          <button data-tab="firewall" class="tab"><svg class="nav-ico"><use href="#i-firewall"/></svg> Firewall</button>
+          <button data-tab="nat" class="tab"><svg class="nav-ico"><use href="#i-nat"/></svg> NAT</button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">Forensics</div>
+          <button data-tab="tcpdump" class="tab"><svg class="nav-ico"><use href="#i-tcpdump"/></svg> TCPDump</button>
+          <button data-tab="history" class="tab"><svg class="nav-ico"><use href="#i-history"/></svg> History</button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">System</div>
+          <button data-tab="health" class="tab"><svg class="nav-ico"><use href="#i-health"/></svg> Health</button>
+          <button data-tab="settings" class="tab"><svg class="nav-ico"><use href="#i-settings"/></svg> Settings</button>
+        </div>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="session">
+          <span>session <span id="session-id">-</span></span>
+          <span class="uptime-wrap">uptime <span id="uptime">-</span></span>
+        </div>
+        <button id="logout" class="logout">Sign out</button>
+      </div>
+    </aside>
+
+    <!-- scrim closes the drawer on mobile -->
+    <div class="scrim" id="scrim" aria-hidden="true"></div>
+
+    <!-- ===================== CONTENT COLUMN ===================== -->
+    <div class="content">
+      <header class="topbar">
+        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+        <h1 class="topbar-title" id="view-title">Dashboard</h1>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-meta">
+          <span class="live-dot" id="live-dot" title="live snapshot poll">live</span>
+          <span class="uptime-wrap">uptime <span id="uptime-top">-</span></span>
+        </div>
+      </header>
+
+      <main id="main">
     <!-- DASHBOARD ----------------------------------------------------- -->
-    <section data-pane="dashboard" class="pane active">
+    <section data-pane="dashboard" class="pane active" role="tabpanel" aria-label="Dashboard">
       <div class="card grade-card">
         <h2>Network Quality</h2>
         <div class="grade-row">
@@ -50,48 +114,62 @@
         <div class="grade-context" id="grade-context"></div>
       </div>
 
-      <div class="card">
-        <h2>Bandwidth - per interface (1Hz, 120s window)</h2>
-        <div id="bandwidth-list"></div>
+      <div class="card-grid">
+        <div class="card">
+          <h2>Bandwidth · per interface <span class="muted">(1Hz, 120s window)</span></h2>
+          <div id="bandwidth-list"></div>
+        </div>
+        <div class="card">
+          <h2>WiFi radios</h2>
+          <div id="wifi-list" class="wifi-list"></div>
+        </div>
       </div>
-      <div class="card">
-        <h2>WiFi radios</h2>
-        <div id="wifi-list" class="wifi-list"></div>
+
+      <div class="card-grid">
+        <div class="card">
+          <h2>ICMP latency <span class="muted">(rolling samples)</span></h2>
+          <div id="icmp-sparks"></div>
+        </div>
+        <div class="card">
+          <h2>DNS latency <span class="muted">(rolling samples)</span></h2>
+          <div id="dns-sparks"></div>
+        </div>
       </div>
-      <div class="card">
-        <h2>ICMP latency (rolling samples)</h2>
-        <div id="icmp-sparks"></div>
-      </div>
-      <div class="card">
-        <h2>DNS latency (rolling samples)</h2>
-        <div id="dns-sparks"></div>
+
+      <div class="card-grid">
+        <div class="card">
+          <h2>ICMP · per-target detail</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Target</th><th>Last</th><th>Avg</th><th>P50</th><th>P95</th><th>P99</th><th>Loss%</th><th>Jitter</th><th>Baseline</th></tr></thead>
+              <tbody id="targets-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>DNS · per-resolver detail</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Last</th><th>Avg</th><th>Queries</th><th>Failures</th></tr></thead>
+              <tbody id="dns-body"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="card">
-        <h2>ICMP - per-target detail</h2>
-        <table>
-          <thead><tr><th>Target</th><th>Last</th><th>Avg</th><th>P50</th><th>P95</th><th>P99</th><th>Loss%</th><th>Jitter</th><th>Baseline</th></tr></thead>
-          <tbody id="targets-body"></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h2>DNS - per-resolver detail</h2>
-        <table>
-          <thead><tr><th>Name</th><th>Last</th><th>Avg</th><th>Queries</th><th>Failures</th></tr></thead>
-          <tbody id="dns-body"></tbody>
-        </table>
-      </div>
-      <div class="card">
         <h2>Top flows</h2>
-        <table>
-          <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th>Packets</th><th>Bytes</th></tr></thead>
-          <tbody id="flows-body-dash"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th>Packets</th><th>Bytes</th></tr></thead>
+            <tbody id="flows-body-dash"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- FLOWS --------------------------------------------------------- -->
-    <section data-pane="flows" class="pane">
+    <section data-pane="flows" class="pane" role="tabpanel" aria-label="Flows">
       <div class="card">
         <h2>Flow capture</h2>
         <div class="row">
@@ -106,81 +184,91 @@
         </div>
       </div>
       <div class="card">
-        <input class="filter" id="flow-filter" placeholder="filter rows (proto / iface / process / IP / DNS)" />
-        <table>
-          <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th>DNS</th><th>Packets</th><th>Bytes</th></tr></thead>
-          <tbody id="flows-body"></tbody>
-        </table>
+        <input class="filter" id="flow-filter" placeholder="filter rows (proto / iface / process / IP / DNS)" aria-label="Filter flows" />
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th>DNS</th><th>Packets</th><th>Bytes</th></tr></thead>
+            <tbody id="flows-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- DEVICES ------------------------------------------------------- -->
-    <section data-pane="devices" class="pane">
+    <section data-pane="devices" class="pane" role="tabpanel" aria-label="Devices">
       <div class="card">
         <h2>Discovered devices</h2>
         <p class="muted">
           <b>Scan</b> probes each host for SSH / RDP / VNC / Telnet / HTTP / HTTPS.
           <b>Connect</b> launches via your Guacamole template (if set) or your browser's native URI handler.
         </p>
-        <table>
-          <thead><tr><th>IP</th><th>Hostname</th><th>Vendor</th><th>Open ports</th><th>Connect</th><th>Actions</th></tr></thead>
-          <tbody id="devices-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>IP</th><th>Hostname</th><th>Vendor</th><th>Open ports</th><th>Connect</th><th>Actions</th></tr></thead>
+            <tbody id="devices-body"></tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
         <h2>Neighbours (ARP / NDP)</h2>
         <p class="muted">
           The kernel neighbour table for both address families, with resolution state.
-          Duplicate IPs (one address answered by two MACs) are flagged — a hard local-network fault.
+          Duplicate IPs (one address answered by two MACs) are flagged - a hard local-network fault.
         </p>
         <div id="neigh-conflicts" class="banner" style="display:none"></div>
-        <table>
-          <thead><tr><th>IP</th><th>MAC</th><th>Dev</th><th>Family</th><th>State</th></tr></thead>
-          <tbody id="neigh-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>IP</th><th>MAC</th><th>Dev</th><th>Family</th><th>State</th></tr></thead>
+            <tbody id="neigh-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- INTERFACES ---------------------------------------------------- -->
-    <section data-pane="ifaces" class="pane">
+    <section data-pane="ifaces" class="pane" role="tabpanel" aria-label="Interfaces">
       <div class="card">
         <h2>Interfaces · live kernel state <span id="ifaces-watcher" class="watch-badge"></span></h2>
         <p class="muted">All kernel-visible interfaces are monitored. Errors / drops / collisions and a per-radio WiFi badge sit alongside the link state so a degraded NIC is obvious before flows go silent.</p>
-        <table>
-          <thead><tr>
-            <th>Name</th><th>State</th><th>Type</th><th>MTU</th><th>HW addr</th><th>Addresses</th>
-            <th>RX</th><th>TX</th>
-            <th>RX err</th><th>TX err</th><th>Drops</th><th>Coll.</th>
-            <th>WiFi</th>
-            <th>Actions</th>
-          </tr></thead>
-          <tbody id="ifaces-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Name</th><th>State</th><th>Type</th><th>MTU</th><th>HW addr</th><th>Addresses</th>
+              <th>RX</th><th>TX</th>
+              <th>RX err</th><th>TX err</th><th>Drops</th><th>Coll.</th>
+              <th>WiFi</th>
+              <th>Actions</th>
+            </tr></thead>
+            <tbody id="ifaces-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- ROUTES -------------------------------------------------------- -->
-    <section data-pane="routes" class="pane">
+    <section data-pane="routes" class="pane" role="tabpanel" aria-label="Routes">
       <div class="card">
         <h2>Add route</h2>
         <div class="form-row">
-          <input id="route-cidr" placeholder="cidr e.g. 10.0.0.0/24"/>
-          <input id="route-gw" placeholder="gateway (optional)"/>
-          <input id="route-iface" placeholder="iface (optional)"/>
+          <label>cidr<input id="route-cidr" placeholder="e.g. 10.0.0.0/24"/></label>
+          <label>gateway<input id="route-gw" placeholder="optional"/></label>
+          <label>iface<input id="route-iface" placeholder="optional"/></label>
           <button data-action="route-add" class="btn btn-go">Add</button>
         </div>
       </div>
       <div class="card">
         <h2>Routes <span id="routes-watcher" class="watch-badge"></span></h2>
-        <table>
-          <thead><tr><th>Family</th><th>Dst</th><th>Gateway</th><th>Iface</th><th>Proto</th><th>Metric</th><th></th></tr></thead>
-          <tbody id="routes-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Family</th><th>Dst</th><th>Gateway</th><th>Iface</th><th>Proto</th><th>Metric</th><th></th></tr></thead>
+            <tbody id="routes-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- FIREWALL ------------------------------------------------------ -->
-    <section data-pane="firewall" class="pane">
+    <section data-pane="firewall" class="pane" role="tabpanel" aria-label="Firewall">
       <div class="card">
         <h2>Add filter rule</h2>
         <div class="form-grid">
@@ -197,29 +285,35 @@
       </div>
       <div class="card">
         <h2>Testudo-managed rules</h2>
-        <table>
-          <thead><tr><th>Chain</th><th>Action</th><th>Proto</th><th>Port</th><th>In</th><th>Out</th><th>Src</th><th>Dst</th><th></th></tr></thead>
-          <tbody id="fw-rules-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Chain</th><th>Action</th><th>Proto</th><th>Port</th><th>In</th><th>Out</th><th>Src</th><th>Dst</th><th></th></tr></thead>
+            <tbody id="fw-rules-body"></tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
         <h2>Per-rule counters <span class="muted">· highest-hit DROP/REJECT first</span></h2>
-        <table>
-          <thead><tr><th>Chain</th><th>Handle</th><th>Match</th><th>Verdict</th><th>Pkts</th><th>Bytes</th><th></th></tr></thead>
-          <tbody id="fw-rules-counter-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Chain</th><th>Handle</th><th>Match</th><th>Verdict</th><th>Pkts</th><th>Bytes</th><th></th></tr></thead>
+            <tbody id="fw-rules-counter-body"></tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
-        <h2>System nftables (read-only)</h2>
-        <table>
-          <thead><tr><th>Family</th><th>Table</th><th>Chain</th><th>Hook</th><th>Type</th><th>Rules</th></tr></thead>
-          <tbody id="fw-system-body"></tbody>
-        </table>
+        <h2>System nftables <span class="muted">(read-only)</span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Family</th><th>Table</th><th>Chain</th><th>Hook</th><th>Type</th><th>Rules</th></tr></thead>
+            <tbody id="fw-system-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- NAT ----------------------------------------------------------- -->
-    <section data-pane="nat" class="pane">
+    <section data-pane="nat" class="pane" role="tabpanel" aria-label="NAT">
       <div class="card">
         <h2>Add port forward</h2>
         <div class="form-grid">
@@ -232,27 +326,31 @@
       </div>
       <div class="card">
         <h2>Port forwards</h2>
-        <table>
-          <thead><tr><th>Proto</th><th>WAN</th><th>=> LAN IP</th><th>LAN port</th><th></th></tr></thead>
-          <tbody id="nat-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Proto</th><th>WAN</th><th>=> LAN IP</th><th>LAN port</th><th></th></tr></thead>
+            <tbody id="nat-body"></tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
-        <h2>Conntrack — live flows</h2>
+        <h2>Conntrack - live flows</h2>
         <p class="muted">
           The kernel connection-tracking table. The reply tuple differs from the original once
           NAT rewrites it. <b>Flush</b> kills a stuck or translated flow (needs netops writes).
         </p>
         <div id="conntrack-util" class="row"></div>
-        <table>
-          <thead><tr><th>Proto</th><th>Original</th><th>Reply (NAT)</th><th>State</th><th>Bytes</th><th>Timeout</th><th>Action</th></tr></thead>
-          <tbody id="conntrack-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Proto</th><th>Original</th><th>Reply (NAT)</th><th>State</th><th>Bytes</th><th>Timeout</th><th>Action</th></tr></thead>
+            <tbody id="conntrack-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- TCPDUMP ------------------------------------------------------- -->
-    <section data-pane="tcpdump" class="pane">
+    <section data-pane="tcpdump" class="pane" role="tabpanel" aria-label="TCPDump">
       <div class="card">
         <h2>New capture · with filter wizard</h2>
         <div class="form-grid">
@@ -271,40 +369,50 @@
       </div>
       <div class="card">
         <h2>Captures</h2>
-        <table>
-          <thead><tr><th>ID</th><th>State</th><th>Iface</th><th>Size</th><th>Filter</th><th>File</th><th></th></tr></thead>
-          <tbody id="td-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>State</th><th>Iface</th><th>Size</th><th>Filter</th><th>File</th><th></th></tr></thead>
+            <tbody id="td-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- TALKERS ------------------------------------------------------- -->
-    <section data-pane="talkers" class="pane">
+    <section data-pane="talkers" class="pane" role="tabpanel" aria-label="Talkers">
       <div class="card">
-        <h2>Top hosts (by bytes)</h2>
-        <table>
-          <thead><tr><th>#</th><th>Host / DNS</th><th>Zone</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
-          <tbody id="talkers-hosts-body"></tbody>
-        </table>
+        <h2>Top hosts <span class="muted">(by bytes)</span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Host / DNS</th><th>Zone</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
+            <tbody id="talkers-hosts-body"></tbody>
+          </table>
+        </div>
       </div>
-      <div class="card">
-        <h2>Top processes</h2>
-        <table>
-          <thead><tr><th>#</th><th>Process</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
-          <tbody id="talkers-procs-body"></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h2>Top services</h2>
-        <table>
-          <thead><tr><th>#</th><th>Service</th><th>Proto</th><th>Port</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
-          <tbody id="talkers-services-body"></tbody>
-        </table>
+      <div class="card-grid">
+        <div class="card">
+          <h2>Top processes</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Process</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
+              <tbody id="talkers-procs-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Top services</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Service</th><th>Proto</th><th>Port</th><th>Bytes</th><th>Packets</th><th>Flows</th></tr></thead>
+              <tbody id="talkers-services-body"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
     <!-- PROBES -------------------------------------------------------- -->
-    <section data-pane="probes" class="pane">
+    <section data-pane="probes" class="pane" role="tabpanel" aria-label="Probes">
       <div class="card">
         <h2>Run probe</h2>
         <div class="form-row">
@@ -322,19 +430,21 @@
     </section>
 
     <!-- ALERTS -------------------------------------------------------- -->
-    <section data-pane="alerts" class="pane">
+    <section data-pane="alerts" class="pane" role="tabpanel" aria-label="Alerts">
       <div class="card">
         <h2>Alerts</h2>
-        <input class="filter" id="alert-filter" placeholder="filter alerts by substring"/>
-        <table>
-          <thead><tr><th>Time</th><th>Severity</th><th>Message</th></tr></thead>
-          <tbody id="alerts-body"></tbody>
-        </table>
+        <input class="filter" id="alert-filter" placeholder="filter alerts by substring" aria-label="Filter alerts"/>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Severity</th><th>Message</th></tr></thead>
+            <tbody id="alerts-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
     <!-- HISTORY ------------------------------------------------------- -->
-    <section data-pane="history" class="pane">
+    <section data-pane="history" class="pane" role="tabpanel" aria-label="History">
       <div class="card">
         <h2>Past sessions</h2>
         <p class="muted">
@@ -346,10 +456,12 @@
           <button data-action="history-refresh" class="btn">Refresh</button>
           <span class="muted" id="history-status">-</span>
         </div>
-        <table>
-          <thead><tr><th>ID</th><th>Started</th><th>Ended</th><th>Duration</th><th>Targets</th><th></th></tr></thead>
-          <tbody id="history-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Started</th><th>Ended</th><th>Duration</th><th>Targets</th><th></th></tr></thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card" id="history-detail-card" hidden>
@@ -357,16 +469,20 @@
         <div class="muted" id="history-detail-meta">-</div>
 
         <h3>Anomaly timeline</h3>
-        <table>
-          <thead><tr><th>Time</th><th>Severity</th><th>Message</th></tr></thead>
-          <tbody id="history-anomalies-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Severity</th><th>Message</th></tr></thead>
+            <tbody id="history-anomalies-body"></tbody>
+          </table>
+        </div>
 
         <h3>Snapshots</h3>
-        <table>
-          <thead><tr><th>#</th><th>Kind</th><th>Timestamp</th><th></th></tr></thead>
-          <tbody id="history-snapshots-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Kind</th><th>Timestamp</th><th></th></tr></thead>
+            <tbody id="history-snapshots-body"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card" id="history-inspect-card" hidden>
@@ -378,26 +494,31 @@
       </div>
     </section>
 
-    <!-- SETTINGS ------------------------------------------------------ -->
-    <section data-pane="health" class="pane">
+    <!-- HEALTH -------------------------------------------------------- -->
+    <section data-pane="health" class="pane" role="tabpanel" aria-label="Health">
       <div class="card">
         <h2>Subsystems · supervised health</h2>
         <div class="muted" id="privsep-info"></div>
-        <table>
-          <thead><tr><th>Subsystem</th><th>State</th><th>Restarts</th><th>Last error / privilege</th></tr></thead>
-          <tbody id="subsystems-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Subsystem</th><th>State</th><th>Restarts</th><th>Last error / privilege</th></tr></thead>
+            <tbody id="subsystems-body"></tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
         <h2>Audit Log · privileged mutations</h2>
-        <table>
-          <thead><tr><th>Time</th><th>Op</th><th>UID</th><th>Result</th></tr></thead>
-          <tbody id="audit-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Op</th><th>UID</th><th>Result</th></tr></thead>
+            <tbody id="audit-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <section data-pane="settings" class="pane">
+    <!-- SETTINGS ------------------------------------------------------ -->
+    <section data-pane="settings" class="pane" role="tabpanel" aria-label="Settings">
       <div class="card">
         <h2>Thresholds</h2>
         <div class="form-grid">
@@ -438,9 +559,11 @@
       </div>
       <div class="row"><button data-action="settings-save" class="btn btn-go">Save settings</button></div>
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
 
-  <footer id="toast" class="toast"></footer>
+  <footer id="toast" class="toast" role="status" aria-live="polite"></footer>
 
   <script src="/static/app.js"></script>
 </body>

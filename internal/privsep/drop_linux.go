@@ -27,7 +27,7 @@ const maxCapValue = 64
 //   - All capabilities are dropped from the effective, permitted, and
 //     inheritable sets via capset.
 //
-// It is safe to call when the process already holds no capabilities — the
+// It is safe to call when the process already holds no capabilities - the
 // result is simply a hardened, no-caps process. Call this in the engine after
 // Spawn has handed the caps to the helper.
 func DropPrivileges() error {
@@ -35,7 +35,7 @@ func DropPrivileges() error {
 		return fmt.Errorf("privsep: PR_SET_NO_NEW_PRIVS: %w", err)
 	}
 	// Clear the bounding set. Ignore EPERM/EINVAL so a process that lacks
-	// CAP_SETPCAP (the common unprivileged case) still proceeds — NO_NEW_PRIVS
+	// CAP_SETPCAP (the common unprivileged case) still proceeds - NO_NEW_PRIVS
 	// already blocks privilege escalation via exec.
 	for c := 0; c <= maxCapValue; c++ {
 		_ = unix.Prctl(unix.PR_CAPBSET_DROP, uintptr(c), 0, 0, 0)

@@ -1,9 +1,9 @@
-# Testudo — Device-Level Network Diagnostics Assessment
+# Testudo - Device-Level Network Diagnostics Assessment
 
 **Reviewer perspective:** senior network engineer / SRE / systems diagnostician
 **Scope:** device-level troubleshooting, network quality measurement, local network diagnostics
 **Codebase state at review:** 95 Go files, ~23K LOC, Go 1.25.6, `main` @ `9a42110`
-**Verdict in one line:** This is a *real, working* observability tool — not vaporware — with genuinely good Linux-native collectors. Its biggest liabilities are **no IPv6**, **no automated tests**, **no L3 state introspection (ARP/neighbor/conntrack)**, and a **plain-HTTP web plane**.
+**Verdict in one line:** This is a *real, working* observability tool - not vaporware - with genuinely good Linux-native collectors. Its biggest liabilities are **no IPv6**, **no automated tests**, **no L3 state introspection (ARP/neighbor/conntrack)**, and a **plain-HTTP web plane**.
 
 ---
 
@@ -35,7 +35,7 @@ Contrary to how aspirational the `CLAUDE.md` reads, the code is substantially im
 
 ---
 
-# Part 1 — Device-Level Troubleshooting Capability Matrix
+# Part 1 - Device-Level Troubleshooting Capability Matrix
 
 Legend: **Full** / **Partial** / **None**. "Mechanism" = how it's actually done in the code.
 
@@ -46,36 +46,36 @@ Legend: **Full** / **Partial** / **None**. "Mechanism" = how it's actually done 
 | 3   | IP config validation      | **Partial** | reads addrs/CIDR; can set static                                                                   | No "is this addr a duplicate / does it conflict / is RA-assigned" logic                                             |
 | 4   | DNS troubleshooting       | **Full**    | system resolver + per-nameserver direct probes (`internal_dns.go`), DNS-failure burst detector     | No DNSSEC/DoT/DoH probing; no NXDOMAIN-hijack/captive detection                                                     |
 | 5   | DHCP diagnostics          | **Partial** | `dhcp.go` execs dhclient/dhcpcd, detects mode via **lease-file existence**                         | Cannot read lease (server IP, expiry, offered GW/DNS); Debian paths hardcoded; no DHCPv6; no rogue-server detection |
-| 6   | Gateway reachability      | **Full**    | ICMP collector + default-route enumeration                                                         | —                                                                                                                   |
+| 6   | Gateway reachability      | **Full**    | ICMP collector + default-route enumeration                                                         | -                                                                                                                   |
 | 7   | Routing analysis          | **Partial** | `route.go` netlink read/write all tables                                                           | No policy routing (`ip rule`/fwmark), no ECMP, no reachability validation pre-add                                   |
 | 8   | MTU issues                | **Partial** | reads/sets interface MTU                                                                           | No **PMTU discovery** probe (DF-bit binary search), no ICMP-frag-needed-blocked detection                           |
 | 9   | ARP/NDP inspection        | **Partial** | `l2.go` parses `/proc/net/arp` for churn; ARP sweep populates cache                                | No NDP (IPv6 neighbor), no netlink NEIGH dump, no stale/incomplete/duplicate-IP analysis                            |
-| 10  | Packet loss detection     | **Full**    | ICMP timeout → `KindPacketLoss`; windowed `PacketLossDetector`                                     | —                                                                                                                   |
-| 11  | Latency measurement       | **Full**    | ICMP RTT; min/max/avg/p95 in `metrics.go`                                                          | —                                                                                                                   |
+| 10  | Packet loss detection     | **Full**    | ICMP timeout → `KindPacketLoss`; windowed `PacketLossDetector`                                     | -                                                                                                                   |
+| 11  | Latency measurement       | **Full**    | ICMP RTT; min/max/avg/p95 in `metrics.go`                                                          | -                                                                                                                   |
 | 12  | Jitter analysis           | **Full**    | mean-absolute-deviation `jitterMs()` + `JitterSpikeDetector`                                       | RFC 3550 IPDV would be more standard but MAD is fine                                                                |
 | 13  | Throughput / bandwidth    | **Full**    | HTTP GET throughput probe; per-iface RX/TX rate ring buffer                                        | Single-stream HTTP only; no UDP/iperf-style, no upload test, no parallel streams                                    |
 | 14  | TCP vs UDP behavior       | **Partial** | separate TCP-connect & UDP probes; `/proc/net/snmp` retrans detector                               | No per-flow RTT/RTX from kernel (`ss -ti` / `tcp_info`), no UDP loss accounting                                     |
 | 15  | Wi-Fi quality             | **Full**    | nl80211 signal/bitrate/noise/beacon-loss/retries with `iw`+proc fallback                           | IPv4-thinking elsewhere doesn't affect this; solid                                                                  |
-| 16  | Signal strength           | **Full**    | dBm via nl80211 station info                                                                       | —                                                                                                                   |
-| 17  | Connection stability      | **Full**    | link transitions, wifi disassoc, anomaly cooldowns                                                 | —                                                                                                                   |
+| 16  | Signal strength           | **Full**    | dBm via nl80211 station info                                                                       | -                                                                                                                   |
+| 17  | Connection stability      | **Full**    | link transitions, wifi disassoc, anomaly cooldowns                                                 | -                                                                                                                   |
 | 18  | Firewall debugging        | **Partial** | nft + iptables enumeration, chain-level counters                                                   | **No per-rule hit counters**, no policy display, no rule decode, no log target                                      |
 | 19  | VPN diagnostics           | **Partial** | tun/wg ifaces enumerated; OperUnknown treated as up                                                | No tunnel-liveness (peer reachable?), no wg handshake age, no per-iface DNS                                         |
 | 20  | NAT behavior              | **Partial** | DNAT rules add/read; NAT-exhaustion via conntrack count                                            | **No conntrack table inspection** (can't see/flush live NAT'd flows); no SNAT/masquerade mgmt                       |
 | 21  | TLS/SSL verification      | **Full**    | handshake + expiry; HTTP endpoint TLS timing                                                       | No chain/cipher/protocol-version audit                                                                              |
-| 22  | Socket/connectivity test  | **Full**    | TCP-connect, UDP, DNS, HTTP probes (on-demand via `probe` cmd)                                     | —                                                                                                                   |
-| 23  | Service reachability      | **Full**    | top-talkers TCP-connect to service port; port scan                                                 | —                                                                                                                   |
-| 24  | IPv4/IPv6 dual-stack      | **None**    | **ICMP hardcoded `ip4:icmp`; filter/NAT IPv4-only; capture decode TCP/UDP-only (skips ICMPv6/ND)** | Largest single gap — see §1a                                                                                        |
+| 22  | Socket/connectivity test  | **Full**    | TCP-connect, UDP, DNS, HTTP probes (on-demand via `probe` cmd)                                     | -                                                                                                                   |
+| 23  | Service reachability      | **Full**    | top-talkers TCP-connect to service port; port scan                                                 | -                                                                                                                   |
+| 24  | IPv4/IPv6 dual-stack      | **None**    | **ICMP hardcoded `ip4:icmp`; filter/NAT IPv4-only; capture decode TCP/UDP-only (skips ICMPv6/ND)** | Largest single gap - see §1a                                                                                        |
 | 25  | Time sync (NTP)           | **None**    | UDP/123 in scan port list but never probed; no chrony/ntpd offset read                             | Add NTP client probe + `chronyc tracking`/`ntpq` parse                                                              |
 | 26  | Interface statistics      | **Full**    | netlink Statistics (rx/tx bytes/pkts/errors/dropped/collisions/multicast)                          | Snapshot only; rate/delta done only for bandwidth                                                                   |
 | 27  | Packet capture            | **Full**    | gopacket AF_PACKET, ring buffer, selective pcap, tcpdump                                           | No BPF filter at gopacket capture time (full decode of all pkts)                                                    |
 | 28  | Deep protocol inspection  | **Partial** | L3/L4 extraction only; LLDP/SNMP/mDNS hand-decoded                                                 | No DPI/app-layer classification beyond port→service map                                                             |
-| 29  | Network event logging     | **Full**    | event bus → SQLite samples/anomalies/incidents; pcap bundles on CRITICAL                           | —                                                                                                                   |
+| 29  | Network event logging     | **Full**    | event bus → SQLite samples/anomalies/incidents; pcap bundles on CRITICAL                           | -                                                                                                                   |
 | 30  | Historical trend analysis | **Full**    | SQLite time-series, downsample >24h to 5-min buckets, 30-day retention, replay engine              | Flows table is cumulative-not-timebucketed; no per-snapshot flow history                                            |
 
-## §1a — The IPv6 problem (cross-cutting, high severity)
+## §1a - The IPv6 problem (cross-cutting, high severity)
 
 IPv6 is effectively absent from the data path:
-- ICMP/ping/traceroute: hardcoded `ip4:icmp` — no `ipv6-icmp`/ICMPv6.
+- ICMP/ping/traceroute: hardcoded `ip4:icmp` - no `ipv6-icmp`/ICMPv6.
 - `netops/filter.go` and `netops/nat.go`: explicit `TableFamilyIPv4` guards; v6 traffic never matched.
 - `capture/capture.go` `decode()`: extracts only IPv4 + TCP/UDP; **drops ICMPv6, NDP, DHCPv6, RA**.
 - No router-advertisement / SLAAC / DAD / NDP visibility at all.
@@ -84,7 +84,7 @@ On any modern dual-stack network, Testudo is **blind to half the stack**. This i
 
 ---
 
-# Part 2 — Network Quality Evaluation
+# Part 2 - Network Quality Evaluation
 
 ## What's already measured (and how well)
 
@@ -102,13 +102,13 @@ On any modern dual-stack network, Testudo is **blind to half the stack**. This i
 
 ## What's missing for a real "network quality score"
 
-1. **No composite quality score.** There is no MOS-style or weighted index combining loss/latency/jitter into a single grade per target/link. There IS a `tui/grade.go` and `web/grade.go` — confirm whether that's a real scoring model or a display helper; if display-only, build a proper scorer.
-2. **No baseline/anomaly-relative scoring beyond spike factors.** `LatencySpikeDetector` uses 3× rolling mean — good — but there's no persisted *baseline profile* per target (per-hour-of-day, per-link) to compare "is tonight worse than normal."
-3. **No bufferbloat grade letter (A–F)** despite measuring the delta — currently just severity buckets.
+1. **No composite quality score.** There is no MOS-style or weighted index combining loss/latency/jitter into a single grade per target/link. There IS a `tui/grade.go` and `web/grade.go` - confirm whether that's a real scoring model or a display helper; if display-only, build a proper scorer.
+2. **No baseline/anomaly-relative scoring beyond spike factors.** `LatencySpikeDetector` uses 3× rolling mean - good - but there's no persisted *baseline profile* per target (per-hour-of-day, per-link) to compare "is tonight worse than normal."
+3. **No bufferbloat grade letter (A–F)** despite measuring the delta - currently just severity buckets.
 4. **No ISP-degradation isolation** (first-hop vs gateway vs WAN vs target decomposition into a single "where's the problem" verdict).
-5. **Per-flow TCP quality** (RTX rate, RTT, cwnd) from `tcp_info`/`ss -ti` is absent — this is the single highest-value passive quality signal on a busy host.
+5. **Per-flow TCP quality** (RTX rate, RTT, cwnd) from `tcp_info`/`ss -ti` is absent - this is the single highest-value passive quality signal on a busy host.
 
-## Recommendations — metrics policy
+## Recommendations - metrics policy
 
 **Collect continuously (cheap):** link state, iface counters/rates, ARP churn, wifi signal, system retrans counters, flow byte counts, gateway+resolver RTT (low pps).
 **Sample (expensive/invasive):** bufferbloat (hours, opt-in), throughput (on-demand or hourly), traceroute (15min–1h), full LAN reachability sweep (60s+), TLS expiry (daily).
@@ -127,13 +127,13 @@ On any modern dual-stack network, Testudo is **blind to half the stack**. This i
 
 **Storage / telemetry architecture (current is mostly right):**
 - Keep the event-bus → metrics-aggregator → SQLite pipeline.
-- Add a **rollup table keyed (target, hour-bucket)** holding p50/p95/p99/loss/jitter for baseline comparison and long-horizon trends — separate from raw samples so retention can differ.
+- Add a **rollup table keyed (target, hour-bucket)** holding p50/p95/p99/loss/jitter for baseline comparison and long-horizon trends - separate from raw samples so retention can differ.
 - Persist a **periodic flow snapshot with timestamp** (current `flows` table is cumulative; you lose the time dimension for "what was talking at 02:00").
-- Add **incident table cap / rotation** — currently unbounded.
+- Add **incident table cap / rotation** - currently unbounded.
 
 ---
 
-# Part 3 — Local Network Troubleshooting
+# Part 3 - Local Network Troubleshooting
 
 ## Implemented, real
 
@@ -144,10 +144,10 @@ On any modern dual-stack network, Testudo is **blind to half the stack**. This i
 | mDNS/Bonjour       | UDP 224.0.0.251:5353 `_services._dns-sd._udp.local` PTR                  | Probe only; no full service enumeration          |
 | LLDP               | passive AF_PACKET 0x88cc, full TLV 0–8 decode, 802.1Q aware              | Excellent; switch/AP/router classification       |
 | SNMP               | hand-rolled SNMPv2c GET (sysDescr/Name/UpTime/ifNumber)                  | No vendor-MIB sysObjectID classification         |
-| Port reachability  | TCP-connect (64 workers) + UDP one-byte (32 workers)                     | Connect scan, not raw SYN — fine, less privilege |
+| Port reachability  | TCP-connect (64 workers) + UDP one-byte (32 workers)                     | Connect scan, not raw SYN - fine, less privilege |
 | MAC vendor         | hardcoded 256-entry OUI map                                              | ~25k official OUIs missing; ship IEEE OUI file   |
-| Subnet analysis    | derived from iface CIDRs for sweeps                                      | —                                                |
-| Topology inference | passive from flows + LLDP neighbors                                      | —                                                |
+| Subnet analysis    | derived from iface CIDRs for sweeps                                      | -                                                |
+| Topology inference | passive from flows + LLDP neighbors                                      | -                                                |
 | Flow/east-west     | bidirectional aggregator, LAN matrix, process correlation                | proc match via `/proc/net/tcp` + `/proc/*/fd`    |
 
 ## Missing for a "complete LAN troubleshooting platform"
@@ -166,17 +166,17 @@ On any modern dual-stack network, Testudo is **blind to half the stack**. This i
 | **Cable/link negotiation**      | None                             | ethtool genetlink: speed/duplex/autoneg/link-detected                        | CAP_NET_ADMIN    | Read-only safe     |
 | **Wi-Fi interference**          | Partial                          | nl80211 survey dump (channel busy time, noise)                               | CAP_NET_ADMIN    | Read-only          |
 
-**Cross-platform note:** Everything here is Linux-specific (AF_PACKET, netlink, nl80211, `/proc`). macOS/BSD/Windows would need `bpf(4)`/`route(4)`/WinPcap-equivalents — currently no abstraction seam for that, and the docs scope it to Linux, which is fine.
+**Cross-platform note:** Everything here is Linux-specific (AF_PACKET, netlink, nl80211, `/proc`). macOS/BSD/Windows would need `bpf(4)`/`route(4)`/WinPcap-equivalents - currently no abstraction seam for that, and the docs scope it to Linux, which is fine.
 
 ---
 
-# Part 4 — Troubleshooting Workflows
+# Part 4 - Troubleshooting Workflows
 
 These map directly onto existing primitives. Where a step needs something not yet built, it's flagged `[GAP]`.
 
 ### "No internet connection"
 1. Link up? (`iface_health`) → if down: PHY/cable `[GAP: ethtool link-detected]`.
-2. Have IP? (`iface.go` addrs) → if none: DHCP path — is dhclient bound, lease present? `[GAP: lease introspection]`.
+2. Have IP? (`iface.go` addrs) → if none: DHCP path - is dhclient bound, lease present? `[GAP: lease introspection]`.
 3. Default route exists? (`route.go`).
 4. Gateway pingable? (ICMP). → fail = L2/local issue.
 5. DNS resolves? (`dns.go`/`internal_dns.go`).
@@ -197,13 +197,13 @@ These map directly onto existing primitives. Where a step needs something not ye
 4. ARP churn / duplicate IP `[GAP: dup-IP probe]` → flapping MAC = rogue device / IP conflict.
 
 ### "DNS works slowly"
-1. Per-resolver direct latency (`internal_dns.go`) — isolates stub vs upstream.
+1. Per-resolver direct latency (`internal_dns.go`) - isolates stub vs upstream.
 2. DNS burst/failure detector (have it).
 3. Compare resolvers `[partial: have per-resolver, add ranking]`.
 
 ### "Only some services work"
 1. Per-port TCP-connect probe (have it).
-2. Firewall rule enumeration (have it) — `[GAP: per-rule counters]` to see which rule drops.
+2. Firewall rule enumeration (have it) - `[GAP: per-rule counters]` to see which rule drops.
 3. NAT/DNAT rule check (have it).
 
 ### "VPN connected but unreachable"
@@ -229,20 +229,20 @@ These map directly onto existing primitives. Where a step needs something not ye
 
 ### "Packet loss during gaming/VoIP"
 1. Continuous loss + jitter to target (have it).
-2. Bufferbloat (have it) — usually the culprit.
+2. Bufferbloat (have it) - usually the culprit.
 3. Per-flow QoS `[GAP: no DSCP/queue inspection]`.
 
 ### "IPv6 broken but IPv4 works"
-**`[GAP — entirely unsupported]`.** Requires the §1a IPv6 work: ICMPv6 ping, RA/NDP visibility, v6 route check, DHCPv6/SLAAC state.
+**`[GAP - entirely unsupported]`.** Requires the §1a IPv6 work: ICMPv6 ping, RA/NDP visibility, v6 route check, DHCPv6/SLAAC state.
 
 ### "MTU / path fragmentation"
-**`[GAP]`** — needs a DF-bit PMTU discovery probe (binary search packet size with DF set, watch for frag-needed). Not implemented; interface MTU read only.
+**`[GAP]`** - needs a DF-bit PMTU discovery probe (binary search packet size with DF set, watch for frag-needed). Not implemented; interface MTU read only.
 
 **Automation opportunity:** ship a single `testudo doctor [target]` that runs the "No internet" + "Slow" chains and prints a layered PASS/FAIL with the first failing layer highlighted. Highest-leverage UX win.
 
 ---
 
-# Part 5 — Architecture & Engineering Review
+# Part 5 - Architecture & Engineering Review
 
 ## What's good
 
@@ -260,9 +260,9 @@ These map directly onto existing primitives. Where a step needs something not ye
 | 2   | **No IPv6 in data path**                     | **Critical** | See §1a. Functional-correctness gap on modern networks.                                                                                                       |
 | 3   | **Web plane is plain HTTP**                  | High         | bcrypt + HttpOnly/SameSite cookies, but no TLS and **no CSRF token** on login POST. LAN-only safe; unsafe remote without a reverse proxy.                     |
 | 4   | **Monolithic process**                       | High         | All collectors/analyzers/web in one PID with elevated caps. One panic can take the whole engine down; large attack surface holding CAP_NET_ADMIN. No seccomp. |
-| 5   | **No L3 state introspection**                | High         | No netlink NEIGH (ARP/NDP) dump, no conntrack table read, no policy routing — blinds NAT/duplicate-IP/asymmetric-route troubleshooting.                       |
+| 5   | **No L3 state introspection**                | High         | No netlink NEIGH (ARP/NDP) dump, no conntrack table read, no policy routing - blinds NAT/duplicate-IP/asymmetric-route troubleshooting.                       |
 | 6   | **Unbounded tables**                         | Medium       | `flows` is cumulative (loses time dimension); `incidents` has no hard cap.                                                                                    |
-| 7   | **Polling where netlink could push**         | Medium       | Link/route/addr changes polled instead of subscribing to RTNETLINK multicast groups — slower detection, wasted ticks.                                         |
+| 7   | **Polling where netlink could push**         | Medium       | Link/route/addr changes polled instead of subscribing to RTNETLINK multicast groups - slower detection, wasted ticks.                                         |
 | 8   | **systemd-resolved unhandled**               | Medium       | `dns.go` rewrites `/etc/resolv.conf` which is a read-only stub symlink on most modern distros → silent failure. No `resolvectl` path.                         |
 | 9   | **No config validation / no env-var config** | Low          | Flags + JSON settings, no range validation; fine for a CLI but brittle.                                                                                       |
 | 10  | **Manual bus unsubscribe**                   | Low          | Subscriber `Close()` is caller responsibility; forgotten close → blocked publish.                                                                             |
@@ -270,14 +270,14 @@ These map directly onto existing primitives. Where a step needs something not ye
 ## Recommended technical additions
 
 - **eBPF opportunities** (biggest long-term lever):
-  - `tcp_info` / `sock_ops` or just `ss -ti` parsing for per-flow RTT/RTX/cwnd — far richer than `/proc/net/snmp` aggregates.
+  - `tcp_info` / `sock_ops` or just `ss -ti` parsing for per-flow RTT/RTX/cwnd - far richer than `/proc/net/snmp` aggregates.
   - XDP/tc for high-rate flow accounting without per-packet userspace cost (you already avoid the bus for this reason; eBPF is the natural next step).
   - `kprobe`/tracepoint on `icmp_send`/`fib` for drop-reason and frag-needed events.
 - **Netlink push, not poll**: subscribe to `RTNLGRP_LINK`, `RTNLGRP_IPV4_ROUTE`, `RTNLGRP_NEIGH`, `RTNLGRP_IPV4_IFADDR` for instant change events (already importing `vishvananda/netlink` + `mdlayher/netlink`).
-- **conntrack** via `mdlayher/netlink` to `nf_conntrack` (NFNL) — live NAT flow table, not just the count.
+- **conntrack** via `mdlayher/netlink` to `nf_conntrack` (NFNL) - live NAT flow table, not just the count.
 - **ethtool** via genetlink (`mdlayher/genetlink` already a dep) for speed/duplex/autoneg/link-detected.
 - **nl80211 survey** dump (via existing `mdlayher/wifi`/genetlink) for channel-busy/interference.
-- **Per-rule nftables counters**: add `expr.Counter` to rules and read handles — turns firewall view from "chain totals" into "which rule fired."
+- **Per-rule nftables counters**: add `expr.Counter` to rules and read handles - turns firewall view from "chain totals" into "which rule fired."
 
 ## Production-readiness verdict
 
@@ -297,22 +297,22 @@ These map directly onto existing primitives. Where a step needs something not ye
 # Prioritized Roadmap
 
 ### Immediate wins (days, high value/low effort)
-1. **`testudo doctor`** command chaining the Part-4 "no internet"/"slow" workflows into a layered PASS/FAIL — turns existing primitives into a product feature.
+1. **`testudo doctor`** command chaining the Part-4 "no internet"/"slow" workflows into a layered PASS/FAIL - turns existing primitives into a product feature.
 2. **TLS for the web plane + CSRF token** on login; or document the reverse-proxy requirement prominently.
-3. **Per-rule nftables counters** (add `expr.Counter`) — small change, big firewall-debug payoff.
+3. **Per-rule nftables counters** (add `expr.Counter`) - small change, big firewall-debug payoff.
 4. **systemd-resolved detection** in `dns.go`: detect stub symlink, fall back to `resolvectl`.
-5. **SSDP M-SEARCH + captive-portal probe** — port already in the list; trivial additions.
+5. **SSDP M-SEARCH + captive-portal probe** - port already in the list; trivial additions.
 6. **Ship the IEEE OUI database** instead of 256 hardcoded prefixes.
 
 ### Short term (weeks)
-7. **Test suite**: start with parsers (`/proc/net/arp`, `/proc/net/snmp`, iptables output, SNMP/LLDP/IPFIX TLV codecs) — pure functions, easy wins, highest regression risk.
+7. **Test suite**: start with parsers (`/proc/net/arp`, `/proc/net/snmp`, iptables output, SNMP/LLDP/IPFIX TLV codecs) - pure functions, easy wins, highest regression risk.
 8. **L3 state introspection**: netlink NEIGH dump (ARP/NDP), duplicate-IP (RFC 5227) probe, conntrack table read.
 9. **ethtool link detail** (speed/duplex/autoneg) + **PMTU discovery probe**.
 10. **Netlink event subscription** for link/route/addr/neigh (replace polling).
 11. **Baseline/rollup table** (target × hour bucket) + a real quality score.
 
 ### Long term (months)
-12. **IPv6 across the data path** (§1a) — ICMPv6 probes, v6 filter/NAT, capture decode v6 + NDP/RA visibility.
+12. **IPv6 across the data path** (§1a) - ICMPv6 probes, v6 filter/NAT, capture decode v6 + NDP/RA visibility.
 13. **eBPF telemetry** (`tcp_info` per-flow, XDP flow accounting, drop-reason tracepoints).
 14. **Privilege separation**: split the CAP_NET_ADMIN-holding capture/netops into a thin helper; run web/TUI unprivileged; add seccomp profile.
 15. **Time-bucketed flow history** + incident table rotation.
@@ -323,7 +323,7 @@ These map directly onto existing primitives. Where a step needs something not ye
 - Plain-HTTP web plane + no CSRF: credential/session theft on shared LAN; fix with TLS + CSRF or mandate reverse proxy.
 - Monolithic process holds CAP_NET_RAW + CAP_NET_ADMIN: large privileged attack surface, no seccomp.
 - nftables/route/NAT mutation gated only by a single `--allow-netops-write` bool; no per-op authz or audit log of changes.
-- Active discovery (ARP/ICMP/port sweeps) is intrusive — ensure it stays opt-in (it is) and rate-limited (it is, /20 cap + worker semaphores).
+- Active discovery (ARP/ICMP/port sweeps) is intrusive - ensure it stays opt-in (it is) and rate-limited (it is, /20 cap + worker semaphores).
 
 ## Reliability concerns (summary)
 - No tests → refactors are blind.

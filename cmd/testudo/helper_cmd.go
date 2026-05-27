@@ -38,12 +38,12 @@ func (r helperReport) report(eng *engine.Engine) {
 	case r.ok:
 		info := fmt.Sprintf("running unprivileged; privileged ops via helper (pid %d)", r.pid)
 		if r.dropErr != "" {
-			info += " — note: " + r.dropErr
+			info += " - note: " + r.dropErr
 		}
 		eng.SetPrivsepInfo(info)
 		eng.MarkSubsystem("priv-helper", false, health.StateOK, "", "")
 	default:
-		eng.SetPrivsepInfo("privileged helper unavailable — falling back to in-process netops: " + r.err)
+		eng.SetPrivsepInfo("privileged helper unavailable - falling back to in-process netops: " + r.err)
 		eng.MarkSubsystem("priv-helper", false, health.StateDegraded, r.err,
 			"privileged ops run in-process; check helper spawn / capabilities")
 	}
@@ -72,7 +72,7 @@ func setupNetops(ctx context.Context, cfg config.Config, allowWrites, usePrivsep
 
 	report := helperReport{enabled: true, ok: true, pid: cmd.Process.Pid}
 	// Capabilities now live with the helper; drop ours so the engine, web
-	// server, and TUI run unprivileged. A failure here is non-fatal — we still
+	// server, and TUI run unprivileged. A failure here is non-fatal - we still
 	// route mutations through the helper.
 	if derr := privsep.DropPrivileges(); derr != nil {
 		report.dropErr = derr.Error()

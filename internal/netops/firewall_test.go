@@ -157,7 +157,7 @@ func handles(rs []RuleInfo) []uint64 {
 
 // TestRuleInfoLegacyRendering documents the contract the UIs rely on: a rule
 // without a counter (predates counter attachment, or a foreign rule) reports
-// HasCounter=false so renderers can show "—" instead of a misleading 0.
+// HasCounter=false so renderers can show "-" instead of a misleading 0.
 func TestRuleInfoLegacyRendering(t *testing.T) {
 	legacy := RuleInfo{Verdict: "DROP", HasCounter: false}
 	if legacy.HasCounter {

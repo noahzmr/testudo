@@ -13,8 +13,8 @@ import (
 // makes a small, well-understood set of calls (socket/netlink I/O, the netlink
 // mutations, sqlite audit writes, and the Go runtime's own syscalls), so rather
 // than risk killing the Go runtime with an over-tight allowlist, we deny the
-// syscalls a compromised helper would reach for — process execution, tracing,
-// module loading, namespace and mount manipulation, raw memory injection — and
+// syscalls a compromised helper would reach for - process execution, tracing,
+// module loading, namespace and mount manipulation, raw memory injection - and
 // allow everything else. Denied calls fail with EPERM rather than killing the
 // process, so a bug degrades the helper instead of crashing the engine's view
 // of it.

@@ -19,28 +19,28 @@ import (
 )
 
 // WiFiSnapshot is the per-interface rich wireless state the collector
-// publishes every tick. Zero-valued fields mean "unknown" — drivers
+// publishes every tick. Zero-valued fields mean "unknown" - drivers
 // vary widely in what they expose through `iw` / /proc/net/wireless, so
 // renderers should treat empty strings and zero numerics as "no data"
 // rather than as a measurement.
 type WiFiSnapshot struct {
-	Iface       string    // interface name (e.g. wlan0)
-	HWAddr      string    // local MAC address
-	PhyType     string    // managed / monitor / ap / ibss
-	SSID        string    // associated network name
-	BSSID       string    // associated AP MAC
-	Country     string    // regulatory domain when iw reports it
-	Frequency   int       // operating frequency in MHz
-	Channel     int       // channel number derived from frequency
-	ChannelWMHz int       // channel width in MHz (20/40/80/160)
-	Band        string    // "2.4 GHz" / "5 GHz" / "6 GHz"
-	Signal      float64   // current RX signal level, dBm
-	SignalAvg   float64   // averaged RX signal level, dBm (if reported)
-	Noise       float64   // noise floor, dBm (negative; 0 = unknown)
-	TXBitrateM  float64   // current TX bitrate, Mbit/s
-	RXBitrateM  float64   // current RX bitrate, Mbit/s
-	TXPower     float64   // radio TX power, dBm
-	LinkQuality float64   // 0..100 (derived from /proc/net/wireless "link"
+	Iface       string  // interface name (e.g. wlan0)
+	HWAddr      string  // local MAC address
+	PhyType     string  // managed / monitor / ap / ibss
+	SSID        string  // associated network name
+	BSSID       string  // associated AP MAC
+	Country     string  // regulatory domain when iw reports it
+	Frequency   int     // operating frequency in MHz
+	Channel     int     // channel number derived from frequency
+	ChannelWMHz int     // channel width in MHz (20/40/80/160)
+	Band        string  // "2.4 GHz" / "5 GHz" / "6 GHz"
+	Signal      float64 // current RX signal level, dBm
+	SignalAvg   float64 // averaged RX signal level, dBm (if reported)
+	Noise       float64 // noise floor, dBm (negative; 0 = unknown)
+	TXBitrateM  float64 // current TX bitrate, Mbit/s
+	RXBitrateM  float64 // current RX bitrate, Mbit/s
+	TXPower     float64 // radio TX power, dBm
+	LinkQuality float64 // 0..100 (derived from /proc/net/wireless "link"
 	//                       column when present; iw doesn't expose this)
 	LinkMax     int       // driver-reported link-quality maximum (e.g. 70)
 	Retries     uint64    // cumulative TX retries since boot
@@ -162,7 +162,7 @@ func (c *WiFiCollector) Run(ctx context.Context, bus *events.Bus) error {
 }
 
 // lookup returns the cached rich snapshot for iface, or a zero value if
-// nothing has been recorded yet (shouldn't happen in practice — sample
+// nothing has been recorded yet (shouldn't happen in practice - sample
 // runs first).
 func (c *WiFiCollector) lookup(iface string) WiFiSnapshot {
 	c.mu.RLock()
@@ -201,7 +201,7 @@ func (c *WiFiCollector) publishMetrics(bus *events.Bus, iface string, s WiFiSnap
 		emit("freq", float64(s.Frequency))
 	}
 	if s.TXPower > 0 {
-		emit("txpower", -s.TXPower) // dBm — encode negated like signal
+		emit("txpower", -s.TXPower) // dBm - encode negated like signal
 	}
 	if s.LinkQuality > 0 {
 		emit("quality", s.LinkQuality)
@@ -299,7 +299,7 @@ func (c *WiFiCollector) sampleAndStore() map[string]wifiSnap {
 			s.HWAddr = strings.TrimSpace(string(mac))
 		}
 
-		// Layer 1: nl80211 — the primary source on modern kernels.
+		// Layer 1: nl80211 - the primary source on modern kernels.
 		// Fills SSID, BSSID, freq, channel width, signal, bitrate,
 		// station counters in one round-trip.
 		if nl, ok := nlByIface[iface]; ok {
@@ -361,7 +361,7 @@ func (c *WiFiCollector) sampleAndStore() map[string]wifiSnap {
 			}
 		}
 
-		// Layer 3: iw — last-resort fallback. Only runs when nl80211
+		// Layer 3: iw - last-resort fallback. Only runs when nl80211
 		// gave us nothing meaningful, since iw itself just wraps
 		// nl80211 (anything iw can see, mdlayher/wifi can see too).
 		if iwAvailable && (s.SSID == "" && s.BSSID == "" && s.Frequency == 0) {
@@ -423,7 +423,7 @@ type nl80211Snapshot struct {
 
 // sampleNL80211 walks every wireless iface via the cached nl80211
 // client and returns a per-iface snapshot. Returns nil (the empty
-// map) when the kernel/permissions don't allow nl80211 access — the
+// map) when the kernel/permissions don't allow nl80211 access - the
 // caller falls through to /proc and iw.
 func (c *WiFiCollector) sampleNL80211(wireless []string) map[string]nl80211Snapshot {
 	c.nlOnce.Do(func() {
@@ -655,7 +655,7 @@ func iwBinaryAvailable() bool {
 }
 
 // runIW runs `iw dev <iface> <sub>` with a short timeout and returns
-// stdout. Empty string on error — the caller treats absence as
+// stdout. Empty string on error - the caller treats absence as
 // "no data" rather than a hard failure.
 func runIW(iface, sub string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -829,7 +829,7 @@ func parseIWStation(iface string, s *WiFiSnapshot) {
 
 // freqToChannel translates a 2.4 / 5 / 6 GHz channel-centre frequency
 // (MHz) back to the IEEE channel number. We only need the common
-// channel-spacing rules, not the full IEEE 802.11 spec — the values
+// channel-spacing rules, not the full IEEE 802.11 spec - the values
 // outside these ranges fall back to 0 ("unknown channel").
 func freqToChannel(freq int) int {
 	switch {
@@ -840,7 +840,7 @@ func freqToChannel(freq int) int {
 	case freq >= 5160 && freq <= 5885:
 		return (freq - 5000) / 5
 	case freq >= 5955 && freq <= 7115:
-		// 6 GHz band (Wi-Fi 6E) — channels 1..233, spacing 5 MHz.
+		// 6 GHz band (Wi-Fi 6E) - channels 1..233, spacing 5 MHz.
 		return (freq - 5950) / 5
 	}
 	return 0

@@ -31,7 +31,7 @@ type RollupRow struct {
 }
 
 // GetRollup returns the baseline row for (target, dow, hour). ok=false when no
-// baseline has been learned yet — callers treat that as neutral.
+// baseline has been learned yet - callers treat that as neutral.
 func (s *Store) GetRollup(ctx context.Context, target string, dow, hour int) (RollupRow, bool, error) {
 	var r RollupRow
 	var updMs int64
@@ -75,7 +75,7 @@ func (s *Store) PutRollup(ctx context.Context, r RollupRow) error {
 }
 
 // RollupsByTarget returns every learned bucket for a target, ordered (dow, hour)
-// — enough to render the baseline band behind the live history line.
+// - enough to render the baseline band behind the live history line.
 func (s *Store) RollupsByTarget(ctx context.Context, target string) ([]RollupRow, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT target, dow, hour, p50_rtt, p95_rtt, p99_rtt, loss_pct, jitter_ms, samples, updated

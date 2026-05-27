@@ -7,14 +7,41 @@
   // ---- Tab switching ----
   const tabs = document.querySelectorAll('.tab');
   const panes = document.querySelectorAll('.pane');
+  const viewTitle = document.getElementById('view-title');
   tabs.forEach(btn => btn.addEventListener('click', () => {
-    tabs.forEach(b => b.classList.toggle('active', b === btn));
+    tabs.forEach(b => {
+      const on = b === btn;
+      b.classList.toggle('active', on);
+      // aria-current marks the active nav item for assistive tech.
+      if (on) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
     const target = btn.dataset.tab;
     panes.forEach(p => p.classList.toggle('active', p.dataset.pane === target));
+    // Reflect the active view in the content topbar (label = nav text).
+    if (viewTitle) viewTitle.textContent = btn.textContent.trim();
+    // On the mobile drawer, picking a destination closes the nav.
+    closeNav();
     // History is opt-in: don't bake its query into the 2s snapshot loop.
     // Load it lazily when the tab is shown.
     if (target === 'history') loadHistory();
   }));
+
+  // ---- Mobile nav drawer (sidebar collapses below 1080px) ----
+  const navToggle = document.getElementById('nav-toggle');
+  const scrim = document.getElementById('scrim');
+  function closeNav() {
+    document.body.classList.remove('nav-open');
+    if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+  }
+  if (navToggle) {
+    navToggle.addEventListener('click', () => {
+      const open = document.body.classList.toggle('nav-open');
+      navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+  if (scrim) scrim.addEventListener('click', closeNav);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNav(); });
 
   // ---- Toast ----
   const toast = document.getElementById('toast');
@@ -816,7 +843,7 @@
         + (w.source ? ' <span class="muted">(' + escape(w.source) + ')</span>' : '')
         + '</div>');
       if (!w.associated) {
-        lines.push('<div class="muted">radio is up but not joined to an AP — no SSID / channel / bitrate data</div>');
+        lines.push('<div class="muted">radio is up but not joined to an AP - no SSID / channel / bitrate data</div>');
         return '<div class="' + headerClass + '">' + lines.join('') + '</div>';
       }
       lines.push('<dl class="wifi-grid">');
@@ -932,8 +959,8 @@
     // dash and the reset button is disabled with a legacy-rule hint.
     document.getElementById('fw-rules-counter-body').innerHTML =
       (ruleCounters || []).map(r => {
-        const pkts = r.has_counter ? r.packets : '—';
-        const bytes = r.has_counter ? fmtBytes(r.bytes) : '—';
+        const pkts = r.has_counter ? r.packets : '-';
+        const bytes = r.has_counter ? fmtBytes(r.bytes) : '-';
         const chain = escape(r.family + '/' + r.table + '/' + r.chain);
         const verdictCls = r.blocking ? ' class="status-pill off"' : '';
         const resetBtn = r.has_counter
@@ -1215,6 +1242,12 @@
       if (!snap) return;
       document.getElementById('session-id').textContent = snap.session || '-';
       document.getElementById('uptime').textContent = snap.uptime || '-';
+      const upTop = document.getElementById('uptime-top');
+      if (upTop) upTop.textContent = snap.uptime || '-';
+      // Pulse the topbar live indicator on every successful poll so the
+      // operator can see the snapshot loop is actually breathing.
+      const dot = document.getElementById('live-dot');
+      if (dot) { dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
       renderGrade(snap.grade || {});
       renderBandwidth(snap.bandwidth || []);
       renderTalkers(snap.top_hosts, snap.top_processes, snap.top_services);

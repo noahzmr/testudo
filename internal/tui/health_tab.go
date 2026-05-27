@@ -479,7 +479,7 @@ func renderWiFiSection(b *strings.Builder, innerW int, snaps []collectors.WiFiSn
 		}
 	}
 	if !anyData {
-		b.WriteString(subtitleStyle.Render("  no wifi backend reachable — nl80211 needs CAP_NET_ADMIN; run testudo with sudo or grant the binary `setcap cap_net_admin+ep`"))
+		b.WriteString(subtitleStyle.Render("  no wifi backend reachable - nl80211 needs CAP_NET_ADMIN; run testudo with sudo or grant the binary `setcap cap_net_admin+ep`"))
 		b.WriteString("\n")
 	}
 
