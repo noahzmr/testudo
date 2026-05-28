@@ -359,6 +359,15 @@
     if (us < 1000) return us + 'µs';
     return (us / 1000).toFixed(1) + 'ms';
   }
+  // Negotiated link speed (decimal, like ethtool / sysfs).
+  function fmtMbps(mbps) {
+    if (!mbps || mbps <= 0) return '—';
+    if (mbps >= 1000) {
+      const g = mbps / 1000;
+      return (g % 1 === 0 ? g.toFixed(0) : g.toFixed(1)) + ' Gbps';
+    }
+    return mbps + ' Mbps';
+  }
 
   // ---- Sparkline (inline SVG) ----
   function spark(values, color) {
@@ -552,11 +561,30 @@
       cumRx  += (b.cum_rx     || 0);
       cumTx  += (b.cum_tx     || 0);
     }
+    // Negotiated link capacity of the upstream interface (the one carrying
+    // the lowest-metric IPv4 default route). Summing every NIC would
+    // double-count secondary NICs, USB adapters, bridges, etc.
+    let uplinkIface = '';
+    let uplinkMetric = Infinity;
+    for (const r of (snap.routes || [])) {
+      if (r.dst !== 'default') continue;
+      if ((r.family || '').indexOf('6') !== -1) continue; // prefer v4
+      const m = r.metric == null ? 0 : r.metric;
+      if (m < uplinkMetric) { uplinkMetric = m; uplinkIface = r.iface; }
+    }
+    let linkMbps = 0;
+    if (uplinkIface) {
+      const i = (snap.ifaces || []).find(x => x.name === uplinkIface);
+      if (i && (i.speed_mbps || 0) > 0) linkMbps = i.speed_mbps;
+    }
+    const linkSub = linkMbps > 0
+      ? ' · ' + uplinkIface + ' link ' + fmtMbps(linkMbps)
+      : '';
     document.getElementById('kpi-network').innerHTML = ''
       + kpiTile('Download', fmtBytes(curRx) + '/s', {
-          arrow: 'down', sub: 'peak ' + fmtBytes(peakRx) + '/s' })
+          arrow: 'down', sub: 'peak ' + fmtBytes(peakRx) + '/s' + linkSub })
       + kpiTile('Upload', fmtBytes(curTx) + '/s', {
-          arrow: 'up', sub: 'peak ' + fmtBytes(peakTx) + '/s' })
+          arrow: 'up', sub: 'peak ' + fmtBytes(peakTx) + '/s' + linkSub })
       + kpiTile('Session ↓', fmtBytes(cumRx), {
           sub: bw.length + ' iface' + (bw.length === 1 ? '' : 's') })
       + kpiTile('Session ↑', fmtBytes(cumTx), {
@@ -792,6 +820,137 @@
       + '<td>' + fmtBytes(f.bytes) + '</td>'
       + '</tr>'
     ).join('') || '<tr><td colspan="8" class="muted">…awaiting flows</td></tr>';
+  }
+
+  // Process -> Service -> Host Sankey for the Flows tab. Aggregates the live
+  // flow snapshot into a 3-column flow graph weighted by bytes or packets.
+  // Each column is capped to top-N by weight; the remainder rolls into "(other)"
+  // so the diagram stays legible under load.
+  function renderFlowsSankey(rows) {
+    const host = document.getElementById('flows-sankey');
+    if (!host) return;
+    if (typeof d3 === 'undefined' || !d3.sankey) {
+      host.innerHTML = '<div class="sankey-empty">loading sankey library…</div>';
+      return;
+    }
+    const metric = (document.getElementById('sankey-metric') || {}).value || 'bytes';
+    const topN = parseInt((document.getElementById('sankey-topn') || {}).value, 10) || 12;
+    const weightOf = f => metric === 'packets' ? (f.packets || 0) : (f.bytes || 0);
+    const fmtWeight = v => metric === 'packets' ? (v.toLocaleString() + ' pkt') : fmtBytes(v);
+
+    const data = (rows || []).filter(f => weightOf(f) > 0);
+    if (!data.length) {
+      host.innerHTML = '<div class="sankey-empty">no flows yet — start capture in this tab</div>';
+      return;
+    }
+
+    // Tag node names with a column prefix so the same string in two columns
+    // (e.g. an IP that's also a "service" label) can't collapse into one node.
+    const TAG = { P: 'P:', S: 'S:', H: 'H:' };
+    const strip = n => n.slice(2);
+    const hostOf = f => f.dns || f.b || f.a || '?';
+    const svcOf  = f => f.service || (f.proto ? f.proto.toUpperCase() : 'proto');
+    const procOf = f => f.process || '(unknown)';
+
+    // First pass: total weight per node so we can pick the top-N per column.
+    const total = { P: new Map(), S: new Map(), H: new Map() };
+    const bump = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
+    data.forEach(f => {
+      const v = weightOf(f);
+      bump(total.P, procOf(f), v);
+      bump(total.S, svcOf(f),  v);
+      bump(total.H, hostOf(f), v);
+    });
+    const keep = col => {
+      const sorted = [...total[col].entries()].sort((a, b) => b[1] - a[1]);
+      return new Set(sorted.slice(0, topN).map(e => e[0]));
+    };
+    const keepP = keep('P'), keepS = keep('S'), keepH = keep('H');
+    const project = (name, kept) => kept.has(name) ? name : '(other)';
+
+    // Second pass: build links proc->svc and svc->host, rolling non-top into (other).
+    const links = new Map();
+    const addLink = (s, t, v) => {
+      const k = s + '||' + t;
+      const ex = links.get(k);
+      if (ex) ex.value += v; else links.set(k, { source: s, target: t, value: v });
+    };
+    data.forEach(f => {
+      const v = weightOf(f);
+      const p = TAG.P + project(procOf(f), keepP);
+      const s = TAG.S + project(svcOf(f),  keepS);
+      const h = TAG.H + project(hostOf(f), keepH);
+      addLink(p, s, v);
+      addLink(s, h, v);
+    });
+
+    const names = new Set();
+    links.forEach(l => { names.add(l.source); names.add(l.target); });
+    const nodes = [...names].map(name => ({ name }));
+    const idx = new Map(nodes.map((n, i) => [n.name, i]));
+    const linkArr = [...links.values()].map(l => ({
+      source: idx.get(l.source), target: idx.get(l.target), value: l.value,
+    }));
+
+    const width  = host.clientWidth || 900;
+    const height = Math.max(420, Math.min(720, nodes.length * 18));
+
+    const layout = d3.sankey()
+      .nodeWidth(14)
+      .nodePadding(10)
+      .nodeAlign(d3.sankeyJustify)
+      .extent([[1, 6], [width - 1, height - 6]]);
+    const graph = layout({
+      nodes: nodes.map(d => Object.assign({}, d)),
+      links: linkArr.map(d => Object.assign({}, d)),
+    });
+
+    const color = name => {
+      if (name.startsWith(TAG.P)) return '#58a6ff';
+      if (name.startsWith(TAG.S)) return '#a371f7';
+      return '#3fb950';
+    };
+
+    host.innerHTML = '';
+    const svg = d3.select(host).append('svg')
+      .attr('viewBox', '0 0 ' + width + ' ' + height)
+      .attr('preserveAspectRatio', 'xMidYMid meet');
+
+    svg.append('g').attr('class', 'sankey-links')
+      .selectAll('path')
+      .data(graph.links)
+      .join('path')
+        .attr('class', 'sankey-link')
+        .attr('d', d3.sankeyLinkHorizontal())
+        .attr('stroke', d => color(d.source.name))
+        .attr('stroke-opacity', 0.35)
+        .attr('stroke-width', d => Math.max(1, d.width))
+      .append('title')
+        .text(d => strip(d.source.name) + ' → ' + strip(d.target.name) + '\n' + fmtWeight(d.value));
+
+    const node = svg.append('g').attr('class', 'sankey-nodes')
+      .selectAll('g').data(graph.nodes).join('g').attr('class', 'sankey-node');
+
+    node.append('rect')
+      .attr('x', d => d.x0).attr('y', d => d.y0)
+      .attr('width', d => Math.max(1, d.x1 - d.x0))
+      .attr('height', d => Math.max(1, d.y1 - d.y0))
+      .attr('fill', d => color(d.name))
+      .attr('fill-opacity', 0.85)
+      .append('title')
+        .text(d => strip(d.name) + '\n' + fmtWeight(d.value));
+
+    node.append('text')
+      .attr('class', 'sankey-label')
+      .attr('x', d => d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6)
+      .attr('y', d => (d.y1 + d.y0) / 2)
+      .attr('dy', '0.35em')
+      .attr('text-anchor', d => d.x0 < width / 2 ? 'start' : 'end')
+      .text(d => {
+        const label = strip(d.name);
+        // Trim very long DNS names so they don't blow past the SVG edge.
+        return label.length > 36 ? label.slice(0, 34) + '…' : label;
+      });
   }
 
   function renderDevices(rows) {
@@ -1401,6 +1560,7 @@
       renderTargets(snap.targets);
       renderDNS(snap.dns);
       renderFlows(snap.flows);
+      renderFlowsSankey(snap.flows);
       renderDevices(snap.devices);
       renderNeighbours(snap.neighbours, snap.ip_conflicts);
       renderIfaces(snap.ifaces, snap.wifi);
@@ -1426,6 +1586,12 @@
   // Live-update text filters without re-fetching.
   document.getElementById('flow-filter').addEventListener('input', () => refresh());
   document.getElementById('alert-filter').addEventListener('input', () => refresh());
+  // Sankey controls re-render immediately; aggregation runs on the most-recent
+  // flow snapshot, so we don't need to refetch.
+  ['sankey-metric', 'sankey-topn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => refresh());
+  });
 
   document.getElementById('logout').addEventListener('click', async () => {
     await fetch('/api/logout', { method: 'POST' });

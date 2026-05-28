@@ -280,6 +280,7 @@ type ifaceView struct {
 	TxDropped  uint64   `json:"tx_dropped"`
 	Collisions uint64   `json:"collisions"`
 	IsWireless bool     `json:"is_wireless"`
+	SpeedMbps  int64    `json:"speed_mbps"`
 }
 
 type routeView struct {
@@ -739,6 +740,7 @@ func (s *Server) buildSnapshot() snapshot {
 					RxDropped: i.RxDropped, TxDropped: i.TxDropped,
 					Collisions: i.Collisions,
 					IsWireless: wifiByIface[i.Name],
+					SpeedMbps:  i.SpeedMbps,
 				})
 			}
 		}

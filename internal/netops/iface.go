@@ -10,7 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/vishvananda/netlink"
 )
@@ -50,6 +53,25 @@ type IfaceInfo struct {
 	TxDropped  uint64
 	Collisions uint64
 	Multicast  uint64
+	// SpeedMbps is the negotiated link speed reported by the kernel
+	// (`/sys/class/net/<iface>/speed`). 0 when unknown — common for
+	// loopback, tunnels, bridges, down links, and most virtual devices.
+	SpeedMbps int64
+}
+
+// readIfaceSpeedMbps reads /sys/class/net/<name>/speed. The file holds the
+// negotiated link speed in Mbps, or -1 when the kernel cannot report one
+// (link down, virtual device, tunnel). Returns 0 in those cases.
+func readIfaceSpeedMbps(name string) int64 {
+	b, err := os.ReadFile("/sys/class/net/" + name + "/speed")
+	if err != nil {
+		return 0
+	}
+	v, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil || v <= 0 {
+		return 0
+	}
+	return v
 }
 
 // ListIfaces returns every interface known to the kernel, sorted by name.
@@ -90,6 +112,7 @@ func (w *Writer) ListIfaces() ([]IfaceInfo, error) {
 				}
 			}
 		}
+		info.SpeedMbps = readIfaceSpeedMbps(attrs.Name)
 		out = append(out, info)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
