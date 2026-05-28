@@ -788,12 +788,19 @@
   }
 
   function renderFlows(rows) {
-    const filter = (val('flow-filter') || '').toLowerCase();
+    // Tokenised AND match: every whitespace-separated term must appear
+    // somewhere in the flow row. Lets the Sankey click-to-filter set
+    // multiple constraints at once (e.g. clicking the link
+    // "firefox → wg0" sets the filter to "firefox wg0").
+    const raw = (val('flow-filter') || '').toLowerCase().trim();
+    const tokens = raw ? raw.split(/\s+/) : [];
     const lines = (rows || []).filter(f => {
-      if (!filter) return true;
-      return [f.proto, f.iface, f.process, f.a, f.b, f.dns].some(x =>
-        String(x || '').toLowerCase().includes(filter));
+      if (!tokens.length) return true;
+      const hay = [f.proto, f.iface, f.process, f.a, f.b, f.dns, f.service]
+        .map(x => String(x || '').toLowerCase()).join(' ');
+      return tokens.every(t => hay.includes(t));
     });
+    syncSankeyFilterPill(raw);
     document.getElementById('flows-body').innerHTML = lines.map(f =>
       '<tr>'
       + '<td>' + escape(f.proto.toUpperCase()) + '</td>'
@@ -822,10 +829,13 @@
     ).join('') || '<tr><td colspan="8" class="muted">…awaiting flows</td></tr>';
   }
 
-  // Process -> Service -> Host Sankey for the Flows tab. Aggregates the live
-  // flow snapshot into a 3-column flow graph weighted by bytes or packets.
-  // Each column is capped to top-N by weight; the remainder rolls into "(other)"
-  // so the diagram stays legible under load.
+  // Process -> Iface -> Service -> Host Sankey for the Flows tab. Aggregates
+  // the live flow snapshot into a 4-column flow graph weighted by bytes or
+  // packets. The Iface column makes tunnel traffic legible: a flow on wg0
+  // is visually separated from the same {process, service} pair captured on
+  // wlan0/eth0, so the encrypted underlay and decrypted inner traffic don't
+  // pile into one bar. Each column is capped to top-N by weight; the
+  // remainder rolls into "(other)" so the diagram stays legible under load.
   function renderFlowsSankey(rows) {
     const host = document.getElementById('flows-sankey');
     if (!host) return;
@@ -846,29 +856,34 @@
 
     // Tag node names with a column prefix so the same string in two columns
     // (e.g. an IP that's also a "service" label) can't collapse into one node.
-    const TAG = { P: 'P:', S: 'S:', H: 'H:' };
+    const TAG = { P: 'P:', I: 'I:', S: 'S:', H: 'H:' };
     const strip = n => n.slice(2);
+    // Show the dst host with port for raw-IP flows so users can tell
+    // 192.168.1.1:53 (DNS) apart from 192.168.1.1:443 (HTTPS) when there's
+    // no DNS name available.
     const hostOf = f => f.dns || f.b || f.a || '?';
     const svcOf  = f => f.service || (f.proto ? f.proto.toUpperCase() : 'proto');
     const procOf = f => f.process || '(unknown)';
+    const ifaceOf = f => f.iface || '(no iface)';
 
     // First pass: total weight per node so we can pick the top-N per column.
-    const total = { P: new Map(), S: new Map(), H: new Map() };
+    const total = { P: new Map(), I: new Map(), S: new Map(), H: new Map() };
     const bump = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
     data.forEach(f => {
       const v = weightOf(f);
-      bump(total.P, procOf(f), v);
-      bump(total.S, svcOf(f),  v);
-      bump(total.H, hostOf(f), v);
+      bump(total.P, procOf(f),  v);
+      bump(total.I, ifaceOf(f), v);
+      bump(total.S, svcOf(f),   v);
+      bump(total.H, hostOf(f),  v);
     });
     const keep = col => {
       const sorted = [...total[col].entries()].sort((a, b) => b[1] - a[1]);
       return new Set(sorted.slice(0, topN).map(e => e[0]));
     };
-    const keepP = keep('P'), keepS = keep('S'), keepH = keep('H');
+    const keepP = keep('P'), keepI = keep('I'), keepS = keep('S'), keepH = keep('H');
     const project = (name, kept) => kept.has(name) ? name : '(other)';
 
-    // Second pass: build links proc->svc and svc->host, rolling non-top into (other).
+    // Second pass: build links proc->iface->svc->host, rolling non-top into (other).
     const links = new Map();
     const addLink = (s, t, v) => {
       const k = s + '||' + t;
@@ -877,10 +892,12 @@
     };
     data.forEach(f => {
       const v = weightOf(f);
-      const p = TAG.P + project(procOf(f), keepP);
-      const s = TAG.S + project(svcOf(f),  keepS);
-      const h = TAG.H + project(hostOf(f), keepH);
-      addLink(p, s, v);
+      const p = TAG.P + project(procOf(f),  keepP);
+      const i = TAG.I + project(ifaceOf(f), keepI);
+      const s = TAG.S + project(svcOf(f),   keepS);
+      const h = TAG.H + project(hostOf(f),  keepH);
+      addLink(p, i, v);
+      addLink(i, s, v);
       addLink(s, h, v);
     });
 
@@ -906,9 +923,46 @@
     });
 
     const color = name => {
-      if (name.startsWith(TAG.P)) return '#58a6ff';
-      if (name.startsWith(TAG.S)) return '#a371f7';
-      return '#3fb950';
+      if (name.startsWith(TAG.P)) return '#58a6ff'; // process – blue
+      if (name.startsWith(TAG.I)) return '#f0883e'; // iface – orange
+      if (name.startsWith(TAG.S)) return '#a371f7'; // service – purple
+      return '#3fb950';                              // host – green
+    };
+    const columnLabel = tag => {
+      if (tag === TAG.P) return 'Process';
+      if (tag === TAG.I) return 'Interface';
+      if (tag === TAG.S) return 'Service';
+      return 'Host';
+    };
+
+    // Per-node flow count (rows touching this node) — useful in the tip
+    // to tell "one big flow" apart from "many small flows".
+    const nodeFlows = { P: new Map(), I: new Map(), S: new Map(), H: new Map() };
+    const bumpFlow = (m, k) => m.set(k, (m.get(k) || 0) + 1);
+    data.forEach(f => {
+      bumpFlow(nodeFlows.P, project(procOf(f),  keepP));
+      bumpFlow(nodeFlows.I, project(ifaceOf(f), keepI));
+      bumpFlow(nodeFlows.S, project(svcOf(f),   keepS));
+      bumpFlow(nodeFlows.H, project(hostOf(f),  keepH));
+    });
+    // Grand total per column — used for percent-of-traffic in tips.
+    const colTotal = { P: 0, I: 0, S: 0, H: 0 };
+    data.forEach(f => {
+      const v = weightOf(f);
+      colTotal.P += v; colTotal.I += v; colTotal.S += v; colTotal.H += v;
+    });
+    const flowsForNode = name => {
+      const tag = name.slice(0, 2);
+      const stripped = name.slice(2);
+      if (tag === TAG.P) return nodeFlows.P.get(stripped) || 0;
+      if (tag === TAG.I) return nodeFlows.I.get(stripped) || 0;
+      if (tag === TAG.S) return nodeFlows.S.get(stripped) || 0;
+      return nodeFlows.H.get(stripped) || 0;
+    };
+    const pctForNode = (name, value) => {
+      const tag = name.slice(0, 2);
+      const tot = colTotal[tag === TAG.P ? 'P' : tag === TAG.I ? 'I' : tag === TAG.S ? 'S' : 'H'];
+      return tot > 0 ? (100 * value / tot).toFixed(1) + '%' : '–';
     };
 
     host.innerHTML = '';
@@ -916,6 +970,41 @@
       .attr('viewBox', '0 0 ' + width + ' ' + height)
       .attr('preserveAspectRatio', 'xMidYMid meet');
 
+    // --- tooltip + click-to-filter wiring --------------------------------
+    const tip = document.getElementById('sankey-tip');
+    const filterInput = document.getElementById('flow-filter');
+    const showTip = (html, evt) => {
+      if (!tip) return;
+      tip.innerHTML = html;
+      tip.style.display = 'block';
+      tip.setAttribute('aria-hidden', 'false');
+      moveTip(evt);
+    };
+    const moveTip = evt => {
+      if (!tip) return;
+      const pad = 14;
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      let x = evt.clientX + pad, y = evt.clientY + pad;
+      if (x + w > window.innerWidth)  x = evt.clientX - w - pad;
+      if (y + h > window.innerHeight) y = evt.clientY - h - pad;
+      tip.style.left = Math.max(4, x) + 'px';
+      tip.style.top  = Math.max(4, y) + 'px';
+    };
+    const hideTip = () => {
+      if (!tip) return;
+      tip.style.display = 'none';
+      tip.setAttribute('aria-hidden', 'true');
+    };
+    const applyFilter = (terms) => {
+      if (!filterInput) return;
+      const next = terms.filter(Boolean).join(' ').trim();
+      const cur  = (filterInput.value || '').trim();
+      // Toggle off on a second click of the same target.
+      filterInput.value = (cur === next) ? '' : next;
+      filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    // --- links -----------------------------------------------------------
     svg.append('g').attr('class', 'sankey-links')
       .selectAll('path')
       .data(graph.links)
@@ -925,9 +1014,26 @@
         .attr('stroke', d => color(d.source.name))
         .attr('stroke-opacity', 0.35)
         .attr('stroke-width', d => Math.max(1, d.width))
-      .append('title')
-        .text(d => strip(d.source.name) + ' → ' + strip(d.target.name) + '\n' + fmtWeight(d.value));
+        .on('mouseover', (evt, d) => {
+          const sName = strip(d.source.name), tName = strip(d.target.name);
+          const sCol  = columnLabel(d.source.name.slice(0, 2));
+          const tCol  = columnLabel(d.target.name.slice(0, 2));
+          const html =
+            '<div class="tip-row"><span class="tip-muted">' + escape(sCol) + ' → ' + escape(tCol) + '</span></div>' +
+            '<div><b>' + escape(sName) + '</b> → <b>' + escape(tName) + '</b></div>' +
+            '<div class="tip-row"><span class="tip-muted">' + (metric === 'packets' ? 'packets' : 'bytes') + '</span>' +
+              '<span>' + escape(fmtWeight(d.value)) + '</span></div>' +
+            '<div class="tip-hint">click to filter flows table</div>';
+          showTip(html, evt);
+        })
+        .on('mousemove', moveTip)
+        .on('mouseout', hideTip)
+        .on('click', (evt, d) => {
+          applyFilter([strip(d.source.name), strip(d.target.name)]);
+          hideTip();
+        });
 
+    // --- nodes -----------------------------------------------------------
     const node = svg.append('g').attr('class', 'sankey-nodes')
       .selectAll('g').data(graph.nodes).join('g').attr('class', 'sankey-node');
 
@@ -937,8 +1043,33 @@
       .attr('height', d => Math.max(1, d.y1 - d.y0))
       .attr('fill', d => color(d.name))
       .attr('fill-opacity', 0.85)
-      .append('title')
-        .text(d => strip(d.name) + '\n' + fmtWeight(d.value));
+      .on('mouseover', (evt, d) => {
+        const col = columnLabel(d.name.slice(0, 2));
+        const name = strip(d.name);
+        const w = d.value || 0;
+        const html =
+          '<div class="tip-row"><span class="tip-muted">' + escape(col) + '</span>' +
+            '<span>' + escape(pctForNode(d.name, w)) + '</span></div>' +
+          '<div><b>' + escape(name) + '</b></div>' +
+          '<div class="tip-row"><span class="tip-muted">' + (metric === 'packets' ? 'packets' : 'bytes') + '</span>' +
+            '<span>' + escape(fmtWeight(w)) + '</span></div>' +
+          '<div class="tip-row"><span class="tip-muted">flows</span>' +
+            '<span>' + flowsForNode(d.name) + '</span></div>' +
+          '<div class="tip-hint">click to filter — click again to clear</div>';
+        showTip(html, evt);
+      })
+      .on('mousemove', moveTip)
+      .on('mouseout', hideTip)
+      .on('click', (evt, d) => {
+        const name = strip(d.name);
+        // "(other)" and "(unknown)" buckets aren't useful filter terms.
+        if (name === '(other)' || name === '(unknown)' || name === '(no iface)') {
+          hideTip();
+          return;
+        }
+        applyFilter([name]);
+        hideTip();
+      });
 
     node.append('text')
       .attr('class', 'sankey-label')
@@ -951,6 +1082,23 @@
         // Trim very long DNS names so they don't blow past the SVG edge.
         return label.length > 36 ? label.slice(0, 34) + '…' : label;
       });
+  }
+
+  // syncSankeyFilterPill mirrors the current #flow-filter value into the
+  // dismissable pill next to the Sankey title. Called from renderFlows so
+  // it stays in sync whether the filter was set by typing, by clicking a
+  // Sankey node/link, or by clicking the pill itself to clear.
+  function syncSankeyFilterPill(raw) {
+    const pill = document.getElementById('sankey-filter-pill');
+    const text = document.getElementById('sankey-filter-pill-text');
+    if (!pill || !text) return;
+    const v = (raw || '').trim();
+    if (!v) {
+      pill.classList.remove('is-active');
+      return;
+    }
+    text.textContent = 'filter: ' + v;
+    pill.classList.add('is-active');
   }
 
   function renderDevices(rows) {
@@ -1586,6 +1734,23 @@
   // Live-update text filters without re-fetching.
   document.getElementById('flow-filter').addEventListener('input', () => refresh());
   document.getElementById('alert-filter').addEventListener('input', () => refresh());
+
+  // Sankey filter pill: clears the flow-filter and re-renders. Same handler
+  // for click and keyboard activation (Enter / Space) so the pill is usable
+  // without a mouse.
+  const sankeyPill = document.getElementById('sankey-filter-pill');
+  if (sankeyPill) {
+    const clearFlowFilter = () => {
+      const inp = document.getElementById('flow-filter');
+      if (!inp) return;
+      inp.value = '';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    sankeyPill.addEventListener('click', clearFlowFilter);
+    sankeyPill.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clearFlowFilter(); }
+    });
+  }
   // Sankey controls re-render immediately; aggregation runs on the most-recent
   // flow snapshot, so we don't need to refetch.
   ['sankey-metric', 'sankey-topn'].forEach(id => {

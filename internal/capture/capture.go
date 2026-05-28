@@ -7,6 +7,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -19,6 +20,39 @@ import (
 	"github.com/noahzmr/testudo/internal/events"
 	"github.com/noahzmr/testudo/internal/flows"
 )
+
+// rawIPDecoder dispatches a frame that starts at the IP header (no link
+// layer) to LayerTypeIPv4 or LayerTypeIPv6 based on the version nibble.
+// This is the entry decoder for L3-only interfaces - wg*, tun*, ppp*,
+// ipip*, sit*, etc. - whose AF_PACKET frames have no Ethernet header.
+// Decoding such frames as Ethernet silently drops every packet because
+// the first 14 bytes don't form a valid Ethernet header.
+type rawIPDecoder struct{}
+
+func (rawIPDecoder) Decode(data []byte, p gopacket.PacketBuilder) error {
+	if len(data) < 1 {
+		return errors.New("capture: empty L3 frame")
+	}
+	switch data[0] >> 4 {
+	case 4:
+		return layers.LayerTypeIPv4.Decode(data, p)
+	case 6:
+		return layers.LayerTypeIPv6.Decode(data, p)
+	}
+	return errors.New("capture: non-IP frame on L3 interface")
+}
+
+// isL3Interface reports whether iface delivers frames that start at the
+// IP header (no link layer). Detected by the absence of a hardware
+// address - tunnel interfaces (wg, tun, ppp, ipip, sit, gre) have none,
+// while Ethernet, bridges, vlans, and wifi do.
+func isL3Interface(iface string) bool {
+	ifi, err := net.InterfaceByName(iface)
+	if err != nil || ifi == nil {
+		return false
+	}
+	return len(ifi.HardwareAddr) == 0
+}
 
 // Multi captures packets from many interfaces concurrently. Discover the
 // interface list once at Start; the set is fixed for the session's lifetime
@@ -104,7 +138,11 @@ func captureOne(ctx context.Context, iface string, agg *flows.Aggregator, ring *
 	}
 	defer handle.Close()
 
-	source := gopacket.NewPacketSource(handle, layers.LayerTypeEthernet)
+	var firstLayer gopacket.Decoder = layers.LayerTypeEthernet
+	if isL3Interface(iface) {
+		firstLayer = rawIPDecoder{}
+	}
+	source := gopacket.NewPacketSource(handle, firstLayer)
 	source.DecodeOptions = gopacket.DecodeOptions{Lazy: true, NoCopy: true}
 	pkts := source.Packets()
 	for {
@@ -156,8 +194,11 @@ func decode(pkt gopacket.Packet, iface string) *events.FlowUpdatePayload {
 }
 
 // AutoDiscover returns all up, non-loopback interfaces with an address.
-// Virtual interfaces (veth*, lo, tun/tap) are excluded by default; pass
-// extra prefixes via excludeExtra to skip more.
+// Container veth pairs and the loopback are excluded by default; tunnel
+// interfaces (wg*, tun*, ppp*) are intentionally included so the inner
+// decrypted flows on a VPN tunnel are captured alongside the encrypted
+// outer flow on the underlay. Pass extra prefixes via excludeExtra to
+// skip more.
 func AutoDiscover(excludeExtra []string) ([]string, error) {
 	ifs, err := net.Interfaces()
 	if err != nil {

@@ -206,8 +206,12 @@
       </div>
       <div class="card">
         <div class="row" style="justify-content: space-between; align-items: center;">
-          <h2 style="margin:0">Flow graph (Process &rarr; Service &rarr; Host)</h2>
-          <div class="row" style="gap: var(--sp-2);">
+          <h2 style="margin:0">Flow graph (Process &rarr; Iface &rarr; Service &rarr; Host)</h2>
+          <span id="sankey-filter-pill" class="sankey-filter-pill" role="button" tabindex="0" aria-label="Clear Sankey filter">
+            <span id="sankey-filter-pill-text">filter</span>
+            <span aria-hidden="true">×</span>
+          </span>
+          <div class="row" style="gap: var(--sp-2); margin-left: auto;">
             <label class="muted" for="sankey-metric">weight</label>
             <select id="sankey-metric" class="filter" style="width: auto;">
               <option value="bytes" selected>bytes</option>
@@ -223,6 +227,7 @@
           </div>
         </div>
         <div id="flows-sankey" class="sankey-wrap" aria-label="Flow Sankey diagram"></div>
+        <div id="sankey-tip" class="sankey-tip" role="tooltip" aria-hidden="true"></div>
       </div>
       <div class="card">
         <input class="filter" id="flow-filter" placeholder="filter rows (proto / iface / process / IP / DNS)" aria-label="Filter flows" />

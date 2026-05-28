@@ -217,6 +217,22 @@ func Decorate(stats []FlowStats, dns *DNSCache, proc *ProcMatcher) []FlowStats {
 		}
 		// Service correlation: prefer the lower port (typical "server" side).
 		out[i].Service = serviceFor(f.Key.Proto, f.Key.A.Port, f.Key.B.Port)
+		// Kernel-mode VPN modules don't expose a userspace socket on
+		// /proc/net, so the lookup above returns "" for every outer
+		// encrypted flow and they all collapse into a single
+		// "(unknown) -> WireGuard -> peer" bar that dwarfs the real
+		// per-process inner traffic captured on wg0/tun0. Attribute
+		// these flows to the kernel module by name.
+		if out[i].Process == "" {
+			switch out[i].Service {
+			case "WireGuard":
+				out[i].Process = "wireguard"
+				out[i].ProcessName = "wireguard"
+			case "OpenVPN":
+				out[i].Process = "openvpn"
+				out[i].ProcessName = "openvpn"
+			}
+		}
 	}
 	return out
 }

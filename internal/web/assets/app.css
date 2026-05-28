@@ -929,8 +929,9 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.12) !important; }
   overflow: hidden;
 }
 .sankey-wrap svg { width: 100%; height: 100%; display: block; }
-.sankey-wrap .sankey-node rect { stroke: rgba(0,0,0,0.35); stroke-width: 0.5; cursor: default; }
-.sankey-wrap .sankey-link { fill: none; mix-blend-mode: screen; transition: stroke-opacity 120ms ease; }
+.sankey-wrap .sankey-node rect { stroke: rgba(0,0,0,0.35); stroke-width: 0.5; cursor: pointer; }
+.sankey-wrap .sankey-node rect:hover { stroke: var(--fg, #f0f6fc); stroke-width: 1.2; }
+.sankey-wrap .sankey-link { fill: none; mix-blend-mode: screen; transition: stroke-opacity 120ms ease; cursor: pointer; }
 .sankey-wrap .sankey-link:hover { stroke-opacity: 0.75 !important; }
 .sankey-wrap .sankey-label {
   font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -938,3 +939,39 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.12) !important; }
   pointer-events: none;
 }
 .sankey-wrap .sankey-empty { padding: var(--sp-4); color: var(--fg-dim, #8b949e); }
+
+.sankey-tip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 1000;
+  background: rgba(13, 17, 23, 0.96);
+  border: 1px solid rgba(240, 246, 252, 0.18);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--fg, #f0f6fc);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  max-width: 360px;
+  white-space: pre-line;
+  display: none;
+}
+.sankey-tip b { color: #f0883e; font-weight: 600; }
+.sankey-tip .tip-row { display: flex; justify-content: space-between; gap: var(--sp-3); }
+.sankey-tip .tip-muted { color: var(--fg-dim, #8b949e); }
+.sankey-tip .tip-hint { color: var(--fg-dim, #8b949e); font-style: italic; margin-top: 4px; }
+
+.sankey-filter-pill {
+  display: none;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: var(--sp-2);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(240, 136, 62, 0.15);
+  border: 1px solid rgba(240, 136, 62, 0.5);
+  color: #f0883e;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+.sankey-filter-pill.is-active { display: inline-flex; }
+.sankey-filter-pill:hover { background: rgba(240, 136, 62, 0.25); }
