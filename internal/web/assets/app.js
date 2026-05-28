@@ -519,6 +519,126 @@
     return 'bad';
   }
 
+  // ---- Dashboard KPI strip --------------------------------------------
+  // Aggregates snapshot fields into four compact rows of headline metrics.
+  // Each tile picks its own ok/warn/err state so degradation is visible
+  // without reading the numbers.
+  function kpiTile(label, value, opts) {
+    opts = opts || {};
+    const state = opts.state ? ' ' + opts.state : '';
+    const arrow = opts.arrow
+      ? '<span class="kpi-arrow ' + opts.arrow + '">' + (opts.arrow === 'down' ? '&darr;' : '&uarr;') + '</span>'
+      : '';
+    const sub = opts.sub ? '<div class="kpi-sub">' + opts.sub + '</div>' : '';
+    return ''
+      + '<div class="kpi-tile' + state + '">'
+      +   '<div class="kpi-label">' + arrow + escape(label) + '</div>'
+      +   '<div class="kpi-value">' + value + '</div>'
+      +   sub
+      + '</div>';
+  }
+
+  function renderKpis(snap) {
+    const thr = snap.thresholds || {};
+
+    // --- Network: aggregate Rx/Tx across non-loopback interfaces -------
+    const bw = (snap.bandwidth || []).filter(b => b.iface !== 'lo');
+    let curRx = 0, curTx = 0, peakRx = 0, peakTx = 0, cumRx = 0, cumTx = 0;
+    for (const b of bw) {
+      curRx  += (b.current_rx || 0);
+      curTx  += (b.current_tx || 0);
+      peakRx += (b.peak_rx    || 0);
+      peakTx += (b.peak_tx    || 0);
+      cumRx  += (b.cum_rx     || 0);
+      cumTx  += (b.cum_tx     || 0);
+    }
+    document.getElementById('kpi-network').innerHTML = ''
+      + kpiTile('Download', fmtBytes(curRx) + '/s', {
+          arrow: 'down', sub: 'peak ' + fmtBytes(peakRx) + '/s' })
+      + kpiTile('Upload', fmtBytes(curTx) + '/s', {
+          arrow: 'up', sub: 'peak ' + fmtBytes(peakTx) + '/s' })
+      + kpiTile('Session ↓', fmtBytes(cumRx), {
+          sub: bw.length + ' iface' + (bw.length === 1 ? '' : 's') })
+      + kpiTile('Session ↑', fmtBytes(cumTx), {
+          sub: bw.length + ' iface' + (bw.length === 1 ? '' : 's') });
+
+    // --- Health: live observability ------------------------------------
+    const tel = snap.telemetry || {};
+    const rttMs = tel.worst_rtt_ms || 0;
+    const rttThr = thr.rtt_ms || 150;
+    const rttState = rttMs <= 0 ? '' : (rttMs > rttThr * 2 ? 'err' : (rttMs > rttThr ? 'warn' : 'ok'));
+    const rtx = tel.worst_rtx || 0;
+    const rtxThr = thr.retransmissions_pct || 5;
+    const rtxState = rtx <= 0 ? '' : (rtx > rtxThr * 2 ? 'err' : (rtx > rtxThr ? 'warn' : 'ok'));
+    const ct = snap.conntrack || {};
+    const ctUtil = (ct.max && ct.count) ? (ct.count / ct.max * 100) : 0;
+    const ctState = ctUtil > 90 ? 'err' : (ctUtil > 70 ? 'warn' : '');
+
+    document.getElementById('kpi-health').innerHTML = ''
+      + kpiTile('Active flows', String(tel.flows || 0), {
+          sub: (tel.source || '-') + (tel.ebpf_available ? ' · eBPF' : '') })
+      + kpiTile('Worst RTT', rttMs > 0 ? rttMs.toFixed(1) + ' ms' : '—', {
+          state: rttState, sub: 'threshold ' + rttThr + ' ms' })
+      + kpiTile('Worst retrans', rtx > 0 ? rtx.toFixed(2) + ' %' : '—', {
+          state: rtxState, sub: 'threshold ' + rtxThr + ' %' })
+      + kpiTile('Conntrack', ct.max ? (ct.count || 0) + ' / ' + ct.max : '—', {
+          state: ctState, sub: ct.max ? ctUtil.toFixed(1) + ' % used' : 'no data' });
+
+    // --- Security: blocked traffic + structural faults -----------------
+    const anomalies = snap.anomalies || [];
+    const sev = { CRITICAL: 0, ERROR: 0, WARN: 0, INFO: 0 };
+    for (const a of anomalies) if (sev[a.severity] !== undefined) sev[a.severity]++;
+    const alertState = sev.CRITICAL ? 'err' : ((sev.ERROR || sev.WARN) ? 'warn' : (anomalies.length ? '' : 'ok'));
+    const alertSub = sev.CRITICAL + ' crit · ' + sev.ERROR + ' err · ' + sev.WARN + ' warn';
+
+    let fwDropPkts = 0, fwDropBytes = 0;
+    for (const r of (snap.firewall_rules || [])) {
+      if (r.blocking && r.has_counter) { fwDropPkts += (r.packets || 0); fwDropBytes += (r.bytes || 0); }
+    }
+    const conflicts = (snap.ip_conflicts || []).length;
+    const conflictState = conflicts > 0 ? 'err' : '';
+
+    document.getElementById('kpi-security').innerHTML = ''
+      + kpiTile('Open alerts', String(anomalies.length), {
+          state: alertState, sub: alertSub })
+      + kpiTile('Firewall drops', fmtCount(fwDropPkts), {
+          state: fwDropPkts > 0 ? 'warn' : '', sub: fmtBytes(fwDropBytes) + ' blocked' })
+      + kpiTile('IP conflicts', String(conflicts), {
+          state: conflictState, sub: conflicts > 0 ? 'duplicate L2 owners' : 'L2 clean' })
+      + kpiTile('Port forwards', String((snap.nat || []).length), {
+          sub: 'active DNAT rules' });
+
+    // --- Infrastructure: inventory & link health -----------------------
+    const ifaces = (snap.ifaces || []).filter(i => i.name !== 'lo');
+    let ifErr = 0, ifDrop = 0;
+    for (const i of ifaces) {
+      ifErr  += (i.rx_errors  || 0) + (i.tx_errors  || 0);
+      ifDrop += (i.rx_dropped || 0) + (i.tx_dropped || 0);
+    }
+    const ifErrState = ifErr > 0 ? 'warn' : 'ok';
+
+    let worstSig = null;
+    for (const w of (snap.wifi || [])) {
+      if (!w.associated || !w.signal_dbm) continue;
+      if (worstSig === null || w.signal_dbm < worstSig) worstSig = w.signal_dbm;
+    }
+    const sigState = worstSig === null ? '' : (worstSig < -80 ? 'err' : (worstSig < -70 ? 'warn' : 'ok'));
+
+    const subs = snap.subsystems || [];
+    const degraded = subs.filter(s => s.state && s.state !== 'running' && s.state !== 'ok').length;
+    const subState = degraded > 0 ? (subs.some(s => s.core && s.state !== 'running' && s.state !== 'ok') ? 'err' : 'warn') : 'ok';
+
+    document.getElementById('kpi-infra').innerHTML = ''
+      + kpiTile('Devices online', String((snap.devices || []).length), {
+          sub: 'discovered hosts' })
+      + kpiTile('Iface errors', fmtCount(ifErr), {
+          state: ifErrState, sub: fmtCount(ifDrop) + ' drops · ' + ifaces.length + ' iface' + (ifaces.length === 1 ? '' : 's') })
+      + kpiTile('WiFi signal', worstSig === null ? '—' : worstSig.toFixed(0) + ' dBm', {
+          state: sigState, sub: worstSig === null ? 'no associated radio' : 'worst of associated' })
+      + kpiTile('Subsystems', (subs.length - degraded) + ' / ' + subs.length, {
+          state: subState, sub: degraded === 0 ? 'all running' : degraded + ' degraded' });
+  }
+
   function renderBandwidth(rows) {
     const el = document.getElementById('bandwidth-list');
     if (!rows || rows.length === 0) {
@@ -1273,6 +1393,7 @@
       const dot = document.getElementById('live-dot');
       if (dot) { dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
       renderGrade(snap.grade || {});
+      renderKpis(snap);
       renderBandwidth(snap.bandwidth || []);
       renderTalkers(snap.top_hosts, snap.top_processes, snap.top_services);
       renderSparks('icmp-sparks', snap.latency_series || {}, '#58a6ff');

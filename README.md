@@ -1182,17 +1182,43 @@ If a topic isn't covered yet, check `.claude/CLAUDE.md` (the canonical project s
 
 ## Screens
 
-![Dashboard](docs/images/dashboard.png)
+### TUI
 
-![Flows](docs/images/flows.png)
+The canonical terminal interface — every tab from the table above, rendered live.
 
-![Devices](docs/images/devices.png)
+| | |
+| --- | --- |
+| **Dashboard** — Network Quality grade, per-interface bandwidth, ICMP latency sparklines | **Flows** — live multi-interface flow table with process / DNS / service enrichment |
+| ![TUI Dashboard](docs/images/tui/dashboard.png) | ![TUI Flows](docs/images/tui/flows.png) |
+| **Devices** — discovered hosts with vendor, scope, and the ARP/NDP neighbour table | **Interfaces** — per-interface state, MTU, hardware/IP addresses, RX/TX |
+| ![TUI Devices](docs/images/tui/devices.png) | ![TUI Interfaces](docs/images/tui/interfaces.png) |
+| **Routes** — full routing table with add/remove of static routes | **Firewall** — managed rules with per-rule hit counters |
+| ![TUI Routes](docs/images/tui/routes.png) | ![TUI Firewall](docs/images/tui/firewall.png) |
+| **NAT** — NAT/port-forward rules plus the live conntrack table | **TCPDump** — selective PCAP capture with a BPF filter wizard |
+| ![TUI NAT](docs/images/tui/nat.png) | ![TUI TCPDump](docs/images/tui/tcpdump.png) |
+| **Talkers** — top hosts, processes, and services ranked by bytes | **Probes** — interactive ICMP / TCP / UDP / DNS / throughput / traceroute runner |
+| ![TUI Talkers](docs/images/tui/talkers.png) | ![TUI Probes](docs/images/tui/probes.png) |
+| **Alerts** — live alert log with severity filter and free-text search | **Health** — live results of every probe collector and the privileged-mutation audit log |
+| ![TUI Alerts](docs/images/tui/alerts.png) | ![TUI Health](docs/images/tui/health.png) |
 
-![Firewall](docs/images/firewall.png)
+### Web UI
 
-![Alerts](docs/images/alerts.png)
+The same engine and the same data, exposed over HTTP for headless boxes.
 
-![Web UI](docs/images/web-ui.png)
+| | |
+| --- | --- |
+| **Sign in** — single-user console login | **Dashboard** — Network Quality, bandwidth, latency, top flows |
+| ![Web Login](docs/images/ui/login.png) | ![Web Dashboard](docs/images/ui/dashboard.png) |
+| **Flows** — live flow table with capture controls | **Talkers** — top hosts / processes / services |
+| ![Web Flows](docs/images/ui/flows.png) | ![Web Talkers](docs/images/ui/talkers.png) |
+| **Devices** — discovered devices and neighbour table | **Interfaces** — kernel interface state and addressing |
+| ![Web Devices](docs/images/ui/devices.png) | ![Web Interfaces](docs/images/ui/interfaces.png) |
+| **Routes** — routing table with add/remove | **Firewall** — filter rules with hit counters |
+| ![Web Routes](docs/images/ui/routes.png) | ![Web Firewall](docs/images/ui/firewall.png) |
+| **NAT** — port-forwarding and live conntrack flows | **Alerts** — live alert log with severity filter and search |
+| ![Web NAT](docs/images/ui/nat.png) | ![Web Alerts](docs/images/ui/alerts.png) |
+| **History** — read-only browse of past sessions persisted to SQLite | **Health** — supervised subsystem health and audit log |
+| ![Web History](docs/images/ui/history.png) | ![Web Health](docs/images/ui/health.png) |
 
 ---
 

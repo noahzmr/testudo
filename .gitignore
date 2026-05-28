@@ -13,3 +13,6 @@ skills-lock.json
 !/storage/captures/.gitkeep
 !/storage/sessions/.gitkeep
 !/storage/metrics/.gitkeep
+
+/docs/images/
+
