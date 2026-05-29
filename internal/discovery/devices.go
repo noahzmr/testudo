@@ -53,6 +53,37 @@ type Device struct {
 	LLDPMgmtAddrs    []string // LLDP Management Address TLV(s)
 	LLDPCapabilities []string // bridge/router/wlan-ap/telephone/...
 	LLDPLocalIface   string   // local interface where the LLDPDU was seen
+
+	// GeoIP enrichment (internal/integrations/maxmind). Populated by the
+	// engine's annotator for devices with a public IP; empty for LAN hosts.
+	CountryISO    string // ISO 3166-1 alpha-2, e.g. "US"
+	CountryName   string // English country name
+	ASN           uint   // autonomous system number
+	ASOrg         string // autonomous system organisation
+	IsAnonymous   bool   // generic anonymity signal
+	IsVPN         bool   // anonymous VPN
+	IsTor         bool   // Tor exit node
+	IsHosting     bool   // hosting / datacentre provider
+	IsPublicProxy bool   // known public proxy
+	IsResidProxy  bool   // residential proxy
+	ThreatLevel   string // "", "low", "medium", "high"
+}
+
+// GeoAnnotation carries the GeoIP enrichment the engine folds onto a device.
+// Kept separate from maxmind.Result so the discovery package stays free of
+// the integrations import.
+type GeoAnnotation struct {
+	CountryISO    string
+	CountryName   string
+	ASN           uint
+	ASOrg         string
+	IsAnonymous   bool
+	IsVPN         bool
+	IsTor         bool
+	IsHosting     bool
+	IsPublicProxy bool
+	IsResidProxy  bool
+	ThreatLevel   string
 }
 
 // Inventory is the canonical device table. Safe for concurrent use.
@@ -198,6 +229,33 @@ func (in *Inventory) Enrich(ip, deviceType, macType string) {
 	if macType != "" && d.MACType == "" {
 		d.MACType = macType
 	}
+}
+
+// AnnotateGeo folds GeoIP enrichment onto an existing device without touching
+// LastSeen (enrichment isn't a liveness signal). No-op when the IP is unknown.
+// Always overwrites - the enricher is the authoritative source for these
+// fields and re-runs against the freshest database.
+func (in *Inventory) AnnotateGeo(ip string, g GeoAnnotation) {
+	if ip == "" {
+		return
+	}
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	d, ok := in.m[ip]
+	if !ok {
+		return
+	}
+	d.CountryISO = g.CountryISO
+	d.CountryName = g.CountryName
+	d.ASN = g.ASN
+	d.ASOrg = g.ASOrg
+	d.IsAnonymous = g.IsAnonymous
+	d.IsVPN = g.IsVPN
+	d.IsTor = g.IsTor
+	d.IsHosting = g.IsHosting
+	d.IsPublicProxy = g.IsPublicProxy
+	d.IsResidProxy = g.IsResidProxy
+	d.ThreatLevel = g.ThreatLevel
 }
 
 // MarkStale removes devices that haven't been seen in `age` and returns

@@ -20,6 +20,7 @@ import (
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/incidents"
+	"github.com/noahzmr/testudo/internal/integrations/maxmind"
 	"github.com/noahzmr/testudo/internal/ipfix"
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
@@ -45,6 +46,7 @@ type Engine struct {
 	incidents *incidents.Engine
 	inventory *discovery.Inventory
 	store     *storage.Store
+	maxmind   *maxmind.Enricher
 	wifi      *collectors.WiFiCollector
 	neigh     *collectors.NeighConntrackCollector
 	netwatch  *collectors.NetlinkWatchCollector
@@ -209,6 +211,8 @@ func (e *Engine) Start(parent context.Context) error {
 	e.startIPFIX(ctx)
 	e.startBandwidthPoller(ctx)
 	e.startDeviceBandwidthSampler(ctx)
+	e.startMaxMind(ctx)
+	e.startMaxMindAnnotator(ctx)
 	return nil
 }
 

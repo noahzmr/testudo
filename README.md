@@ -167,12 +167,12 @@ Tracked per flow: source/destination, ports, protocol, throughput, retransmissio
 
 Every IP shown in the **Flows** and **Devices** views - in both the TUI and the web UI - is tagged with its routability **scope** and, for IPv4, its classful **network** (A-E). One classifier (`internal/netlabel`) feeds both interfaces, so the labels are always identical.
 
-| Scope         | Meaning                                          | Ranges                                                  | Colour |
-| ------------- | ------------------------------------------------ | ------------------------------------------------------- | ------ |
-| **public**    | Globally routable                                | everything not below                                    | amber  |
-| **private**   | Routed inside an org, never on the public net    | RFC1918, IPv6 ULA `fc00::/7`, CGNAT `100.64.0.0/10`     | green  |
-| **internal**  | Never crosses a router                           | loopback, link-local, unspecified, limited broadcast    | dim    |
-| **multicast** | One-to-many group address                        | `224.0.0.0/4`, `ff00::/8`                               | cyan   |
+| Scope         | Meaning                                       | Ranges                                               | Colour |
+| ------------- | --------------------------------------------- | ---------------------------------------------------- | ------ |
+| **public**    | Globally routable                             | everything not below                                 | amber  |
+| **private**   | Routed inside an org, never on the public net | RFC1918, IPv6 ULA `fc00::/7`, CGNAT `100.64.0.0/10`  | green  |
+| **internal**  | Never crosses a router                        | loopback, link-local, unspecified, limited broadcast | dim    |
+| **multicast** | One-to-many group address                     | `224.0.0.0/4`, `ff00::/8`                            | cyan   |
 
 The network class is the historical classful bucket derived from the first octet (A = `0-127`, B = `128-191`, C = `192-223`, D = multicast, E = reserved); it is shown only for IPv4. Labels render as a compact `scope·class` tag in the TUI (`prv·C`, `pub·B`, `int·A`) and as a coloured pill beside each address in the web UI, with the precise reason (`RFC1918`, `CGNAT`, `loopback`, …) available on hover.
 
@@ -832,14 +832,14 @@ Testudo ships with intelligent defaults. Every threshold is live-tunable from th
 
 ### Integrations
 
-| Setting            | Default | Description                                                       |
-| ------------------ | ------- | ----------------------------------------------------------------- |
-| Sentry DSN         | unset   | Enable Sentry panic/error reporting                               |
-| Guacamole base     | unset   | Base URL for the Guacamole instance                               |
-| `IPFIXEnabled`     | false   | Export flow records over IETF IPFIX (RFC 7011)                    |
-| `IPFIXEndpoint`    | unset   | Collector address (`host:port`) for IPFIX export                  |
-| `IPFIXIntervalSec` | 30      | Seconds between IPFIX data exports                                |
-| `IPFIXDomainID`    | auto    | Observation Domain ID (derived from hostname when left at 0)      |
+| Setting            | Default | Description                                                  |
+| ------------------ | ------- | ------------------------------------------------------------ |
+| Sentry DSN         | unset   | Enable Sentry panic/error reporting                          |
+| Guacamole base     | unset   | Base URL for the Guacamole instance                          |
+| `IPFIXEnabled`     | false   | Export flow records over IETF IPFIX (RFC 7011)               |
+| `IPFIXEndpoint`    | unset   | Collector address (`host:port`) for IPFIX export             |
+| `IPFIXIntervalSec` | 30      | Seconds between IPFIX data exports                           |
+| `IPFIXDomainID`    | auto    | Observation Domain ID (derived from hostname when left at 0) |
 
 ### Settings View
 
@@ -881,19 +881,19 @@ The dashboard's most prominent element is a single **letter grade** (A+ through 
 
 Eleven live measurements, each pulled from the metrics aggregator (plus kernel, firewall, neighbour, conntrack, and per-flow TCP counters). Every measurement is scaled into its own **0-100 sub-score** and the sub-scores are combined with weights:
 
-| Sub-score       | Weight | What it measures                                                                                                                                                                   |
-| --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Packet loss** | 20 %   | Average loss percentage across WAN-side targets (external ICMP + WAN top-talker probes)                                                                                            |
-| **RTT**         | 15 %   | Average round-trip latency across WAN-side targets                                                                                                                                 |
-| **Jitter**      | 5 %    | Rolling RTT variation across WAN-side targets                                                                                                                                      |
-| **DNS latency** | 10 %   | Average resolution time across external + internal resolvers                                                                                                                       |
-| **LAN**         | 15 %   | Reachability to LAN-side hosts (blends LAN loss + LAN RTT); a **duplicate-IP conflict** in the neighbour table applies a hard penalty for as long as it persists                   |
-| **HTTP**        | 5 %    | Configured / auto-derived HTTP endpoints - blends failure rate and TTFB                                                                                                            |
+| Sub-score       | Weight | What it measures                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Packet loss** | 20 %   | Average loss percentage across WAN-side targets (external ICMP + WAN top-talker probes)                                                                                                                                                                                                                                                                                                                                                                 |
+| **RTT**         | 15 %   | Average round-trip latency across WAN-side targets                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **Jitter**      | 5 %    | Rolling RTT variation across WAN-side targets                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **DNS latency** | 10 %   | Average resolution time across external + internal resolvers                                                                                                                                                                                                                                                                                                                                                                                            |
+| **LAN**         | 15 %   | Reachability to LAN-side hosts (blends LAN loss + LAN RTT); a **duplicate-IP conflict** in the neighbour table applies a hard penalty for as long as it persists                                                                                                                                                                                                                                                                                        |
+| **HTTP**        | 5 %    | Configured / auto-derived HTTP endpoints - blends failure rate and TTFB                                                                                                                                                                                                                                                                                                                                                                                 |
 | **Stab**        | 10 %   | Per-interface error / drop ratio **blended with the unreachable-neighbour ratio** (FAILED + INCOMPLETE ARP/NDP entries - a failed gateway neighbour is imminent connectivity loss), **plus push-derived link flap-rate and default-route churn** from the RTNETLINK watcher (each with a 2/min comfort line - a 300 ms flap a 5 s poll would miss now drags the grade, and an uplink that keeps re-electing its default route registers as instability) |
-| **WiFi**        | 10 %   | Average signal level (dBm) across associated wireless interfaces; -60 dBm = 100, -90 dBm = 0 (linear)                                                                              |
-| **Firewall**    | 5 %    | DROP/REJECT velocity (drops/sec) across Testudo-managed blocking rules, diffed between snapshots; 0 = 100, 10 drops/sec = 50                                                       |
-| **NAT**         | 5 %    | Conntrack table utilisation (live entries ÷ `nf_conntrack_max`); 70 % = 50, near-saturation drags the grade and fires the NAT-exhaustion anomaly with real numbers                 |
-| **Congestion**  | 5 %    | **Flow-weighted per-flow retransmission rate** from `tcp_info` (sourced pure-Go via INET_DIAG / `ss -ti`, or eBPF when built with `-tags ebpf`) - busy flows dominate the weight, so this replaces the blunt system-wide `/proc/net/snmp` retransmission number. Anchored to the retransmissions threshold; neutral 100 when no active TCP flows carry telemetry |
+| **WiFi**        | 10 %   | Average signal level (dBm) across associated wireless interfaces; -60 dBm = 100, -90 dBm = 0 (linear)                                                                                                                                                                                                                                                                                                                                                   |
+| **Firewall**    | 5 %    | DROP/REJECT velocity (drops/sec) across Testudo-managed blocking rules, diffed between snapshots; 0 = 100, 10 drops/sec = 50                                                                                                                                                                                                                                                                                                                            |
+| **NAT**         | 5 %    | Conntrack table utilisation (live entries ÷ `nf_conntrack_max`); 70 % = 50, near-saturation drags the grade and fires the NAT-exhaustion anomaly with real numbers                                                                                                                                                                                                                                                                                      |
+| **Congestion**  | 5 %    | **Flow-weighted per-flow retransmission rate** from `tcp_info` (sourced pure-Go via INET_DIAG / `ss -ti`, or eBPF when built with `-tags ebpf`) - busy flows dominate the weight, so this replaces the blunt system-wide `/proc/net/snmp` retransmission number. Anchored to the retransmissions threshold; neutral 100 when no active TCP flows carry telemetry                                                                                        |
 
 On top of the weighted sub-scores, a detected **PMTU black-hole / frag-needed** condition (a flow retransmitting without forward progress - the classic "some sites won't load" fault) applies a fixed **-15** penalty so the letter reflects it even when the averages look fine. The **worst active-flow RTT** can also sharpen the RTT sub-score downward on a busy host - the path the user actually cares about, not just the probe target.
 
@@ -1068,36 +1068,36 @@ testudo/
 
 ### Module Overview
 
-| Package                           | Responsibility                                                                                                                                                                             |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `internal/tui`                    | Bubble Tea application - tabs, modals, browser, replay UI                                                                                                                                  |
-| `internal/web`                    | HTTP UI, embedded assets, sessions, snapshot endpoint                                                                                                                                      |
-| `internal/auth`                   | Local web-UI users, bcrypt password hashing and rotation                                                                                                                                   |
-| `internal/engine`                 | Lifecycle orchestrator - wires all subsystems together, supervises/restarts collectors                                                                                                     |
-| `internal/events`                 | Non-blocking fan-out event bus, four-level severity                                                                                                                                        |
+| Package                           | Responsibility                                                                                                                                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/tui`                    | Bubble Tea application - tabs, modals, browser, replay UI                                                                                                                                            |
+| `internal/web`                    | HTTP UI, embedded assets, sessions, snapshot endpoint                                                                                                                                                |
+| `internal/auth`                   | Local web-UI users, bcrypt password hashing and rotation                                                                                                                                             |
+| `internal/engine`                 | Lifecycle orchestrator - wires all subsystems together, supervises/restarts collectors                                                                                                               |
+| `internal/events`                 | Non-blocking fan-out event bus, four-level severity                                                                                                                                                  |
 | `internal/collectors`             | ICMP, DNS (external + internal), HTTP-endpoint, TLS-cert, top-talkers (ICMP + TCP), LAN-reachability, traceroute, bufferbloat, WiFi, iface-health, L2 (multicast burst + ARP churn), tcp_info probes |
-| `internal/capture`                | Multi-interface AF_PACKET capture, ring buffer, rotated PCAP writer                                                                                                                        |
-| `internal/telemetry`              | Per-flow TCP telemetry (RTT / RTX / cwnd) via INET_DIAG, with an optional eBPF backend (`-tags ebpf`)                                                                                       |
-| `internal/flows`                  | Interface-tagged five-tuple aggregator, correlators, per-device bandwidth history, LAN host-to-host matrix                                                                                 |
-| `internal/netops`                 | Netlink + nftables/iptables backend: firewall, route, NAT/port-forward, interface, conntrack, neighbour, and DNS operations behind a write-gated `Writer`                                  |
-| `internal/privsep`                | Privileged helper process, capability dropping, seccomp-bpf denylist, SCM_RIGHTS FD passing                                                                                                |
-| `internal/discovery`              | ARP, ICMP, mDNS, LLDP, SNMP scanner with device inventory + vendor OUI lookup                                                                                                              |
-| `internal/topology`               | Passive topology graph (nodes / edges) built from flow + discovery data                                                                                                                    |
-| `internal/probes`                 | One-shot diagnostic probe runner (ICMP / TCP / UDP / DNS / throughput / traceroute)                                                                                                        |
-| `internal/doctor`                 | Layered bottom-up connectivity diagnosis with root-cause verdict                                                                                                                           |
-| `internal/health`                 | Per-subsystem status (OK / degraded / failed) with remediation hints                                                                                                                       |
-| `internal/quality`                | Per-(target, day, hour) baseline rollup, baseline-relative scoring, bufferbloat grading                                                                                                    |
-| `internal/analyzers`              | Anomaly detectors - packet loss, latency spike, jitter, DNS burst, firewall drops, route instability, bandwidth spike, NAT exhaustion, retransmissions, per-device chatter                 |
-| `internal/incidents`              | Severity escalation, alert log, incident bundles                                                                                                                                           |
-| `internal/metrics`                | Rolling per-target / per-DNS counters and bandwidth windows                                                                                                                                |
-| `internal/ipfix`                  | IETF IPFIX (RFC 7011) flow exporter + lifecycle manager                                                                                                                                    |
-| `internal/services`               | Well-known port → service-name mapping                                                                                                                                                     |
-| `internal/replay`                 | Session reconstruction from persisted events                                                                                                                                               |
-| `internal/storage`                | SQLite persistence (sessions, samples, flows, anomalies, incidents, baselines, audit log)                                                                                                  |
-| `internal/integrations/sentry`    | Optional panic/error reporting                                                                                                                                                             |
-| `internal/integrations/guacamole` | URL deep-link helper for SSH/RDP/VNC handoff                                                                                                                                               |
-| `internal/config`                 | Defaults, thresholds, persistent settings store                                                                                                                                            |
-| `cmd/testudo`                     | Command-line entry point and subcommand registry                                                                                                                                           |
+| `internal/capture`                | Multi-interface AF_PACKET capture, ring buffer, rotated PCAP writer                                                                                                                                  |
+| `internal/telemetry`              | Per-flow TCP telemetry (RTT / RTX / cwnd) via INET_DIAG, with an optional eBPF backend (`-tags ebpf`)                                                                                                |
+| `internal/flows`                  | Interface-tagged five-tuple aggregator, correlators, per-device bandwidth history, LAN host-to-host matrix                                                                                           |
+| `internal/netops`                 | Netlink + nftables/iptables backend: firewall, route, NAT/port-forward, interface, conntrack, neighbour, and DNS operations behind a write-gated `Writer`                                            |
+| `internal/privsep`                | Privileged helper process, capability dropping, seccomp-bpf denylist, SCM_RIGHTS FD passing                                                                                                          |
+| `internal/discovery`              | ARP, ICMP, mDNS, LLDP, SNMP scanner with device inventory + vendor OUI lookup                                                                                                                        |
+| `internal/topology`               | Passive topology graph (nodes / edges) built from flow + discovery data                                                                                                                              |
+| `internal/probes`                 | One-shot diagnostic probe runner (ICMP / TCP / UDP / DNS / throughput / traceroute)                                                                                                                  |
+| `internal/doctor`                 | Layered bottom-up connectivity diagnosis with root-cause verdict                                                                                                                                     |
+| `internal/health`                 | Per-subsystem status (OK / degraded / failed) with remediation hints                                                                                                                                 |
+| `internal/quality`                | Per-(target, day, hour) baseline rollup, baseline-relative scoring, bufferbloat grading                                                                                                              |
+| `internal/analyzers`              | Anomaly detectors - packet loss, latency spike, jitter, DNS burst, firewall drops, route instability, bandwidth spike, NAT exhaustion, retransmissions, per-device chatter                           |
+| `internal/incidents`              | Severity escalation, alert log, incident bundles                                                                                                                                                     |
+| `internal/metrics`                | Rolling per-target / per-DNS counters and bandwidth windows                                                                                                                                          |
+| `internal/ipfix`                  | IETF IPFIX (RFC 7011) flow exporter + lifecycle manager                                                                                                                                              |
+| `internal/services`               | Well-known port → service-name mapping                                                                                                                                                               |
+| `internal/replay`                 | Session reconstruction from persisted events                                                                                                                                                         |
+| `internal/storage`                | SQLite persistence (sessions, samples, flows, anomalies, incidents, baselines, audit log)                                                                                                            |
+| `internal/integrations/sentry`    | Optional panic/error reporting                                                                                                                                                                       |
+| `internal/integrations/guacamole` | URL deep-link helper for SSH/RDP/VNC handoff                                                                                                                                                         |
+| `internal/config`                 | Defaults, thresholds, persistent settings store                                                                                                                                                      |
+| `cmd/testudo`                     | Command-line entry point and subcommand registry                                                                                                                                                     |
 
 ### Coding Standards
 
@@ -1186,39 +1186,39 @@ If a topic isn't covered yet, check `.claude/CLAUDE.md` (the canonical project s
 
 The canonical terminal interface — every tab from the table above, rendered live.
 
-| | |
-| --- | --- |
-| **Dashboard** — Network Quality grade, per-interface bandwidth, ICMP latency sparklines | **Flows** — live multi-interface flow table with process / DNS / service enrichment |
-| ![TUI Dashboard](docs/images/tui/dashboard.png) | ![TUI Flows](docs/images/tui/flows.png) |
-| **Devices** — discovered hosts with vendor, scope, and the ARP/NDP neighbour table | **Interfaces** — per-interface state, MTU, hardware/IP addresses, RX/TX |
-| ![TUI Devices](docs/images/tui/devices.png) | ![TUI Interfaces](docs/images/tui/interfaces.png) |
-| **Routes** — full routing table with add/remove of static routes | **Firewall** — managed rules with per-rule hit counters |
-| ![TUI Routes](docs/images/tui/routes.png) | ![TUI Firewall](docs/images/tui/firewall.png) |
-| **NAT** — NAT/port-forward rules plus the live conntrack table | **TCPDump** — selective PCAP capture with a BPF filter wizard |
-| ![TUI NAT](docs/images/tui/nat.png) | ![TUI TCPDump](docs/images/tui/tcpdump.png) |
-| **Talkers** — top hosts, processes, and services ranked by bytes | **Probes** — interactive ICMP / TCP / UDP / DNS / throughput / traceroute runner |
-| ![TUI Talkers](docs/images/tui/talkers.png) | ![TUI Probes](docs/images/tui/probes.png) |
-| **Alerts** — live alert log with severity filter and free-text search | **Health** — live results of every probe collector and the privileged-mutation audit log |
-| ![TUI Alerts](docs/images/tui/alerts.png) | ![TUI Health](docs/images/tui/health.png) |
+|                                                                                         |                                                                                          |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Dashboard** — Network Quality grade, per-interface bandwidth, ICMP latency sparklines | **Flows** — live multi-interface flow table with process / DNS / service enrichment      |
+| ![TUI Dashboard](docs/images/tui/dashboard.png)                                         | ![TUI Flows](docs/images/tui/flows.png)                                                  |
+| **Devices** — discovered hosts with vendor, scope, and the ARP/NDP neighbour table      | **Interfaces** — per-interface state, MTU, hardware/IP addresses, RX/TX                  |
+| ![TUI Devices](docs/images/tui/devices.png)                                             | ![TUI Interfaces](docs/images/tui/interfaces.png)                                        |
+| **Routes** — full routing table with add/remove of static routes                        | **Firewall** — managed rules with per-rule hit counters                                  |
+| ![TUI Routes](docs/images/tui/routes.png)                                               | ![TUI Firewall](docs/images/tui/firewall.png)                                            |
+| **NAT** — NAT/port-forward rules plus the live conntrack table                          | **TCPDump** — selective PCAP capture with a BPF filter wizard                            |
+| ![TUI NAT](docs/images/tui/nat.png)                                                     | ![TUI TCPDump](docs/images/tui/tcpdump.png)                                              |
+| **Talkers** — top hosts, processes, and services ranked by bytes                        | **Probes** — interactive ICMP / TCP / UDP / DNS / throughput / traceroute runner         |
+| ![TUI Talkers](docs/images/tui/talkers.png)                                             | ![TUI Probes](docs/images/tui/probes.png)                                                |
+| **Alerts** — live alert log with severity filter and free-text search                   | **Health** — live results of every probe collector and the privileged-mutation audit log |
+| ![TUI Alerts](docs/images/tui/alerts.png)                                               | ![TUI Health](docs/images/tui/health.png)                                                |
 
 ### Web UI
 
 The same engine and the same data, exposed over HTTP for headless boxes.
 
-| | |
-| --- | --- |
-| **Sign in** — single-user console login | **Dashboard** — Network Quality, bandwidth, latency, top flows |
-| ![Web Login](docs/images/ui/login.png) | ![Web Dashboard](docs/images/ui/dashboard.png) |
-| **Flows** — live flow table with capture controls | **Talkers** — top hosts / processes / services |
-| ![Web Flows](docs/images/ui/flows.png) | ![Web Talkers](docs/images/ui/talkers.png) |
-| **Devices** — discovered devices and neighbour table | **Interfaces** — kernel interface state and addressing |
-| ![Web Devices](docs/images/ui/devices.png) | ![Web Interfaces](docs/images/ui/interfaces.png) |
-| **Routes** — routing table with add/remove | **Firewall** — filter rules with hit counters |
-| ![Web Routes](docs/images/ui/routes.png) | ![Web Firewall](docs/images/ui/firewall.png) |
-| **NAT** — port-forwarding and live conntrack flows | **Alerts** — live alert log with severity filter and search |
-| ![Web NAT](docs/images/ui/nat.png) | ![Web Alerts](docs/images/ui/alerts.png) |
-| **History** — read-only browse of past sessions persisted to SQLite | **Health** — supervised subsystem health and audit log |
-| ![Web History](docs/images/ui/history.png) | ![Web Health](docs/images/ui/health.png) |
+|                                                                     |                                                                |
+| ------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Sign in** — single-user console login                             | **Dashboard** — Network Quality, bandwidth, latency, top flows |
+| ![Web Login](docs/images/ui/login.png)                              | ![Web Dashboard](docs/images/ui/dashboard.png)                 |
+| **Flows** — live flow table with capture controls                   | **Talkers** — top hosts / processes / services                 |
+| ![Web Flows](docs/images/ui/flows.png)                              | ![Web Talkers](docs/images/ui/talkers.png)                     |
+| **Devices** — discovered devices and neighbour table                | **Interfaces** — kernel interface state and addressing         |
+| ![Web Devices](docs/images/ui/devices.png)                          | ![Web Interfaces](docs/images/ui/interfaces.png)               |
+| **Routes** — routing table with add/remove                          | **Firewall** — filter rules with hit counters                  |
+| ![Web Routes](docs/images/ui/routes.png)                            | ![Web Firewall](docs/images/ui/firewall.png)                   |
+| **NAT** — port-forwarding and live conntrack flows                  | **Alerts** — live alert log with severity filter and search    |
+| ![Web NAT](docs/images/ui/nat.png)                                  | ![Web Alerts](docs/images/ui/alerts.png)                       |
+| **History** — read-only browse of past sessions persisted to SQLite | **Health** — supervised subsystem health and audit log         |
+| ![Web History](docs/images/ui/history.png)                          | ![Web Health](docs/images/ui/health.png)                       |
 
 ---
 

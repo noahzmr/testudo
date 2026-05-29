@@ -121,6 +121,9 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/device/scan", s.protect(s.handleDeviceScan))
 	mux.HandleFunc("/api/connect", s.protect(s.handleConnect))
 
+	// MaxMind GeoIP enrichment lookup: GET /api/ip/{addr}
+	mux.HandleFunc("/api/ip/", s.protect(s.handleIPLookup))
+
 	mux.HandleFunc("/", s.protect(s.handleRoot))
 
 	s.mux = mux

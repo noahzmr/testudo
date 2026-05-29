@@ -56,6 +56,19 @@ type Thresholds struct {
 	// when the host-wide rate is fine.
 	EBPFEnabled    bool    // enable eBPF backend (requires -tags ebpf + caps)
 	FlowRetransPct float64 // per-flow RTX-rate alert threshold, percent
+
+	// MaxMind GeoIP enrichment (internal/integrations/maxmind). When enabled,
+	// observed public IPs are annotated with country / ASN / anonymity signals
+	// from local .mmdb files (or a sidecar mmdb-server). The engine reconciles
+	// these against the live enricher on a 2-second cadence, so editing them in
+	// the Settings tab takes effect without a restart.
+	MaxMindEnabled      bool   // master switch
+	MaxMindDBDir        string // directory holding the .mmdb files
+	MaxMindAccountID    string // optional; required for some commercial editions
+	MaxMindLicenseKey   string // license key for auto-update; empty disables it
+	MaxMindEditions     string // comma-separated edition IDs to auto-download
+	MaxMindAutoUpdate   bool   // periodically re-download the configured editions
+	MaxMindRefreshHours int    // refresh cadence in hours; 0 => 7-day default
 }
 
 func DefaultThresholds() Thresholds {

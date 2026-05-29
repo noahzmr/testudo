@@ -94,27 +94,41 @@ type persistedThresholds struct {
 	IPFIXDomainID       uint32  `json:"ipfix_domain_id"`
 	EBPFEnabled         bool    `json:"ebpf_enabled"`
 	FlowRetransPct      float64 `json:"flow_retrans_pct"`
+	MaxMindEnabled      bool    `json:"maxmind_enabled"`
+	MaxMindDBDir        string  `json:"maxmind_db_dir"`
+	MaxMindAccountID    string  `json:"maxmind_account_id"`
+	MaxMindLicenseKey   string  `json:"maxmind_license_key"`
+	MaxMindEditions     string  `json:"maxmind_editions"`
+	MaxMindAutoUpdate   bool    `json:"maxmind_auto_update"`
+	MaxMindRefreshHours int     `json:"maxmind_refresh_hours"`
 }
 
 func (p persistedThresholds) toThresholds() Thresholds {
 	return Thresholds{
-		PacketLossPct:      p.PacketLossPct,
-		DNSLatencyMs:       p.DNSLatencyMs,
-		JitterMs:           p.JitterMs,
-		RTTMs:              p.RTTMs,
-		RetransmissionsPct: p.RetransmissionsPct,
-		IncidentCooldown:   time.Duration(p.IncidentCooldownSec * float64(time.Second)),
-		AllowNetopsWrite:   p.AllowNetopsWrite,
-		SentryDSN:          p.SentryDSN,
-		GuacamoleURL:       p.GuacamoleURL,
-		GuacamoleConnID:    p.GuacamoleConnID,
-		GuacamoleTemplate:  p.GuacamoleTemplate,
-		IPFIXEnabled:       p.IPFIXEnabled,
-		IPFIXEndpoint:      p.IPFIXEndpoint,
-		IPFIXIntervalSec:   p.IPFIXIntervalSec,
-		IPFIXDomainID:      p.IPFIXDomainID,
-		EBPFEnabled:        p.EBPFEnabled,
-		FlowRetransPct:     p.FlowRetransPct,
+		PacketLossPct:       p.PacketLossPct,
+		DNSLatencyMs:        p.DNSLatencyMs,
+		JitterMs:            p.JitterMs,
+		RTTMs:               p.RTTMs,
+		RetransmissionsPct:  p.RetransmissionsPct,
+		IncidentCooldown:    time.Duration(p.IncidentCooldownSec * float64(time.Second)),
+		AllowNetopsWrite:    p.AllowNetopsWrite,
+		SentryDSN:           p.SentryDSN,
+		GuacamoleURL:        p.GuacamoleURL,
+		GuacamoleConnID:     p.GuacamoleConnID,
+		GuacamoleTemplate:   p.GuacamoleTemplate,
+		IPFIXEnabled:        p.IPFIXEnabled,
+		IPFIXEndpoint:       p.IPFIXEndpoint,
+		IPFIXIntervalSec:    p.IPFIXIntervalSec,
+		IPFIXDomainID:       p.IPFIXDomainID,
+		EBPFEnabled:         p.EBPFEnabled,
+		FlowRetransPct:      p.FlowRetransPct,
+		MaxMindEnabled:      p.MaxMindEnabled,
+		MaxMindDBDir:        p.MaxMindDBDir,
+		MaxMindAccountID:    p.MaxMindAccountID,
+		MaxMindLicenseKey:   p.MaxMindLicenseKey,
+		MaxMindEditions:     p.MaxMindEditions,
+		MaxMindAutoUpdate:   p.MaxMindAutoUpdate,
+		MaxMindRefreshHours: p.MaxMindRefreshHours,
 	}
 }
 
@@ -137,5 +151,12 @@ func persistedFromThresholds(t Thresholds) persistedThresholds {
 		IPFIXDomainID:       t.IPFIXDomainID,
 		EBPFEnabled:         t.EBPFEnabled,
 		FlowRetransPct:      t.FlowRetransPct,
+		MaxMindEnabled:      t.MaxMindEnabled,
+		MaxMindDBDir:        t.MaxMindDBDir,
+		MaxMindAccountID:    t.MaxMindAccountID,
+		MaxMindLicenseKey:   t.MaxMindLicenseKey,
+		MaxMindEditions:     t.MaxMindEditions,
+		MaxMindAutoUpdate:   t.MaxMindAutoUpdate,
+		MaxMindRefreshHours: t.MaxMindRefreshHours,
 	}
 }

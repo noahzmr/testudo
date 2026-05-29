@@ -405,8 +405,8 @@ func (t *flowsTab) visibleCount() int {
 func (t *flowsTab) View(w, h int) string {
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
-	widths := []int{6, 9, 16, 24, 14, 7, 9, 18, 12, 13, 9}
-	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "SCOPE", "PKTS", "BYTES", "RTT·RTX·CWND", "DNS", "AGE", "BYTE A=>B"}
+	widths := []int{6, 9, 16, 24, 14, 14, 7, 9, 18, 12, 13, 9}
+	headers := []string{"PROTO", "IFACE", "PROCESS", "A => B", "SCOPE", "GEO/THREAT", "PKTS", "BYTES", "RTT·RTX·CWND", "DNS", "AGE", "BYTE A=>B"}
 	// Apply filter once per render.
 	visible := t.rows
 	if t.filter != "" {
@@ -492,6 +492,7 @@ func (t *flowsTab) View(w, h int) string {
 		scope := scopePair(f.Key.A.IP, f.Key.B.IP)
 		row := renderTableRow(innerW, widths,
 			strings.ToUpper(f.Key.Proto), f.Key.Iface, proc, ab, scope,
+			geoCellForFlow(t.eng, f),
 			fmt.Sprintf("%d", f.Packets), fmtBytes(f.Bytes), tcp, dns,
 			fmt.Sprintf("%s ago", age), fmtBytes(f.BytesAtoB))
 		if i == t.cursor {
@@ -2126,9 +2127,9 @@ func (t *devicesTab) View(w, h int) string {
 	}
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
-	widths := []int{16, 9, 18, 10, 16, 18, 14, 8}
+	widths := []int{16, 9, 18, 10, 14, 16, 16, 14, 8}
 	rows = append(rows, renderTableRow(innerW, widths,
-		"IP", "SCOPE", "HOSTNAME", "TYPE", "VENDOR", "PROTOCOLS", "BW (10m TX)", "LAST"))
+		"IP", "SCOPE", "HOSTNAME", "TYPE", "VENDOR", "PROTOCOLS", "GEO/THREAT", "BW (10m TX)", "LAST"))
 	bw := t.eng.DeviceBandwidth()
 	for i, d := range t.devices {
 		age := time.Since(d.LastSeen).Truncate(time.Second)
@@ -2166,7 +2167,7 @@ func (t *devicesTab) View(w, h int) string {
 		}
 		row := renderTableRow(innerW, widths,
 			ipCell, scopeTag(d.IP), dashIfEmpty(d.Hostname), dashIfEmpty(d.DeviceType),
-			vendorCell, protoCell, bwCell,
+			vendorCell, protoCell, geoCellForDevice(d), bwCell,
 			fmt.Sprintf("%s ago", age))
 		switch {
 		case i == t.cursor:

@@ -200,6 +200,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
     result    TEXT NOT NULL     -- "ok" or the error string
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
+
+CREATE TABLE IF NOT EXISTS geoip_cache (
+    ip           TEXT PRIMARY KEY,
+    country_iso  TEXT,
+    country_name TEXT,
+    city         TEXT,
+    latitude     REAL NOT NULL DEFAULT 0,
+    longitude    REAL NOT NULL DEFAULT 0,
+    asn          INTEGER NOT NULL DEFAULT 0,
+    as_org       TEXT,
+    is_anonymous INTEGER NOT NULL DEFAULT 0,
+    is_vpn       INTEGER NOT NULL DEFAULT 0,
+    is_tor       INTEGER NOT NULL DEFAULT 0,
+    is_hosting   INTEGER NOT NULL DEFAULT 0,
+    is_pub_proxy INTEGER NOT NULL DEFAULT 0,
+    is_res_proxy INTEGER NOT NULL DEFAULT 0,
+    threat_level TEXT,
+    updated_at   INTEGER NOT NULL  -- unix-milli
+);
 `
 
 type Store struct {
