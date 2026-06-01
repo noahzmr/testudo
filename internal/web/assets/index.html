@@ -248,6 +248,11 @@
           <b>Scan</b> probes each host for SSH / RDP / VNC / Telnet / HTTP / HTTPS.
           <b>Connect</b> launches via your Guacamole template (if set) or your browser's native URI handler.
         </p>
+        <div class="form-row">
+          <input id="nmap-target" type="text" placeholder="IP or CIDR - e.g. 192.168.1.10 or 192.168.1.0/24" autocomplete="off">
+          <button class="btn" data-action="device-nmap-scan">Scan with nmap</button>
+        </div>
+        <p class="muted">Runs an nmap host + fast-port scan against the target; every host found is added to the inventory below.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>IP</th><th>Hostname</th><th>Vendor</th><th>Open ports</th><th>Connect</th><th>Actions</th></tr></thead>

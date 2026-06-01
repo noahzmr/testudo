@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -1878,6 +1879,7 @@ func (t *devicesTab) HelpHints() []KeyHint {
 		{Key: "n", Desc: "toggle neighbour (ARP/NDP) table"},
 		{Key: "f", Desc: "filter neighbour family (all / ipv4 / ipv6)"},
 		{Key: "s", Desc: "scan selected device (SSH / RDP / VNC / Telnet / HTTP / HTTPS)"},
+		{Key: "N", Desc: "nmap-scan an IP or CIDR and add discovered devices"},
 		{Key: "c", Desc: "show connect URLs for the selected device"},
 		{Key: "g", Desc: "Guacamole SSH launch (legacy quick-key)"},
 		{Key: "G", Desc: "Guacamole RDP launch (legacy quick-key)"},
@@ -1925,6 +1927,8 @@ func (t *devicesTab) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "s":
 			return t.scanSelected()
+		case "N":
+			return t.openNmapScanModal()
 		case "c":
 			return t.openConnectModal()
 		case "g":
@@ -1984,6 +1988,51 @@ func (t *devicesTab) scanSelected() tea.Cmd {
 		_ = scanner.ScanHost(context.Background(), ip)
 	}()
 	return statusCmd("scanning " + ip + " - refresh in ~5s")
+}
+
+// openNmapScanModal prompts for an IP or CIDR and runs an nmap scan against
+// it in the background. Discovered hosts are folded into the engine's
+// inventory, so the next slow-tick refresh re-renders the device table with
+// the new rows. The scan runs in a goroutine so the TUI never blocks on a
+// long CIDR sweep.
+func (t *devicesTab) openNmapScanModal() tea.Cmd {
+	if !discovery.NmapAvailable() {
+		return statusCmd("nmap not found on PATH - install nmap to use this")
+	}
+	modal := NewFormModal("Nmap scan",
+		[]FormField{
+			{Label: "target", Value: "", Hint: "IP or CIDR, e.g. 192.168.1.10 or 192.168.1.0/24", Validate: validateScanTargetField},
+		},
+		func(values map[string]string) error {
+			target := strings.TrimSpace(values["target"])
+			go func() {
+				scanner := &discovery.Scanner{Inventory: t.eng.Inventory()}
+				// Bound the scan so a hung host can't leak a goroutine forever.
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				_, _ = scanner.NmapScan(ctx, target)
+			}()
+			return nil
+		},
+	)
+	return t.app.SetModal(modal)
+}
+
+// validateScanTargetField accepts a single IP (v4/v6) or a CIDR block. Mirrors
+// the discovery package's own validation so the operator gets immediate
+// feedback in the modal before the scan is launched.
+func validateScanTargetField(v string) error {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return fmt.Errorf("target required")
+	}
+	if _, _, err := net.ParseCIDR(v); err == nil {
+		return nil
+	}
+	if net.ParseIP(v) != nil {
+		return nil
+	}
+	return fmt.Errorf("not a valid IP or CIDR")
 }
 
 // openConnectModal lists every connection option detected on the selected

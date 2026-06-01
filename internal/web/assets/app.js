@@ -263,6 +263,25 @@
           : btn.dataset.ip + ' - no connection ports open');
         break;
       }
+      case 'device-nmap-scan': {
+        const target = val('nmap-target');
+        if (!target) { showToast('enter an IP or CIDR to scan'); break; }
+        showToast('nmap scanning ' + target + '… (this can take a minute)');
+        btn.disabled = true;
+        try {
+          const r = await post('/api/device/nmap-scan', { target });
+          const n = (r && r.discovered) || 0;
+          showToast(n
+            ? 'nmap found ' + n + ' host' + (n === 1 ? '' : 's') + ' on ' + target
+            : 'nmap found no hosts on ' + target);
+          await refresh();
+        } catch (e) {
+          showToast('nmap scan failed: ' + e.message);
+        } finally {
+          btn.disabled = false;
+        }
+        break;
+      }
       case 'probe-run': {
         const out = document.getElementById('probe-out');
         out.textContent = 'running…';
@@ -361,7 +380,7 @@
   }
   // Negotiated link speed (decimal, like ethtool / sysfs).
   function fmtMbps(mbps) {
-    if (!mbps || mbps <= 0) return '—';
+    if (!mbps || mbps <= 0) return '-';
     if (mbps >= 1000) {
       const g = mbps / 1000;
       return (g % 1 === 0 ? g.toFixed(0) : g.toFixed(1)) + ' Gbps';
@@ -605,11 +624,11 @@
     document.getElementById('kpi-health').innerHTML = ''
       + kpiTile('Active flows', String(tel.flows || 0), {
           sub: (tel.source || '-') + (tel.ebpf_available ? ' · eBPF' : '') })
-      + kpiTile('Worst RTT', rttMs > 0 ? rttMs.toFixed(1) + ' ms' : '—', {
+      + kpiTile('Worst RTT', rttMs > 0 ? rttMs.toFixed(1) + ' ms' : '-', {
           state: rttState, sub: 'threshold ' + rttThr + ' ms' })
-      + kpiTile('Worst retrans', rtx > 0 ? rtx.toFixed(2) + ' %' : '—', {
+      + kpiTile('Worst retrans', rtx > 0 ? rtx.toFixed(2) + ' %' : '-', {
           state: rtxState, sub: 'threshold ' + rtxThr + ' %' })
-      + kpiTile('Conntrack', ct.max ? (ct.count || 0) + ' / ' + ct.max : '—', {
+      + kpiTile('Conntrack', ct.max ? (ct.count || 0) + ' / ' + ct.max : '-', {
           state: ctState, sub: ct.max ? ctUtil.toFixed(1) + ' % used' : 'no data' });
 
     // --- Security: blocked traffic + structural faults -----------------
@@ -661,7 +680,7 @@
           sub: 'discovered hosts' })
       + kpiTile('Iface errors', fmtCount(ifErr), {
           state: ifErrState, sub: fmtCount(ifDrop) + ' drops · ' + ifaces.length + ' iface' + (ifaces.length === 1 ? '' : 's') })
-      + kpiTile('WiFi signal', worstSig === null ? '—' : worstSig.toFixed(0) + ' dBm', {
+      + kpiTile('WiFi signal', worstSig === null ? '-' : worstSig.toFixed(0) + ' dBm', {
           state: sigState, sub: worstSig === null ? 'no associated radio' : 'worst of associated' })
       + kpiTile('Subsystems', (subs.length - degraded) + ' / ' + subs.length, {
           state: subState, sub: degraded === 0 ? 'all running' : degraded + ' degraded' });
@@ -850,7 +869,7 @@
 
     const data = (rows || []).filter(f => weightOf(f) > 0);
     if (!data.length) {
-      host.innerHTML = '<div class="sankey-empty">no flows yet — start capture in this tab</div>';
+      host.innerHTML = '<div class="sankey-empty">no flows yet - start capture in this tab</div>';
       return;
     }
 
@@ -935,7 +954,7 @@
       return 'Host';
     };
 
-    // Per-node flow count (rows touching this node) — useful in the tip
+    // Per-node flow count (rows touching this node) - useful in the tip
     // to tell "one big flow" apart from "many small flows".
     const nodeFlows = { P: new Map(), I: new Map(), S: new Map(), H: new Map() };
     const bumpFlow = (m, k) => m.set(k, (m.get(k) || 0) + 1);
@@ -945,7 +964,7 @@
       bumpFlow(nodeFlows.S, project(svcOf(f),   keepS));
       bumpFlow(nodeFlows.H, project(hostOf(f),  keepH));
     });
-    // Grand total per column — used for percent-of-traffic in tips.
+    // Grand total per column - used for percent-of-traffic in tips.
     const colTotal = { P: 0, I: 0, S: 0, H: 0 };
     data.forEach(f => {
       const v = weightOf(f);
@@ -1055,7 +1074,7 @@
             '<span>' + escape(fmtWeight(w)) + '</span></div>' +
           '<div class="tip-row"><span class="tip-muted">flows</span>' +
             '<span>' + flowsForNode(d.name) + '</span></div>' +
-          '<div class="tip-hint">click to filter — click again to clear</div>';
+          '<div class="tip-hint">click to filter - click again to clear</div>';
         showTip(html, evt);
       })
       .on('mousemove', moveTip)

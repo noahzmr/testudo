@@ -53,6 +53,68 @@ type scanResponse struct {
 	Protocols []string `json:"protocols"`
 }
 
+// handleDeviceNmapScan runs an on-demand nmap scan against an operator-supplied
+// IP or CIDR. Every host found up is folded into the inventory under the
+// "nmap" source, so the next /api/snapshot poll renders the new device rows.
+// Returns a summary of what was discovered.
+func (s *Server) handleDeviceNmapScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var b struct {
+		Target string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(b.Target) == "" {
+		http.Error(w, "target required", http.StatusBadRequest)
+		return
+	}
+	scanner := &discovery.Scanner{Inventory: s.Engine.Inventory()}
+	// nmap over a CIDR can take a while; give it a generous ceiling but still
+	// bound it so a hung scan can't pin the request forever.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	res, err := scanner.NmapScan(ctx, b.Target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	out := nmapScanResponse{
+		Target:     res.Target,
+		Discovered: len(res.Hosts),
+		Devices:    make([]nmapScanDevice, 0, len(res.Hosts)),
+	}
+	for _, d := range res.Hosts {
+		out.Devices = append(out.Devices, nmapScanDevice{
+			IP:        d.IP,
+			MAC:       d.MAC,
+			Hostname:  d.Hostname,
+			Vendor:    d.Vendor,
+			OpenPorts: d.OpenPorts,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+type nmapScanResponse struct {
+	Target     string           `json:"target"`
+	Discovered int              `json:"discovered"`
+	Devices    []nmapScanDevice `json:"devices"`
+}
+
+type nmapScanDevice struct {
+	IP        string   `json:"ip"`
+	MAC       string   `json:"mac,omitempty"`
+	Hostname  string   `json:"hostname,omitempty"`
+	Vendor    string   `json:"vendor,omitempty"`
+	OpenPorts []uint16 `json:"open_ports"`
+}
+
 // handleConnect builds the launch URL for a host+protocol+port triple and
 // 303-redirects the browser to it. The URL is taken from:
 //

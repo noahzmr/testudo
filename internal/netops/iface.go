@@ -54,7 +54,7 @@ type IfaceInfo struct {
 	Collisions uint64
 	Multicast  uint64
 	// SpeedMbps is the negotiated link speed reported by the kernel
-	// (`/sys/class/net/<iface>/speed`). 0 when unknown — common for
+	// (`/sys/class/net/<iface>/speed`). 0 when unknown - common for
 	// loopback, tunnels, bridges, down links, and most virtual devices.
 	SpeedMbps int64
 }

@@ -119,6 +119,7 @@ func (s *Server) buildMux() error {
 
 	// Device connect launchpad
 	mux.HandleFunc("/api/device/scan", s.protect(s.handleDeviceScan))
+	mux.HandleFunc("/api/device/nmap-scan", s.protect(s.handleDeviceNmapScan))
 	mux.HandleFunc("/api/connect", s.protect(s.handleConnect))
 
 	// MaxMind GeoIP enrichment lookup: GET /api/ip/{addr}
