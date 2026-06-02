@@ -376,22 +376,22 @@ The web UI mirrors every TUI view: dashboard, flows, devices, interfaces, routes
 
 The TUI is the canonical interface. The web UI is the same data, the same engine, exposed over HTTP for operators running Testudo on a headless box. Both surface the same tabs - in the same order as the web topbar previewed in the header above:
 
-| Tab        | Purpose                                                                                                                                                                                              |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dashboard  | Network Quality grade, bandwidth per interface (live upload/download speed), ICMP/DNS sparklines, top flows, and a grouped **Key Indicators** KPI strip (Network · Health · Security · Infrastructure) on the web UI |
-| Flows      | Live multi-interface flow table with process / DNS / service enrichment; capture controls; **Process → Iface → Service → Host Sankey diagram (web UI) with a bytes/packets metric toggle and click-to-filter** |
+| Tab        | Purpose                                                                                                                                                                                                                                                                                                         |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard  | Network Quality grade, bandwidth per interface (live upload/download speed), ICMP/DNS sparklines, top flows, and a grouped **Key Indicators** KPI strip (Network · Health · Security · Infrastructure) on the web UI                                                                                            |
+| Flows      | Live multi-interface flow table with process / DNS / service enrichment; capture controls; **Process → Iface → Service → Host Sankey diagram (web UI) with a bytes/packets metric toggle and click-to-filter**                                                                                                  |
 | Devices    | Discovered devices, vendor, open ports; *Scan* + *Connect* (Guacamole / native URI); **`n` toggles the full ARP/NDP neighbour table (`f` filters by family) with state + duplicate-IP highlighting**; **`N` runs an on-demand nmap scan against an entered IP / CIDR and folds the results into the inventory** |
-| Interfaces | Per-interface state, MTU, hardware address, addresses, RX/TX, controls                                                                                                                               |
-| Routes     | Routing table, add/remove static routes                                                                                                                                                              |
-| Firewall   | `iptables` / `nftables` rule view with hit counters, Testudo-managed rules, add/remove                                                                                                               |
-| NAT        | NAT and port-forwarding rules with counters, add/remove; **live conntrack table (`c` to focus) showing NAT'd reply tuples, with `F` to flush a stuck flow (write-gated)**                            |
-| TCPDump    | Selective PCAP capture with a BPF filter wizard (proto, host, port, raw filter)                                                                                                                      |
-| Talkers    | Top hosts, top processes, top services - all ranked by bytes                                                                                                                                         |
-| Probes     | Interactive runner for ICMP / TCP / UDP / DNS / throughput / traceroute probes                                                                                                                       |
-| Alerts     | Live alert log with severity filter and free-text search                                                                                                                                             |
-| History    | Read-only browse of past sessions persisted to SQLite; anomaly timeline + snapshots                                                                                                                  |
-| Settings   | Live-tunable thresholds, netops & integrations, **IPFIX flow export** (e.g. to opsanio)                                                                                                              |
-| Health     | Live results of every probe collector: top talkers, internal DNS, HTTP, TLS certs, traceroute, bufferbloat, interfaces, WiFi                                                                         |
+| Interfaces | Per-interface state, MTU, hardware address, addresses, RX/TX, controls                                                                                                                                                                                                                                          |
+| Routes     | Routing table, add/remove static routes                                                                                                                                                                                                                                                                         |
+| Firewall   | `iptables` / `nftables` rule view with hit counters, Testudo-managed rules, add/remove                                                                                                                                                                                                                          |
+| NAT        | NAT and port-forwarding rules with counters, add/remove; **live conntrack table (`c` to focus) showing NAT'd reply tuples, with `F` to flush a stuck flow (write-gated)**                                                                                                                                       |
+| TCPDump    | Selective PCAP capture with a BPF filter wizard (proto, host, port, raw filter)                                                                                                                                                                                                                                 |
+| Talkers    | Top hosts, top processes, top services - all ranked by bytes                                                                                                                                                                                                                                                    |
+| Probes     | Interactive runner for ICMP / TCP / UDP / DNS / throughput / traceroute probes                                                                                                                                                                                                                                  |
+| Alerts     | Live alert log with severity filter and free-text search                                                                                                                                                                                                                                                        |
+| History    | Read-only browse of past sessions persisted to SQLite; anomaly timeline + snapshots                                                                                                                                                                                                                             |
+| Settings   | Live-tunable thresholds, netops & integrations, **IPFIX flow export** (e.g. to opsanio)                                                                                                                                                                                                                         |
+| Health     | Live results of every probe collector: top talkers, internal DNS, HTTP, TLS certs, traceroute, bufferbloat, interfaces, WiFi                                                                                                                                                                                    |
 
 Modal configuration is supported in both UIs for firewall rules, NAT rules, port forwarding, interface configuration, route configuration, and alert configuration.
 
@@ -837,19 +837,19 @@ Testudo ships with intelligent defaults. Every threshold is live-tunable from th
 
 | Setting               | Default | Description                                                      |
 | --------------------- | ------- | ---------------------------------------------------------------- |
-| Sentry DSN            | unset   | Enable Sentry panic/error reporting                                 |
-| Guacamole base        | unset   | Base URL for the Guacamole instance                                 |
-| `IPFIXEnabled`        | false   | Export flow records over IETF IPFIX (RFC 7011)                      |
-| `IPFIXEndpoint`       | unset   | Collector address (`host:port`) for IPFIX export                    |
-| `IPFIXIntervalSec`    | 30      | Seconds between IPFIX data exports                                  |
-| `IPFIXDomainID`       | auto    | Observation Domain ID (derived from hostname when left at 0)        |
-| `MaxMindEnabled`      | false   | Master switch for MaxMind GeoIP enrichment of public IPs            |
-| `MaxMindDBDir`        | unset   | Directory holding the `.mmdb` files (or a sidecar `mmdb-server`)    |
-| `MaxMindAccountID`    | unset   | MaxMind account ID (required for some commercial editions)          |
-| `MaxMindLicenseKey`   | unset   | License key for auto-download; empty disables updating              |
-| `MaxMindEditions`     | unset   | Comma-separated edition IDs to auto-download                        |
-| `MaxMindAutoUpdate`   | false   | Periodically re-download the configured editions                    |
-| `MaxMindRefreshHours` | 0       | Refresh cadence in hours; `0` => 7-day default                      |
+| Sentry DSN            | unset   | Enable Sentry panic/error reporting                              |
+| Guacamole base        | unset   | Base URL for the Guacamole instance                              |
+| `IPFIXEnabled`        | false   | Export flow records over IETF IPFIX (RFC 7011)                   |
+| `IPFIXEndpoint`       | unset   | Collector address (`host:port`) for IPFIX export                 |
+| `IPFIXIntervalSec`    | 30      | Seconds between IPFIX data exports                               |
+| `IPFIXDomainID`       | auto    | Observation Domain ID (derived from hostname when left at 0)     |
+| `MaxMindEnabled`      | false   | Master switch for MaxMind GeoIP enrichment of public IPs         |
+| `MaxMindDBDir`        | unset   | Directory holding the `.mmdb` files (or a sidecar `mmdb-server`) |
+| `MaxMindAccountID`    | unset   | MaxMind account ID (required for some commercial editions)       |
+| `MaxMindLicenseKey`   | unset   | License key for auto-download; empty disables updating           |
+| `MaxMindEditions`     | unset   | Comma-separated edition IDs to auto-download                     |
+| `MaxMindAutoUpdate`   | false   | Periodically re-download the configured editions                 |
+| `MaxMindRefreshHours` | 0       | Refresh cadence in hours; `0` => 7-day default                   |
 
 ### Settings View
 
@@ -1106,8 +1106,8 @@ testudo/
 | `internal/replay`                 | Session reconstruction from persisted events                                                                                                                                                         |
 | `internal/storage`                | SQLite persistence (sessions, samples, flows, anomalies, incidents, baselines, audit log)                                                                                                            |
 | `internal/integrations/sentry`    | Optional panic/error reporting                                                                                                                                                                       |
-| `internal/integrations/guacamole` | URL deep-link helper for SSH/RDP/VNC handoff |
-| `internal/integrations/maxmind`   | Optional MaxMind GeoIP / ASN enrichment - local `.mmdb` or sidecar `mmdb-server`, auto-update, LRU + SQLite cache                                                                                                                                                         |
+| `internal/integrations/guacamole` | URL deep-link helper for SSH/RDP/VNC handoff                                                                                                                                                         |
+| `internal/integrations/maxmind`   | Optional MaxMind GeoIP / ASN enrichment - local `.mmdb` or sidecar `mmdb-server`, auto-update, LRU + SQLite cache                                                                                    |
 | `internal/config`                 | Defaults, thresholds, persistent settings store                                                                                                                                                      |
 | `cmd/testudo`                     | Command-line entry point and subcommand registry                                                                                                                                                     |
 
@@ -1162,15 +1162,15 @@ This README is the top-level tour. The rest of the project is documented in a sm
 
 The [docs/](./docs/) directory hosts the longer technical writeups. Start at [docs/README.md](./docs/README.md) for the index, or jump straight to a topic:
 
-| Document                                                           | Audience             | Summary                                                                                                 |
-| ------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------- |
-| [docs/README.md](./docs/README.md)                                 | everyone             | Index of the docs folder with one-line summaries.                                                       |
-| [docs/architecture.md](./docs/architecture.md)                     | engineers            | Subsystem map (Mermaid), data flow, module boundaries, lifecycle.                                       |
-| [docs/storage.md](./docs/storage.md)                               | engineers, operators | The four storage layers (live ring => flow aggregator => SQLite => selective PCAP) and their lifetimes. |
-| [docs/replay.md](./docs/replay.md)                                 | operators            | Session capture, the replay engine, timeline navigation, what's persisted and what isn't.               |
-| [docs/firewall.md](./docs/firewall.md)                             | operators            | `nftables` (default) and `iptables` (fallback) backends; chain semantics; common rule recipes.          |
-| [docs/topology.md](./docs/topology.md)                             | operators            | Passive topology graph - nodes, edges, sources (ARP / LLDP / SNMP / flow observation).                  |
-| [docs/alerts.md](./docs/alerts.md)                                 | operators            | Severity levels, default thresholds, the anomaly engine, incident bundles.                              |
+| Document                                       | Audience             | Summary                                                                                                 |
+| ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
+| [docs/README.md](./docs/README.md)             | everyone             | Index of the docs folder with one-line summaries.                                                       |
+| [docs/architecture.md](./docs/architecture.md) | engineers            | Subsystem map (Mermaid), data flow, module boundaries, lifecycle.                                       |
+| [docs/storage.md](./docs/storage.md)           | engineers, operators | The four storage layers (live ring => flow aggregator => SQLite => selective PCAP) and their lifetimes. |
+| [docs/replay.md](./docs/replay.md)             | operators            | Session capture, the replay engine, timeline navigation, what's persisted and what isn't.               |
+| [docs/firewall.md](./docs/firewall.md)         | operators            | `nftables` (default) and `iptables` (fallback) backends; chain semantics; common rule recipes.          |
+| [docs/topology.md](./docs/topology.md)         | operators            | Passive topology graph - nodes, edges, sources (ARP / LLDP / SNMP / flow observation).                  |
+| [docs/alerts.md](./docs/alerts.md)             | operators            | Severity levels, default thresholds, the anomaly engine, incident bundles.                              |
 
 ### Pointing readers to the right place
 
@@ -1195,39 +1195,55 @@ The [docs/](./docs/) directory hosts the longer technical writeups. Start at [do
 
 The canonical terminal interface - every tab from the table above, rendered live.
 
+|                                                                                         |                                                                                     |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| **Dashboard** - Network Quality grade, per-interface bandwidth, ICMP latency sparklines | **Flows** - live multi-interface flow table with process / DNS / service enrichment |
+| ![TUI Dashboard](docs/images/tui/dashboard.png)                                         | ![TUI Flows](docs/images/tui/flows.png)                                             |
+| **Devices** - discovered hosts with vendor, scope, and the ARP/NDP neighbour table      | **Interfaces** - per-interface state, MTU, hardware/IP addresses, RX/TX             |
+| ![TUI Devices](docs/images/tui/devices.png)                                             | ![TUI Interfaces](docs/images/tui/interfaces.png)                                   |
+| **Routes** - full routing table with add/remove of static routes                        | **Firewall** - managed rules with per-rule hit counters                             |
+| ![TUI Routes](docs/images/tui/routes.png)                                               | ![TUI Firewall](docs/images/tui/firewall.png)                                       |
+| **NAT** - NAT/port-forward rules plus the live conntrack table                          | **TCPDump** - selective PCAP capture with a BPF filter wizard                       |
+| ![TUI NAT](docs/images/tui/nat.png)                                                     | ![TUI TCPDump](docs/images/tui/tcpdump.png)                                         |
+| **Talkers** - top hosts, processes, and services ranked by bytes                        | **Probes** - interactive ICMP / TCP / UDP / DNS / throughput / traceroute runner    |
+| ![TUI Talkers](docs/images/tui/talkers.png)                                             | ![TUI Probes](docs/images/tui/probes.png)                                           |
+| **Alerts** - live alert log with severity filter and free-text search                   | **Health** - supervised subsystem status and the privileged-mutation audit log      |
+| ![TUI Alerts](docs/images/tui/alerts.png)                                               | ![TUI Health](docs/images/tui/health.png)                                           |
+
+#### Detail views & modals
+
+A handful of the TUI's deeper panels and pop-over modals - the dashboard's
+per-target latency/DNS breakdown, the Health tab's full probe-collector
+results, the Devices nmap-scan prompt, the TCPDump capture wizard, and the
+fuller discovered-device inventory.
+
 |                                                                                         |                                                                                          |
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Dashboard** - Network Quality grade, per-interface bandwidth, ICMP latency sparklines | **Flows** - live multi-interface flow table with process / DNS / service enrichment      |
-| ![TUI Dashboard](docs/images/tui/dashboard.png)                                         | ![TUI Flows](docs/images/tui/flows.png)                                                  |
-| **Devices** - discovered hosts with vendor, scope, and the ARP/NDP neighbour table      | **Interfaces** - per-interface state, MTU, hardware/IP addresses, RX/TX                  |
-| ![TUI Devices](docs/images/tui/devices.png)                                             | ![TUI Interfaces](docs/images/tui/interfaces.png)                                        |
-| **Routes** - full routing table with add/remove of static routes                        | **Firewall** - managed rules with per-rule hit counters                                  |
-| ![TUI Routes](docs/images/tui/routes.png)                                               | ![TUI Firewall](docs/images/tui/firewall.png)                                            |
-| **NAT** - NAT/port-forward rules plus the live conntrack table                          | **TCPDump** - selective PCAP capture with a BPF filter wizard                            |
-| ![TUI NAT](docs/images/tui/nat.png)                                                     | ![TUI TCPDump](docs/images/tui/tcpdump.png)                                              |
-| **Talkers** - top hosts, processes, and services ranked by bytes                        | **Probes** - interactive ICMP / TCP / UDP / DNS / throughput / traceroute runner         |
-| ![TUI Talkers](docs/images/tui/talkers.png)                                             | ![TUI Probes](docs/images/tui/probes.png)                                                |
-| **Alerts** - live alert log with severity filter and free-text search                   | **Health** - live results of every probe collector and the privileged-mutation audit log |
-| ![TUI Alerts](docs/images/tui/alerts.png)                                               | ![TUI Health](docs/images/tui/health.png)                                                |
+| **Dashboard - metrics** - ICMP/DNS latency, per-target & per-resolver detail, top flows | **Health - probe collectors** - top talkers, internal DNS, HTTP, TLS certs, traceroute   |
+| ![TUI Dashboard metrics](docs/images/tui/dashboard-metrics.png)                         | ![TUI Health probes](docs/images/tui/health-probes.png)                                  |
+| **Devices - nmap scan** - on-demand nmap against an entered IP / CIDR                   | **TCPDump - new capture** - the BPF filter wizard (iface, proto, host, port, raw filter) |
+| ![TUI Devices nmap scan](docs/images/tui/devices-nmap-scan.png)                         | ![TUI TCPDump new capture](docs/images/tui/tcpdump-new-capture.png)                      |
+| **Devices - inventory** - discovered hosts with vendor, scope, protocols, and neighbour |                                                                                          |
+| ![TUI Devices inventory](docs/images/tui/devices-inventory.png)                         |                                                                                          |
 
 ### Web UI
 
 The same engine and the same data, exposed over HTTP for headless boxes.
 
-|                                                                     |                                                                |
-| ------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **Sign in** - single-user console login                             | **Dashboard** - Network Quality, bandwidth, latency, top flows |
-| ![Web Login](docs/images/ui/login.png)                              | ![Web Dashboard](docs/images/ui/dashboard.png)                 |
-| **Flows** - live flow table with capture controls                   | **Talkers** - top hosts / processes / services                 |
-| ![Web Flows](docs/images/ui/flows.png)                              | ![Web Talkers](docs/images/ui/talkers.png)                     |
-| **Devices** - discovered devices and neighbour table                | **Interfaces** - kernel interface state and addressing         |
-| ![Web Devices](docs/images/ui/devices.png)                          | ![Web Interfaces](docs/images/ui/interfaces.png)               |
-| **Routes** - routing table with add/remove                          | **Firewall** - filter rules with hit counters                  |
-| ![Web Routes](docs/images/ui/routes.png)                            | ![Web Firewall](docs/images/ui/firewall.png)                   |
-| **NAT** - port-forwarding and live conntrack flows                  | **Alerts** - live alert log with severity filter and search    |
-| ![Web NAT](docs/images/ui/nat.png)                                  | ![Web Alerts](docs/images/ui/alerts.png)                       |
-| **History** - read-only browse of past sessions persisted to SQLite | **Health** - supervised subsystem health and audit log         |
-| ![Web History](docs/images/ui/history.png)                          | ![Web Health](docs/images/ui/health.png)                       |
+|                                                                           |                                                                                |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **Dashboard** - Network Quality grade and the grouped Key Indicators KPIs | **Flows** - Process → Iface → Service → Host Sankey with capture controls      |
+| ![Web Dashboard](docs/images/ui/dashboard.png)                            | ![Web Flows](docs/images/ui/flows.png)                                         |
+| **Flows - table** - live flow rows with process / DNS / service columns   | **Talkers** - top hosts / processes / services ranked by bytes                 |
+| ![Web Flows table](docs/images/ui/flows-table.png)                        | ![Web Talkers](docs/images/ui/talkers.png)                                     |
+| **Devices** - discovered devices, scan, and neighbour table               | **Interfaces** - live kernel interface state and addressing                    |
+| ![Web Devices](docs/images/ui/devices.png)                                | ![Web Interfaces](docs/images/ui/interfaces.png)                               |
+| **Routes** - routing table with add/remove                                | **Firewall** - filter rules with per-rule hit counters                         |
+| ![Web Routes](docs/images/ui/routes.png)                                  | ![Web Firewall](docs/images/ui/firewall.png)                                   |
+| **NAT** - port-forwarding and live conntrack flows                        | **TCPDump** - selective PCAP capture with the BPF filter wizard                |
+| ![Web NAT](docs/images/ui/nat.png)                                        | ![Web TCPDump](docs/images/ui/tcpdump.png)                                     |
+| **Alerts** - live alert log with severity filter and search               | **Health** - supervised subsystem health and the privileged-mutation audit log |
+| ![Web Alerts](docs/images/ui/alerts.png)                                  | ![Web Health](docs/images/ui/health.png)                                       |
 
 ---
 
