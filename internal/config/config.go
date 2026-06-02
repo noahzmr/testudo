@@ -122,6 +122,12 @@ type Config struct {
 
 	// StorageDir holds the SQLite file and per-session artifacts.
 	StorageDir string
+	// CaptureDir holds tcpdump pcap output. It deliberately lives OUTSIDE the
+	// (hidden) StorageDir: distro AppArmor profiles for tcpdump explicitly deny
+	// writes to ~/.* (see /etc/apparmor.d/usr.bin.tcpdump), so a pcap under
+	// ~/.testudo fails with "Permission denied" even as root. /var/lib/testudo
+	// is an allowed, conventional location for the captures.
+	CaptureDir string
 	// SQLitePath is the absolute path to the metrics database.
 	SQLitePath string
 	// SettingsPath is the JSON file storing runtime-mutable thresholds.
@@ -321,6 +327,7 @@ func Default() Config {
 		ReverseDNSEnabled:             true,
 		DNSInternalEnabled:            true,
 		StorageDir:                    storage,
+		CaptureDir:                    "/var/lib/testudo/captures",
 		SQLitePath:                    filepath.Join(storage, "testudo.db"),
 		SettingsPath:                  filepath.Join(storage, "settings.json"),
 		Mode:                          "live",

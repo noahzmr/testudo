@@ -24,6 +24,14 @@ const (
 	OpPing       byte = 0x01 // liveness handshake; empty body
 	OpMutate     byte = 0x02 // body = encoded netops mutation descriptor
 	OpOpenSocket byte = 0x03 // body = encoded socket request; response carries an fd via SCM_RIGHTS
+
+	// Capture opcodes let the unprivileged engine drive a tcpdump child that the
+	// privileged helper owns. The helper holds CAP_NET_RAW; a child it execs
+	// inherits it via the uid-0 root-exception, which the capability-stripped
+	// engine cannot do for its own children.
+	OpCaptureStart  byte = 0x04 // body = JSON {args:[]string}; resp = JSON {pid:int}
+	OpCaptureStop   byte = 0x05 // body = JSON {pid:int}; signals the process group
+	OpCaptureStatus byte = 0x06 // body = JSON {pid:int}; resp = JSON {state,exitErr,done}
 )
 
 // Response status bytes.

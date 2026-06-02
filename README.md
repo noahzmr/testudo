@@ -378,8 +378,8 @@ The TUI is the canonical interface. The web UI is the same data, the same engine
 
 | Tab        | Purpose                                                                                                                                                                                              |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dashboard  | Network Quality grade, bandwidth per interface, ICMP/DNS sparklines, top flows                                                                                                                       |
-| Flows      | Live multi-interface flow table with process / DNS / service enrichment; capture controls                                                                                                            |
+| Dashboard  | Network Quality grade, bandwidth per interface (live upload/download speed), ICMP/DNS sparklines, top flows, and a grouped **Key Indicators** KPI strip (Network · Health · Security · Infrastructure) on the web UI |
+| Flows      | Live multi-interface flow table with process / DNS / service enrichment; capture controls; **Process → Iface → Service → Host Sankey diagram (web UI) with a bytes/packets metric toggle and click-to-filter** |
 | Devices    | Discovered devices, vendor, open ports; *Scan* + *Connect* (Guacamole / native URI); **`n` toggles the full ARP/NDP neighbour table (`f` filters by family) with state + duplicate-IP highlighting**; **`N` runs an on-demand nmap scan against an entered IP / CIDR and folds the results into the inventory** |
 | Interfaces | Per-interface state, MTU, hardware address, addresses, RX/TX, controls                                                                                                                               |
 | Routes     | Routing table, add/remove static routes                                                                                                                                                              |
@@ -1187,8 +1187,6 @@ The [docs/](./docs/) directory hosts the longer technical writeups. Start at [do
 | Contribute code                         | [DEVELOPER.md](./DEVELOPER.md) + [CONTRIBUTING section](#contributing)        |
 | Fork or rebrand                         | [LICENSE](./LICENSE) + [NOTICE](./NOTICE) + the [Branding section](#branding) |
 
-If a topic isn't covered yet, check `.claude/CLAUDE.md` (the canonical project spec) or open an issue.
-
 ---
 
 ## Screens
@@ -1407,7 +1405,7 @@ Testudo already speaks **IETF IPFIX** (RFC 7011) for flow export. v0.3 hardens t
 
 ## Contributing
 
-Contributions are welcome. The [Development Guide](#development-guide) above and the philosophy in [.claude/CLAUDE.md](./.claude/CLAUDE.md) describe how the project is organized and what kinds of changes fit its design.
+Contributions are welcome. The [Development Guide](#development-guide) above and [DEVELOPER.md](./DEVELOPER.md) describe how the project is organized and what kinds of changes fit its design.
 
 The short version:
 

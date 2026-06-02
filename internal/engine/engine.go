@@ -40,6 +40,7 @@ type Engine struct {
 	tagger    *flows.Tagger
 	ring      *capture.RingBuffer
 	tcpdump   *capture.TCPDumpManager
+	capSpawn  capture.CaptureSpawner // privileged tcpdump launcher (privsep); nil = in-process
 	ipfixMgr  *ipfix.Manager
 	settings  *config.SettingsStore
 	netops    *netops.Writer
@@ -125,12 +126,30 @@ func (e *Engine) Tagger() *flows.Tagger                   { return e.tagger }
 func (e *Engine) Ring() *capture.RingBuffer               { return e.ring }
 func (e *Engine) TCPDump() *capture.TCPDumpManager {
 	if e.tcpdump == nil {
-		e.tcpdump = capture.NewTCPDumpManager(
-			e.cfg.StorageDir+"/captures", e.sessionID,
-		)
+		e.tcpdump = capture.NewTCPDumpManager(e.captureDir(), e.sessionID)
+		if e.capSpawn != nil {
+			e.tcpdump.SetSpawner(e.capSpawn)
+		}
 	}
 	return e.tcpdump
 }
+
+// SetCaptureSpawner routes tcpdump launches through the privileged helper
+// (privsep). Call before TCPDump() is first used. Nil keeps the in-process path.
+func (e *Engine) SetCaptureSpawner(s capture.CaptureSpawner) { e.capSpawn = s }
+
+// captureDir resolves where pcaps are written. It lives OUTSIDE the hidden
+// StorageDir: distro AppArmor profiles for tcpdump explicitly deny writes to
+// ~/.* (see /etc/apparmor.d/usr.bin.tcpdump), so a pcap under ~/.testudo fails
+// with "Permission denied" even as root. Falls back to the same allowed default
+// for configs predating CaptureDir.
+func (e *Engine) captureDir() string {
+	if e.cfg.CaptureDir != "" {
+		return e.cfg.CaptureDir
+	}
+	return "/var/lib/testudo/captures"
+}
+
 func (e *Engine) Settings() *config.SettingsStore { return e.settings }
 func (e *Engine) Netops() *netops.Writer          { return e.netops }
 func (e *Engine) Inventory() *discovery.Inventory { return e.inventory }
@@ -403,8 +422,7 @@ func (e *Engine) CaptureIfaces() []string {
 // the bus, and on any ERROR/CRITICAL event opens a 60-second capture window
 // that drains the live ring buffer to disk under storage/captures/<session>/.
 func (e *Engine) startPCAPWriter(ctx context.Context) {
-	captureDir := e.cfg.StorageDir + "/captures"
-	w := capture.NewPCAPWriter(captureDir, e.sessionID, e.cfg.PCAPMaxSize, e.ring)
+	w := capture.NewPCAPWriter(e.captureDir(), e.sessionID, e.cfg.PCAPMaxSize, e.ring)
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()

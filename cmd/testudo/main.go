@@ -189,7 +189,7 @@ func cmdLive(args []string) error {
 
 	// Privilege separation: spawn the helper and drop the engine's caps before
 	// wiring anything else, so the web server / TUI / collectors run unprivileged.
-	nw, helperState := setupNetops(ctx, cfg, cfg.Thresholds.AllowNetopsWrite, *usePrivsep)
+	nw, helperClient, helperState := setupNetops(ctx, cfg, cfg.Thresholds.AllowNetopsWrite, *usePrivsep)
 
 	// Hook Sentry from persisted Settings (CLAUDE.md: "The Sentry DSN is
 	// configured in Settings"). Empty DSN is a no-op; the Settings tab can
@@ -198,6 +198,11 @@ func cmdLive(args []string) error {
 	defer sentryx.Flush()
 
 	eng := engine.New(cfg, store, settings, nw)
+	// With privsep on, the engine has dropped CAP_NET_RAW - route tcpdump
+	// launches through the privileged helper so captures still work.
+	if helperClient != nil {
+		eng.SetCaptureSpawner(helperCaptureSpawner{client: helperClient})
+	}
 	if err := eng.Start(ctx); err != nil {
 		return err
 	}

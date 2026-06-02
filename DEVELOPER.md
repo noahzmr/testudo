@@ -190,7 +190,7 @@ There is no automated CI release pipeline yet - that's a roadmap item.
 
 ## 10. Coding Standards
 
-See `.claude/CLAUDE.md` for the canonical list. The hot ones:
+The hot ones:
 
 * No globals.
 * `context.Context` everywhere, first arg.
