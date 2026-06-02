@@ -130,6 +130,7 @@ A turtle peeking out from under its shell - half forensic, half cozy. The termin
 - [Glossary - Networking Terms for Beginners](#glossary---networking-terms-for-beginners)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
+- [Support](#support)
 - [License](#license)
 - [Branding](#branding)
 - [Acknowledgments](#acknowledgments)
@@ -1434,6 +1435,26 @@ The short version:
 7. Open a PR with a focused description; small PRs land faster than sweeping ones.
 
 Contributions are accepted under the same MPL-2.0 license as the rest of the project.
+
+---
+
+## Support
+
+Testudo is built and maintained in the open by one person. If it saved you a
+late-night debugging session - or six terminals - and you'd like to say thanks,
+you can buy me a coffee. Every bit is appreciated and goes straight back into
+keeping the tortoise moving.
+
+<div align="center">
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/noahzeumer)
+
+**☕ [buymeacoffee.com/noahzeumer](https://buymeacoffee.com/noahzeumer)**
+
+</div>
+
+Not in a position to donate? That's completely fine - starring the repo,
+filing a good bug report, or opening a PR helps just as much.
 
 ---
 
