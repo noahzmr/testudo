@@ -291,6 +291,15 @@ func (a *App) handleKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+d":
 		a.bodyScroll += a.bodyHeight() / 2
 		return a, nil
+	case "ctrl+up":
+		a.bodyScroll--
+		if a.bodyScroll < 0 {
+			a.bodyScroll = 0
+		}
+		return a, nil
+	case "ctrl+down":
+		a.bodyScroll++
+		return a, nil
 	case "home":
 		a.bodyScroll = 0
 		return a, nil

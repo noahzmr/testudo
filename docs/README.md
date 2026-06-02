@@ -13,9 +13,8 @@ This directory hosts deeper documentation that doesn't belong in the top-level
 | [firewall.md](firewall.md)                             | operators            | nftables (default) and iptables (fallback) backends                  |
 | [topology.md](topology.md)                             | operators            | Passive topology graph: nodes, edges, sources                        |
 | [alerts.md](alerts.md)                                 | operators            | Severity levels, default thresholds, anomaly engine                  |
-| [DIAGNOSTICS_ASSESSMENT.md](DIAGNOSTICS_ASSESSMENT.md) | engineers            | Senior-engineer review: capability matrix, gaps, prioritized roadmap |
 
-The diagnostics assessment's prioritized roadmap was carried under the same
+The deeper diagnostics roadmap was carried under the same
 cross-cutting contract: **full TUI + Web UI parity (viewable *and* editable)**,
 **every new measurement feeds the Network Quality grade**, and **one event bus /
 replayable**. Most of that roadmap has shipped (per-rule nftables counters,

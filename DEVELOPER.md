@@ -59,14 +59,14 @@ internal/
   capture/           AF_PACKET capture + Layer-1 ring buffer + PCAP writer
   collectors/        ICMP, DNS, HTTP, TLS, traceroute, WiFi, bufferbloat, tcp_info, … probes
   config/            settings persistence
-  discovery/         passive + active device discovery (ARP/ICMP/mDNS/LLDP/SNMP), vendor OUI lookup
+  discovery/         passive + active device discovery (ARP/ICMP/mDNS/LLDP/SNMP), on-demand nmap, vendor OUI lookup
   doctor/            layered bottom-up connectivity diagnosis (`doctor` CLI command)
   engine/            top-level orchestrator + collector supervision
   events/            in-process event bus
   flows/             flow aggregation + correlation (process, DNS, services)
   health/            per-subsystem status (OK / degraded / failed) + remediation hints
   incidents/         alerting + severity bookkeeping + incident bundles
-  integrations/      Guacamole, Sentry
+  integrations/      Guacamole, Sentry, MaxMind GeoIP
   ipfix/             IETF IPFIX (RFC 7011) flow exporter + lifecycle manager
   metrics/           time-series counters (latency, loss, etc.)
   netops/            netlink + nftables + iptables (firewall, route, NAT, iface, conntrack, neigh, dns)

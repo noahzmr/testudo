@@ -216,6 +216,8 @@ Each device is tracked with IP, MAC, hostname, vendor (via embedded OUI table), 
 - **Subnet expansion is capped.** `MaxSubnetBits = 10` (default) gives `/22 = 1024 hosts`. Set to `8` for strict `/24` behaviour, or `12` for `/20`. Anything wider is silently skipped to avoid burying the local NIC.
 - **Per-interface goroutine isolation.** Each interface gets its own listener goroutine; a stuck or erroring interface can't starve the others.
 
+**On-demand nmap scan.** Beyond the always-on layers above, an operator can trigger a targeted [`nmap`](https://nmap.org/) scan against a single IP or a CIDR block - press `N` in the Devices tab (TUI) or `POST /api/device/nmap-scan` (web). The target is validated as an IP/CIDR before it ever reaches the command line, the scan uses nmap's default host discovery (so ICMP-shy hosts are still found via ARP/TCP probes) followed by a fast top-ports TCP sweep (`-F`), and every host that comes back up is folded into the inventory under the `nmap` source. If the `nmap` binary isn't on `PATH` the feature degrades gracefully with a clear "nmap not found" message rather than an error.
+
 ### Interface Management
 
 Interfaces can be enabled, disabled, switched to DHCP, assigned static IPs, gateways, and DNS servers - directly from the TUI or web UI.
@@ -366,6 +368,7 @@ The web UI mirrors every TUI view: dashboard, flows, devices, interfaces, routes
 - **Sentry** - optional, DSN-gated panic and error reporting.
 - **Apache Guacamole** - URL deep-link helper for SSH/RDP/VNC handoff from the discovered device inventory.
 - **IPFIX export** - optional IETF IPFIX (RFC 7011) flow export to an external collector (e.g. opsanio, ipfixcol2, nProbe, Elastic); configured from the Settings tab.
+- **MaxMind GeoIP** - optional geolocation/ASN enrichment. When enabled, observed public IPs are annotated with country, city, ASN + organisation, and anonymity signals (proxy / Tor / hosting) from local `.mmdb` files or a sidecar `mmdb-server`. The engine reconciles the config against the live enricher on a 2 s cadence (no restart needed), results are LRU- and SQLite-cached, and a license key enables periodic auto-download of the configured editions. Looked up over the web UI at `GET /api/ip/{addr}`.
 
 ---
 
@@ -377,7 +380,7 @@ The TUI is the canonical interface. The web UI is the same data, the same engine
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dashboard  | Network Quality grade, bandwidth per interface, ICMP/DNS sparklines, top flows                                                                                                                       |
 | Flows      | Live multi-interface flow table with process / DNS / service enrichment; capture controls                                                                                                            |
-| Devices    | Discovered devices, vendor, open ports; *Scan* + *Connect* (Guacamole / native URI); **`n` toggles the full ARP/NDP neighbour table (`f` filters by family) with state + duplicate-IP highlighting** |
+| Devices    | Discovered devices, vendor, open ports; *Scan* + *Connect* (Guacamole / native URI); **`n` toggles the full ARP/NDP neighbour table (`f` filters by family) with state + duplicate-IP highlighting**; **`N` runs an on-demand nmap scan against an entered IP / CIDR and folds the results into the inventory** |
 | Interfaces | Per-interface state, MTU, hardware address, addresses, RX/TX, controls                                                                                                                               |
 | Routes     | Routing table, add/remove static routes                                                                                                                                                              |
 | Firewall   | `iptables` / `nftables` rule view with hit counters, Testudo-managed rules, add/remove                                                                                                               |
@@ -832,14 +835,21 @@ Testudo ships with intelligent defaults. Every threshold is live-tunable from th
 
 ### Integrations
 
-| Setting            | Default | Description                                                  |
-| ------------------ | ------- | ------------------------------------------------------------ |
-| Sentry DSN         | unset   | Enable Sentry panic/error reporting                          |
-| Guacamole base     | unset   | Base URL for the Guacamole instance                          |
-| `IPFIXEnabled`     | false   | Export flow records over IETF IPFIX (RFC 7011)               |
-| `IPFIXEndpoint`    | unset   | Collector address (`host:port`) for IPFIX export             |
-| `IPFIXIntervalSec` | 30      | Seconds between IPFIX data exports                           |
-| `IPFIXDomainID`    | auto    | Observation Domain ID (derived from hostname when left at 0) |
+| Setting               | Default | Description                                                      |
+| --------------------- | ------- | ---------------------------------------------------------------- |
+| Sentry DSN            | unset   | Enable Sentry panic/error reporting                                 |
+| Guacamole base        | unset   | Base URL for the Guacamole instance                                 |
+| `IPFIXEnabled`        | false   | Export flow records over IETF IPFIX (RFC 7011)                      |
+| `IPFIXEndpoint`       | unset   | Collector address (`host:port`) for IPFIX export                    |
+| `IPFIXIntervalSec`    | 30      | Seconds between IPFIX data exports                                  |
+| `IPFIXDomainID`       | auto    | Observation Domain ID (derived from hostname when left at 0)        |
+| `MaxMindEnabled`      | false   | Master switch for MaxMind GeoIP enrichment of public IPs            |
+| `MaxMindDBDir`        | unset   | Directory holding the `.mmdb` files (or a sidecar `mmdb-server`)    |
+| `MaxMindAccountID`    | unset   | MaxMind account ID (required for some commercial editions)          |
+| `MaxMindLicenseKey`   | unset   | License key for auto-download; empty disables updating              |
+| `MaxMindEditions`     | unset   | Comma-separated edition IDs to auto-download                        |
+| `MaxMindAutoUpdate`   | false   | Periodically re-download the configured editions                    |
+| `MaxMindRefreshHours` | 0       | Refresh cadence in hours; `0` => 7-day default                      |
 
 ### Settings View
 
@@ -1045,7 +1055,8 @@ testudo/
 │   ├── storage/                ← SQLite persistence + audit log
 │   ├── integrations/
 │   │   ├── sentry/             ← optional panic reporting
-│   │   └── guacamole/          ← SSH/RDP/VNC deep-link helper
+│   │   ├── guacamole/          ← SSH/RDP/VNC deep-link helper
+│   │   └── maxmind/            ← optional GeoIP / ASN enrichment
 │   └── config/                 ← defaults + persistent settings
 ├── storage/
 │   ├── captures/               ← incident-triggered PCAP (gitignored)
@@ -1095,7 +1106,8 @@ testudo/
 | `internal/replay`                 | Session reconstruction from persisted events                                                                                                                                                         |
 | `internal/storage`                | SQLite persistence (sessions, samples, flows, anomalies, incidents, baselines, audit log)                                                                                                            |
 | `internal/integrations/sentry`    | Optional panic/error reporting                                                                                                                                                                       |
-| `internal/integrations/guacamole` | URL deep-link helper for SSH/RDP/VNC handoff                                                                                                                                                         |
+| `internal/integrations/guacamole` | URL deep-link helper for SSH/RDP/VNC handoff |
+| `internal/integrations/maxmind`   | Optional MaxMind GeoIP / ASN enrichment - local `.mmdb` or sidecar `mmdb-server`, auto-update, LRU + SQLite cache                                                                                                                                                         |
 | `internal/config`                 | Defaults, thresholds, persistent settings store                                                                                                                                                      |
 | `cmd/testudo`                     | Command-line entry point and subcommand registry                                                                                                                                                     |
 
@@ -1159,7 +1171,6 @@ The [docs/](./docs/) directory hosts the longer technical writeups. Start at [do
 | [docs/firewall.md](./docs/firewall.md)                             | operators            | `nftables` (default) and `iptables` (fallback) backends; chain semantics; common rule recipes.          |
 | [docs/topology.md](./docs/topology.md)                             | operators            | Passive topology graph - nodes, edges, sources (ARP / LLDP / SNMP / flow observation).                  |
 | [docs/alerts.md](./docs/alerts.md)                                 | operators            | Severity levels, default thresholds, the anomaly engine, incident bundles.                              |
-| [docs/DIAGNOSTICS_ASSESSMENT.md](./docs/DIAGNOSTICS_ASSESSMENT.md) | engineers            | Senior-engineer review of device-level diagnostics: capability matrix, gaps, prioritized roadmap.       |
 
 ### Pointing readers to the right place
 
@@ -1340,8 +1351,7 @@ Roughly ordered by what's next. Each milestone is shaped around one theme so use
 | `#`    | UI / Visualization            |
 | `★`    | Headline goal for the release |
 
-> **Engineering specs.** The deeper diagnostics work was scoped from the
-> [diagnostics assessment](./docs/DIAGNOSTICS_ASSESSMENT.md), under the same
+> **Engineering specs.** The deeper diagnostics work was scoped under the same
 > contract for every item: **viewable *and* editable in both the TUI and the
 > web UI**, and **every new measurement feeds the Network Quality grade**.
 > Most of that roadmap has now shipped - per-rule nftables counters,
@@ -1469,6 +1479,8 @@ Testudo stands on the shoulders of giants in the Go and Linux ecosystems:
 - **AF_PACKET, netfilter, conntrack, and `/proc`** - the Linux primitives that make any of this possible.
 - **IEEE 802.1AB (LLDP)** and **SNMPv2c** - the open standards that let Testudo identify managed devices without sending a probe.
 - **[modernc.org/sqlite](https://gitlab.com/cznic/sqlite)** - pure-Go SQLite, the embedded persistence backend.
+- **[nmap](https://nmap.org/)** - the on-demand targeted scanner invoked from the Devices tab.
+- **[MaxMind GeoIP2 / GeoLite2](https://www.maxmind.com/)** - optional geolocation and ASN enrichment of public IPs.
 - **Sentry** and **Apache Guacamole** - optional integrations for crash reporting and console handoff.
 
 And to every operator who has stared at six terminals during an incident and thought *"there has to be a better way"* - this is for you.

@@ -499,7 +499,8 @@ func (a *App) renderHelp(width, height int) string {
 		{"Tab / Shift-Tab", "next / previous view"},
 		{"1 .. 9", "jump directly to view N"},
 		{"0", "jump to Settings"},
-		{"↑ ↓ / k j", "scroll within view"},
+		{"↑ ↓ / k j", "move cursor within view"},
+		{"Ctrl-↑ / Ctrl-↓", "scroll the view window"},
 		{"q / Ctrl-C", "quit"},
 	}
 	var lines []string
