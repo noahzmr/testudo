@@ -109,6 +109,22 @@ func (t *dashboardTab) View(w, h int) string {
 		gradeRows = append(gradeRows,
 			errStyle.Render(fmt.Sprintf("  ⚠ PMTU black-hole detected (-%d) - a flow is retransmitting without progress", grade.PMTUPenalty)))
 	}
+	if grade.ConnectStall {
+		gradeRows = append(gradeRows,
+			errStyle.Render(fmt.Sprintf("  ⚠ %d connection(s) failing to establish (-%d) - stuck in TCP handshake (SYN_SENT)", grade.StalledConnects, grade.ConnectPenalty)))
+	}
+	if grade.ConnResetSpike {
+		gradeRows = append(gradeRows,
+			errStyle.Render(fmt.Sprintf("  ⚠ connections dropping at %.1f/s (-%d) - refused/failed connects + resets", grade.ConnResetRate, grade.ResetPenalty)))
+	}
+	if grade.SendStall {
+		gradeRows = append(gradeRows,
+			errStyle.Render(fmt.Sprintf("  ⚠ %d connection(s) send-stalled (-%d) - peer zero-window or path blocked", grade.SendStalls, grade.StallPenalty)))
+	}
+	if grade.EphemeralExhaustion {
+		gradeRows = append(gradeRows,
+			errStyle.Render(fmt.Sprintf("  ⚠ ephemeral ports %.0f%% used (-%d) - new outbound connections may start failing", grade.EphemeralUtil*100, grade.EphemeralPenalty)))
+	}
 	if ctxRows := renderQualityContext(grade); len(ctxRows) > 0 {
 		gradeRows = append(gradeRows, "")
 		gradeRows = append(gradeRows, ctxRows...)

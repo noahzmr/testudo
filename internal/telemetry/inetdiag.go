@@ -31,6 +31,8 @@ const (
 	inetDiagReqLen = 56 // sizeof(struct inet_diag_req_v2)
 	inetDiagMsgLen = 72 // sizeof(struct inet_diag_msg)
 	sockidOff      = 4  // offset of inet_diag_sockid within inet_diag_msg
+	rqueueOff      = 56 // offset of idiag_rqueue (after sockid + idiag_expires)
+	wqueueOff      = 60 // offset of idiag_wqueue
 
 	// tcpEstablished is TCP_ESTABLISHED; tcpListen is TCP_LISTEN. The dump
 	// requests every state except LISTEN so connected and transitioning
@@ -48,6 +50,12 @@ type Sample struct {
 	SrcIP, DstIP     string
 	SrcPort, DstPort uint16
 	State            uint8
+
+	// RQueue/WQueue are the kernel's receive/send queue depths (bytes) for this
+	// socket, carried in inet_diag_msg itself. A send queue that stays non-empty
+	// while no new data goes out is the zero-window / send-stall shape.
+	RQueue uint32
+	WQueue uint32
 
 	RTTus    uint32
 	RTTVarus uint32
@@ -151,6 +159,11 @@ func parseSample(b []byte) (Sample, bool) {
 		s.SrcIP = net.IP(srcRaw[:16]).String()
 		s.DstIP = net.IP(dstRaw[:16]).String()
 	}
+
+	// idiag_rqueue / idiag_wqueue live in the fixed message body (host-endian),
+	// guaranteed present since len(b) >= inetDiagMsgLen was checked above.
+	s.RQueue = nativeOrder.Uint32(b[rqueueOff : rqueueOff+4])
+	s.WQueue = nativeOrder.Uint32(b[wqueueOff : wqueueOff+4])
 
 	for _, a := range walkAttrs(b[inetDiagMsgLen:]) {
 		if a.Type == inetDiagInfo {

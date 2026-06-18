@@ -11,21 +11,37 @@ import (
 
 // TargetStats summarises latency and loss for a single probe target.
 type TargetStats struct {
-	Target     string
-	Sent       int
-	Lost       int
-	LossPct    float64
-	LastRTT    time.Duration
-	MinRTT     time.Duration
-	MaxRTT     time.Duration
-	AvgRTT     time.Duration
-	P50RTT     time.Duration
-	P95RTT     time.Duration
-	P99RTT     time.Duration
-	JitterMs   float64
-	UpdatedAt  time.Time
+	Target    string
+	Sent      int
+	Lost      int
+	LossPct   float64
+	LastRTT   time.Duration
+	MinRTT    time.Duration
+	MaxRTT    time.Duration
+	AvgRTT    time.Duration
+	P50RTT    time.Duration
+	P95RTT    time.Duration
+	P99RTT    time.Duration
+	JitterMs  float64
+	UpdatedAt time.Time
+
+	// Live-window views. LossPct/AvgRTT above are cumulative-since-startup (and
+	// the 256-sample window for RTT), which dilutes a current outage into hours
+	// of good history. WindowLossPct and RecentRTT are computed over only the
+	// last liveWindow probe outcomes so the grade reflects conditions *now*. The
+	// cumulative fields are retained for display and the learned baseline.
+	WindowLossPct float64       // loss % over the last liveWindow outcomes
+	RecentRTT     time.Duration // mean RTT over the last liveWindow successes
+
 	rttSamples []time.Duration // bounded ring; newest at the end
+	outcomes   []bool          // bounded ring of recent probe outcomes (true=lost)
 }
+
+// liveWindow is how many recent probe outcomes the live-window loss/RTT views
+// span. ~30 keeps the grade responsive to a current outage (tens of seconds to
+// a couple of minutes at typical probe cadences) without flapping on a single
+// dropped probe.
+const liveWindow = 30
 
 // DNSStats summarises resolver health for a single name.
 type DNSStats struct {
@@ -63,6 +79,7 @@ func (a *Aggregator) RecordLatency(target string, rtt time.Duration) {
 	t.Sent++
 	t.LastRTT = rtt
 	t.rttSamples = appendBounded(t.rttSamples, rtt, a.maxKeep)
+	t.outcomes = appendBounded(t.outcomes, false, liveWindow)
 	t.recompute()
 	t.UpdatedAt = time.Now()
 }
@@ -74,7 +91,8 @@ func (a *Aggregator) RecordLoss(target string) {
 	t := a.touchTarget(target)
 	t.Sent++
 	t.Lost++
-	t.LossPct = percent(t.Lost, t.Sent)
+	t.outcomes = appendBounded(t.outcomes, true, liveWindow)
+	t.recompute()
 	t.UpdatedAt = time.Now()
 }
 
@@ -110,9 +128,10 @@ func (a *Aggregator) SnapshotTargets() []TargetStats {
 	defer a.mu.RUnlock()
 	out := make([]TargetStats, 0, len(a.targets))
 	for _, t := range a.targets {
-		// Copy without the sample slice; rendering doesn't need it.
+		// Copy without the internal rings; rendering doesn't need them.
 		c := *t
 		c.rttSamples = nil
+		c.outcomes = nil
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Target < out[j].Target })
@@ -172,6 +191,9 @@ func (a *Aggregator) touchTarget(target string) *TargetStats {
 }
 
 func (t *TargetStats) recompute() {
+	// Window loss is meaningful even with no successful RTT sample (a target
+	// whose every recent probe was lost), so compute it before the early return.
+	t.WindowLossPct = windowLossPct(t.outcomes)
 	if len(t.rttSamples) == 0 {
 		return
 	}
@@ -193,6 +215,39 @@ func (t *TargetStats) recompute() {
 	t.P95RTT = percentile(t.rttSamples, 0.95)
 	t.P99RTT = percentile(t.rttSamples, 0.99)
 	t.JitterMs = jitterMs(t.rttSamples)
+	t.RecentRTT = meanTail(t.rttSamples, liveWindow)
+}
+
+// windowLossPct is the loss percentage over the recent-outcomes ring (true =
+// lost). Empty ring -> 0.
+func windowLossPct(outcomes []bool) float64 {
+	if len(outcomes) == 0 {
+		return 0
+	}
+	lost := 0
+	for _, l := range outcomes {
+		if l {
+			lost++
+		}
+	}
+	return float64(lost) / float64(len(outcomes)) * 100
+}
+
+// meanTail returns the mean of the last n samples (all of them when fewer than
+// n exist). Used for the live-window RTT view.
+func meanTail(samples []time.Duration, n int) time.Duration {
+	if len(samples) == 0 {
+		return 0
+	}
+	if n <= 0 || n > len(samples) {
+		n = len(samples)
+	}
+	tail := samples[len(samples)-n:]
+	var sum time.Duration
+	for _, v := range tail {
+		sum += v
+	}
+	return sum / time.Duration(len(tail))
 }
 
 func percent(part, total int) float64 {

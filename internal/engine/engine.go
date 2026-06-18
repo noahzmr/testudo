@@ -52,6 +52,7 @@ type Engine struct {
 	neigh     *collectors.NeighConntrackCollector
 	netwatch  *collectors.NetlinkWatchCollector
 	tcpinfo   *collectors.TCPInfoCollector
+	ntp       *collectors.NTPCollector
 	sup       *supervisor
 	sessionID string
 
@@ -180,6 +181,10 @@ func (e *Engine) NetlinkWatch() *collectors.NetlinkWatchCollector { return e.net
 // worst-flow figures. Returns nil when telemetry is disabled - callers must
 // nil-check.
 func (e *Engine) TCPInfo() *collectors.TCPInfoCollector { return e.tcpinfo }
+
+// NTP exposes the clock-offset collector for the Health card and grade. Nil
+// when NTP monitoring is disabled.
+func (e *Engine) NTP() *collectors.NTPCollector { return e.ntp }
 
 // FirewallSignal returns the current DROP/REJECT velocity (drops per second
 // across managed blocking rules) and whether any counted blocking rule
@@ -649,6 +654,13 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 			Settings: e.settings,
 		}
 		cs = append(cs, e.tcpinfo)
+	}
+	if e.cfg.NTPEnabled {
+		e.ntp = &collectors.NTPCollector{
+			Interval:     e.cfg.NTPInterval,
+			OffsetWarnMs: e.cfg.NTPOffsetWarnMs,
+		}
+		cs = append(cs, e.ntp)
 	}
 	if e.cfg.L2Enabled && e.netops != nil {
 		cs = append(cs, &collectors.L2Collector{

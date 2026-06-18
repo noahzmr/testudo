@@ -36,8 +36,13 @@ type TCPInfoCollector struct {
 	mu     sync.RWMutex
 	status TCPInfoStatus
 
-	prev     map[string]flowCounters // 5-tuple -> last cumulative counters
-	cooldown map[string]time.Time    // 5-tuple -> next time an anomaly may fire
+	prev       map[string]flowCounters // 5-tuple -> last cumulative counters
+	cooldown   map[string]time.Time    // 5-tuple -> next time an anomaly may fire
+	connecting map[string]time.Time    // 5-tuple -> first time seen mid-handshake
+
+	portLow, portHigh int               // cached ephemeral local-port range
+	prevReset         connResetCounters // last cumulative snmp reset counters
+	prevResetAt       time.Time         // when prevReset was sampled (for rate)
 }
 
 // flowCounters is the per-flow cumulative state kept between ticks to derive
@@ -45,6 +50,7 @@ type TCPInfoCollector struct {
 type flowCounters struct {
 	totalRetrans uint32
 	segsOut      uint32
+	wqueue       uint32 // send-queue depth, for the zero-window / send-stall shape
 	seen         time.Time
 }
 
@@ -56,8 +62,31 @@ type TCPInfoStatus struct {
 	WorstRTX      float64            // highest per-flow RTX rate observed (percent)
 	WorstRTT      float64            // highest per-flow smoothed RTT (ms)
 	PMTUBlackhole bool               // a flow shows the frag-needed / black-hole shape now
-	LastErr       string             // last sample error, empty when healthy
-	Updated       time.Time
+	Connecting    int                // sockets mid-handshake (SYN_SENT/SYN_RECV) now
+	StalledConn   int                // sockets stuck mid-handshake across >=1 interval
+	ConnectStall  bool               // a stalled handshake is present now -> grade penalty
+
+	// Ephemeral-port pressure: TimeWait is the live TIME_WAIT count; EphemeralUtil
+	// is local ephemeral-port usage / range size; EphemeralExhaust trips past the
+	// comfort line, when new outbound connections start failing host-wide.
+	TimeWait         int
+	EphemeralUtil    float64
+	EphemeralExhaust bool
+
+	// Send-stall / zero-window: SendStalls counts sockets with data wedged in the
+	// send queue making no forward progress (peer advertised a zero window or the
+	// path is blocked); SendStall flags the live condition for the grade.
+	SendStalls int
+	SendStall  bool
+
+	// Connection failures: ConnFailRate is failed-connect + established-reset
+	// events per second (refused/timed-out connects and RST teardowns);
+	// ConnResetSpike trips past the comfort line.
+	ConnFailRate   float64
+	ConnResetSpike bool
+
+	LastErr string // last sample error, empty when healthy
+	Updated time.Time
 }
 
 func (c *TCPInfoCollector) Name() string { return "tcpinfo" }
@@ -76,6 +105,8 @@ func (c *TCPInfoCollector) Run(ctx context.Context, bus *events.Bus) error {
 	c.ebpf = telemetry.EBPFStatus()
 	c.prev = map[string]flowCounters{}
 	c.cooldown = map[string]time.Time{}
+	c.connecting = map[string]time.Time{}
+	c.portLow, c.portHigh = readEphemeralPortRange()
 
 	c.sample(bus) // prime immediately so the first render has data
 	ticker := time.NewTicker(c.Interval)
@@ -116,9 +147,42 @@ func (c *TCPInfoCollector) sample(bus *events.Bus) {
 	}
 
 	live := make(map[string]struct{}, len(samples))
+	connectingNow := make(map[string]struct{})
+	var ephemeralInUse int
 	for _, s := range samples {
 		key := flowTupleKey(s)
 		live[key] = struct{}{}
+
+		// Ephemeral-port accounting spans every socket state (an outbound socket
+		// in TIME_WAIT still holds its local port). Count local ports inside the
+		// ephemeral range so near-exhaustion - where connect() starts failing
+		// host-wide - is visible before it bites.
+		if int(s.SrcPort) >= c.portLow && int(s.SrcPort) <= c.portHigh {
+			ephemeralInUse++
+		}
+		if s.State == telemetry.TCPTimeWait {
+			st.TimeWait++
+		}
+
+		// Connection-establishment health. A socket still mid-handshake carries
+		// no useful RTT/RTX, so it never reaches the enrichment path below - but
+		// one that lingers in SYN_SENT across ticks is a connect that can't
+		// complete, the exact "waiting for connection" timeout users feel. We
+		// track first-seen per tuple and flag a stall once it has persisted at
+		// least one sample interval.
+		if telemetry.IsConnecting(s.State) {
+			connectingNow[key] = struct{}{}
+			st.Connecting++
+			first, seen := c.connecting[key]
+			if !seen {
+				c.connecting[key] = now
+			} else if now.Sub(first) >= c.Interval {
+				st.StalledConn++
+				st.ConnectStall = true
+				c.reportConnectStall(bus, s, now)
+			}
+			continue
+		}
 
 		prev := c.prev[key]
 		rate := telemetry.RetransRate(
@@ -151,7 +215,21 @@ func (c *TCPInfoCollector) sample(bus *events.Bus) {
 		if c.detectAnomalies(bus, s, prev, rate, th, now) {
 			st.PMTUBlackhole = true
 		}
-		c.prev[key] = flowCounters{totalRetrans: s.TotalRetrans, segsOut: s.SegsOut, seen: now}
+
+		// Zero-window / send-stall: data sat in the send queue across two ticks
+		// while no new segments went out and nothing was retransmitted - the
+		// sender wants to push but can't, classically because the peer advertised
+		// a zero receive window or the path wedged. Distinct from the PMTU shape
+		// (which retransmits): here the connection is simply frozen.
+		dSegs := int64(s.SegsOut) - int64(prev.segsOut)
+		dRetrans := int64(s.TotalRetrans) - int64(prev.totalRetrans)
+		if !prev.seen.IsZero() && prev.wqueue > 0 && s.WQueue > 0 && dSegs <= 0 && dRetrans <= 0 {
+			st.SendStalls++
+			st.SendStall = true
+			c.reportSendStall(bus, s, now)
+		}
+
+		c.prev[key] = flowCounters{totalRetrans: s.TotalRetrans, segsOut: s.SegsOut, wqueue: s.WQueue, seen: now}
 	}
 
 	// Drop prev state for flows that have gone away, bounding memory.
@@ -161,10 +239,59 @@ func (c *TCPInfoCollector) sample(bus *events.Bus) {
 			delete(c.cooldown, key)
 		}
 	}
+	// Drop handshake-tracking state for sockets that are no longer connecting:
+	// they either established (good) or were torn down. Either way the stall, if
+	// any, is over, so clear its alert cooldown too.
+	for key := range c.connecting {
+		if _, ok := connectingNow[key]; !ok {
+			delete(c.connecting, key)
+			delete(c.cooldown, "connect:"+key)
+		}
+	}
+
+	c.scoreEphemeral(bus, &st, ephemeralInUse, now)
+	c.scoreConnFailures(bus, &st, now)
 
 	c.mu.Lock()
 	c.status = st
 	c.mu.Unlock()
+}
+
+// ephemeralComfort is the local-port utilisation past which we warn: a host
+// with 80% of its ephemeral range tied up (often by TIME_WAIT churn to one
+// busy destination) is close to connect() failures.
+const ephemeralComfort = 0.80
+
+// scoreEphemeral folds ephemeral-port utilisation into the status and raises a
+// WARN when usage crosses the comfort line. inUse is the count of live local
+// ports inside the ephemeral range; the range size is the denominator.
+func (c *TCPInfoCollector) scoreEphemeral(bus *events.Bus, st *TCPInfoStatus, inUse int, now time.Time) {
+	size := c.portHigh - c.portLow + 1
+	if size <= 0 {
+		return
+	}
+	util := float64(inUse) / float64(size)
+	st.EphemeralUtil = util
+	if util < ephemeralComfort {
+		return
+	}
+	st.EphemeralExhaust = true
+	if bus == nil {
+		return
+	}
+	key := "ephemeral"
+	if t, ok := c.cooldown[key]; ok && now.Before(t) {
+		return
+	}
+	bus.Publish(events.Event{
+		Kind: events.KindAnomaly, Source: c.Name(), Time: now,
+		Payload: events.AnomalyPayload{
+			Severity: string(events.SevWarn),
+			Message: fmt.Sprintf("ephemeral ports %.0f%% used (%d/%d) - new outbound connections may start failing",
+				util*100, inUse, size),
+		},
+	})
+	c.cooldown[key] = now.Add(2 * time.Minute)
 }
 
 // detectAnomalies raises the per-flow RTX-rate WARN and the frag-needed / PMTU
@@ -223,6 +350,104 @@ func (c *TCPInfoCollector) detectAnomalies(bus *events.Bus, s telemetry.Sample, 
 		c.cooldown[key] = now.Add(2 * time.Minute)
 	}
 	return false
+}
+
+// reportConnectStall publishes an ERROR anomaly for a connection wedged in its
+// TCP handshake, behind a per-tuple cooldown so a persistently unreachable host
+// doesn't spam the Alerts tab. The SYN-retransmit count comes straight from
+// tcp_info and is the smoking gun for a lossy uplink dropping handshake packets.
+func (c *TCPInfoCollector) reportConnectStall(bus *events.Bus, s telemetry.Sample, now time.Time) {
+	if bus == nil {
+		return
+	}
+	key := "connect:" + flowTupleKey(s)
+	if t, ok := c.cooldown[key]; ok && now.Before(t) {
+		return
+	}
+	bus.Publish(events.Event{
+		Kind: events.KindAnomaly, Source: c.Name(), Time: now,
+		Payload: events.AnomalyPayload{
+			Severity: string(events.SevError),
+			Message: fmt.Sprintf("connection to %s:%d stuck in handshake (SYN_SENT, %d SYN retransmit(s)) - failing to connect",
+				s.DstIP, s.DstPort, s.TotalRetrans),
+		},
+	})
+	c.cooldown[key] = now.Add(2 * time.Minute)
+}
+
+// reportSendStall publishes a WARN for a connection frozen with data wedged in
+// its send queue (zero-window / send-stall), behind a per-tuple cooldown.
+func (c *TCPInfoCollector) reportSendStall(bus *events.Bus, s telemetry.Sample, now time.Time) {
+	if bus == nil {
+		return
+	}
+	key := "stall:" + flowTupleKey(s)
+	if t, ok := c.cooldown[key]; ok && now.Before(t) {
+		return
+	}
+	bus.Publish(events.Event{
+		Kind: events.KindAnomaly, Source: c.Name(), Time: now,
+		Payload: events.AnomalyPayload{
+			Severity: string(events.SevWarn),
+			Message: fmt.Sprintf("connection %s -> %s:%d send-stalled (%d bytes queued, no progress) - peer zero-window or path blocked",
+				s.SrcIP, s.DstIP, s.DstPort, s.WQueue),
+		},
+	})
+	c.cooldown[key] = now.Add(2 * time.Minute)
+}
+
+// connFailComfort is the per-second rate of failed connects + established
+// resets past which we warn. A trickle is normal (every RST-closed socket
+// counts); a sustained burst is the "connections keep dropping" fault.
+const connFailComfort = 2.0
+
+// scoreConnFailures derives the failed-connect + reset rate from the cumulative
+// /proc/net/snmp counters across two samples, folds it into the status, and
+// raises an anomaly past the comfort line. Primes silently on the first pass.
+func (c *TCPInfoCollector) scoreConnFailures(bus *events.Bus, st *TCPInfoStatus, now time.Time) {
+	cur := readTCPResetCounters()
+	if !cur.ok {
+		return
+	}
+	prev, prevAt := c.prevReset, c.prevResetAt
+	c.prevReset, c.prevResetAt = cur, now
+	if !prev.ok || prevAt.IsZero() {
+		return // first pass: prime only
+	}
+	secs := now.Sub(prevAt).Seconds()
+	if secs <= 0 {
+		return
+	}
+	// Guard against counter resets (reboot / wrap) producing a negative delta.
+	var dFail, dReset uint64
+	if cur.attemptFails >= prev.attemptFails {
+		dFail = cur.attemptFails - prev.attemptFails
+	}
+	if cur.estabResets >= prev.estabResets {
+		dReset = cur.estabResets - prev.estabResets
+	}
+	rate := float64(dFail+dReset) / secs
+	st.ConnFailRate = rate
+	if rate < connFailComfort {
+		return
+	}
+	st.ConnResetSpike = true
+	if bus == nil {
+		return
+	}
+	key := "connfail"
+	if t, ok := c.cooldown[key]; ok && now.Before(t) {
+		return
+	}
+	bus.Publish(events.Event{
+		Kind: events.KindAnomaly, Source: c.Name(), Time: now,
+		Payload: events.AnomalyPayload{
+			Severity: string(events.SevError),
+			Message: fmt.Sprintf("connection failures at %.1f/s (%d refused/failed connects, %d resets over %.0fs)",
+				rate, dFail, dReset, secs),
+		},
+	})
+	c.cooldown[key] = now.Add(2 * time.Minute)
 }
 
 // flowTupleKey is the directional 5-tuple identity used to track per-flow

@@ -33,6 +33,25 @@ type EBPFInfo struct {
 	Detail    string // human-readable status for the Health card
 }
 
+// TCP socket states (linux/tcp_states.h) the active-traffic monitor
+// distinguishes. Only the connection-setup states are named; everything else is
+// treated as an up/established connection for grading purposes.
+const (
+	TCPEstablished uint8 = 1
+	TCPSynSent     uint8 = 2
+	TCPSynRecv     uint8 = 3
+	TCPTimeWait    uint8 = 6
+)
+
+// IsConnecting reports whether a socket is still completing its TCP handshake
+// (SYN_SENT / SYN_RECV) rather than established. A socket that lingers in this
+// state across samples is a connection that cannot establish - the kernel-side
+// view of the "request canceled while waiting for connection" / connect-timeout
+// fault that userspace HTTP clients report.
+func IsConnecting(state uint8) bool {
+	return state == TCPSynSent || state == TCPSynRecv
+}
+
 // ActiveSource reports which backend per-flow TCP stats are coming from, given
 // the build's eBPF status. It is the label shown next to the flow columns.
 func ActiveSource(info EBPFInfo) string {

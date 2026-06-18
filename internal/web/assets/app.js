@@ -415,6 +415,24 @@
   }
 
   // ---- Renderers (one per pane) ----
+  // GRADE_HELP describes each Network Quality sub-score: what it measures and
+  // how the value is derived. Surfaced as a hover/focus tooltip on each bar.
+  const GRADE_HELP = {
+    Loss:       'WAN packet loss. Percentage of the last 30 ICMP/probe results to external targets that were lost (a live window, not a lifetime average). Threshold: your Packet-loss setting.',
+    RTT:        'WAN round-trip latency. Mean RTT of recent probes to external targets, sharpened by the worst active TCP flow. Threshold: your RTT setting.',
+    Jitter:     'Latency variation — the mean change between consecutive RTT samples. High jitter degrades VoIP/video/gaming. Threshold: your Jitter setting.',
+    DNS:        'Resolver health. Blends DNS query latency with the failure/timeout rate across probed resolvers, so timeouts count even when nothing resolves. Threshold: DNS-latency setting + 5% failures.',
+    LAN:        'LAN reachability. Blends loss and RTT to LAN hosts (50 ms comfort) and hard-penalises any active duplicate-IP (ARP) conflict.',
+    HTTP:       'Service health of configured HTTP endpoints. Blends time-to-first-byte (500 ms comfort) with the request failure/timeout rate (2% comfort).',
+    Stab:       'Interface stability. Kernel error/drop ratio, unreachable-neighbour ratio, and link-flap / default-route churn from the netlink watcher (2/min comfort).',
+    WiFi:       'Wireless link quality across associated radios. Blends RSSI (−60 dBm great, −90 unusable), signal-to-noise ratio, and the TX-failure rate — so a strong signal that keeps failing still scores low.',
+    Firewall:   'Managed firewall pressure. DROP/REJECT events per second across blocking rules that carry counters (10/s comfort).',
+    NAT:        'Connection-tracking pressure. Live conntrack entries ÷ nf_conntrack_max; near saturation new connections fail host-wide (70% comfort).',
+    Congestion: 'Per-flow TCP retransmission rate from tcp_info (INET_DIAG/eBPF), byte-weighted so busy flows dominate. Threshold: your Retransmissions setting.',
+  };
+  // GRADE_SCORING is appended to every tooltip: the shared 0–100 mapping.
+  const GRADE_SCORING = ' — Scored 100 at zero, 50 at the comfort threshold, 0 at twice the threshold. Dimensions with no measurements yet are excluded from the overall grade.';
+
   function renderGrade(g) {
     const badge = document.getElementById('grade-badge');
     const hasData = g.has_data !== false;
@@ -428,20 +446,23 @@
     // from the overall grade instead of contributing a fake 100.
     const noData = new Set(g.no_data || []);
     const rows = [
-      ['Loss',     g.loss_score],
-      ['RTT',      g.rtt_score],
-      ['Jitter',   g.jitter_score],
-      ['DNS',      g.dns_score],
-      ['LAN',      g.lan_score],
-      ['HTTP',     g.http_score],
-      ['Stab',     g.stab_score],
-      ['WiFi',     g.wifi_score],
-      ['Firewall', g.firewall_score],
-      ['NAT',      g.nat_score],
+      ['Loss',       g.loss_score],
+      ['RTT',        g.rtt_score],
+      ['Jitter',     g.jitter_score],
+      ['DNS',        g.dns_score],
+      ['LAN',        g.lan_score],
+      ['HTTP',       g.http_score],
+      ['Stab',       g.stab_score],
+      ['WiFi',       g.wifi_score],
+      ['Firewall',   g.firewall_score],
+      ['NAT',        g.nat_score],
+      ['Congestion', g.congestion_score],
     ];
     bars.innerHTML = rows.map(([label, score]) => {
+      const tip = escape(GRADE_HELP[label] || '') + GRADE_SCORING;
+      const attrs = ' data-tip="' + tip + '" tabindex="0"';
       if (noData.has(label)) {
-        return '<div class="grade-bar">'
+        return '<div class="grade-bar"' + attrs + '>'
           + '<span>' + escape(label) + '</span>'
           + '<div class="grade-bar-track"><div class="grade-bar-fill" style="width:100%;background:var(--accent-violet)"></div></div>'
           + '<span class="grade-bar-value" style="color:var(--accent-violet)">no data</span>'
@@ -451,7 +472,7 @@
                  : score >= 70 ? '#d29922'
                  : score >= 60 ? '#db6d28'
                  :              '#f85149';
-      return '<div class="grade-bar">'
+      return '<div class="grade-bar"' + attrs + '>'
         + '<span>' + escape(label) + '</span>'
         + '<div class="grade-bar-track"><div class="grade-bar-fill" style="width:' + (score || 0) + '%;background:' + color + '"></div></div>'
         + '<span class="grade-bar-value">' + (score || 0) + '</span>'
@@ -537,6 +558,22 @@
       const cls = (g.fault_layer && g.fault_layer !== 'none') ? 'warn' : 'ok';
       lines.push('<div class="grade-ctx ' + cls + '">' + escape(g.fault_verdict || '') + '</div>');
     }
+    // Active-traffic connection faults (mirror the TUI dashboard penalty lines).
+    if (g.pmtu_blackhole) {
+      lines.push('<div class="grade-ctx bad">&#9888; PMTU black-hole detected (&minus;' + (g.pmtu_penalty || 0) + ') &mdash; a flow is retransmitting without progress</div>');
+    }
+    if (g.connect_stall) {
+      lines.push('<div class="grade-ctx bad">&#9888; ' + (g.stalled_connects || 0) + ' connection(s) failing to establish (&minus;' + (g.connect_penalty || 0) + ') &mdash; stuck in TCP handshake (SYN_SENT)</div>');
+    }
+    if (g.conn_reset_spike) {
+      lines.push('<div class="grade-ctx bad">&#9888; connections dropping at ' + (g.conn_reset_rate || 0).toFixed(1) + '/s (&minus;' + (g.reset_penalty || 0) + ') &mdash; refused/failed connects + resets</div>');
+    }
+    if (g.send_stall) {
+      lines.push('<div class="grade-ctx warn">&#9888; ' + (g.send_stalls || 0) + ' connection(s) send-stalled (&minus;' + (g.stall_penalty || 0) + ') &mdash; peer zero-window or path blocked</div>');
+    }
+    if (g.ephemeral_exhaustion) {
+      lines.push('<div class="grade-ctx bad">&#9888; ephemeral ports ' + ((g.ephemeral_util || 0) * 100).toFixed(0) + '% used (&minus;' + (g.ephemeral_penalty || 0) + ') &mdash; new outbound connections may start failing</div>');
+    }
     el.innerHTML = lines.join('');
   }
 
@@ -621,6 +658,34 @@
     const ctUtil = (ct.max && ct.count) ? (ct.count / ct.max * 100) : 0;
     const ctState = ctUtil > 90 ? 'err' : (ctUtil > 70 ? 'warn' : '');
 
+    // Connection-establishment / teardown health from the TCP telemetry source.
+    let connVal = 'OK', connState = 'ok', connSub = 'connects healthy';
+    if (tel.connect_stall) {
+      connVal = (tel.stalled_conn || 0) + ' stalled'; connState = 'err'; connSub = 'stuck in handshake (SYN_SENT)';
+    } else if (tel.conn_reset_spike) {
+      connVal = (tel.conn_fail_rate || 0).toFixed(1) + '/s'; connState = 'err'; connSub = 'refused/failed + resets';
+    } else if (tel.send_stall) {
+      connVal = (tel.send_stalls || 0) + ' frozen'; connState = 'warn'; connSub = 'zero-window / path blocked';
+    } else if (tel.ephemeral_exhaust) {
+      connVal = (tel.ephemeral_util * 100).toFixed(0) + '% ports'; connState = 'err'; connSub = 'ephemeral near-exhaustion';
+    } else if (!tel.source) {
+      connVal = '-'; connState = ''; connSub = 'no telemetry';
+    }
+
+    // System clock (NTP discipline).
+    const clk = snap.clock || {};
+    let clkVal = '-', clkState = '', clkSub = 'disabled';
+    if (clk.enabled) {
+      if (!clk.synchronised) {
+        clkVal = 'unsynced'; clkState = 'err'; clkSub = 'no NTP discipline';
+      } else {
+        const off = Math.abs(clk.offset_ms || 0);
+        clkVal = (clk.offset_ms || 0).toFixed(1) + ' ms';
+        clkState = off >= 100 ? 'warn' : 'ok';
+        clkSub = 'offset · synced';
+      }
+    }
+
     document.getElementById('kpi-health').innerHTML = ''
       + kpiTile('Active flows', String(tel.flows || 0), {
           sub: (tel.source || '-') + (tel.ebpf_available ? ' · eBPF' : '') })
@@ -628,8 +693,10 @@
           state: rttState, sub: 'threshold ' + rttThr + ' ms' })
       + kpiTile('Worst retrans', rtx > 0 ? rtx.toFixed(2) + ' %' : '-', {
           state: rtxState, sub: 'threshold ' + rtxThr + ' %' })
+      + kpiTile('Connections', connVal, { state: connState, sub: connSub })
       + kpiTile('Conntrack', ct.max ? (ct.count || 0) + ' / ' + ct.max : '-', {
-          state: ctState, sub: ct.max ? ctUtil.toFixed(1) + ' % used' : 'no data' });
+          state: ctState, sub: ct.max ? ctUtil.toFixed(1) + ' % used' : 'no data' })
+      + kpiTile('System clock', clkVal, { state: clkState, sub: clkSub });
 
     // --- Security: blocked traffic + structural faults -----------------
     const anomalies = snap.anomalies || [];
@@ -1355,6 +1422,92 @@
     }).join('');
   }
 
+  // wifiQualityScore mirrors the Go grade's scoreWiFi: blend RSSI with SNR and
+  // the TX-failure rate so a strong-signal-but-failing link is scored honestly.
+  // Returns 0..100, or null when the radio is unassociated / has no signal.
+  function wifiQualityScore(w) {
+    if (!w.associated || !w.signal_dbm) return null;
+    const clamp = v => Math.max(0, Math.min(100, Math.round(v)));
+    const comps = [clamp((w.signal_dbm + 90) / 30 * 100)];        // RSSI
+    if (w.noise_dbm) comps.push(clamp((w.signal_dbm - w.noise_dbm - 10) / 20 * 100)); // SNR
+    const tot = (w.tx_packets || 0) + (w.tx_failed || 0);
+    if (tot >= 100) {                                             // TX-failure rate vs 5%
+      const failPct = (w.tx_failed || 0) / tot * 100;
+      const ratio = failPct / 5;
+      comps.push(ratio <= 1 ? clamp(100 - 50 * ratio) : (ratio <= 2 ? clamp(50 - 50 * (ratio - 1)) : 0));
+    }
+    return Math.round(comps.reduce((a, b) => a + b, 0) / comps.length);
+  }
+
+  function qualityClass(score) {
+    if (score >= 85) return 'ok';
+    if (score >= 60) return 'warn';
+    return 'bad';
+  }
+
+  // renderWiFiDetail draws the dedicated WiFi tab: a richer per-radio card with
+  // a computed quality grade badge on top of the full counter set.
+  function renderWiFiDetail(rows) {
+    const host = document.getElementById('wifi-detail');
+    if (!host) return;
+    if (!rows || rows.length === 0) {
+      host.innerHTML = '<div class="muted">no wireless interfaces detected (no NICs under /sys/class/net/*/wireless). nl80211 needs CAP_NET_ADMIN — run with sudo or grant <code>setcap cap_net_admin+ep</code>.</div>';
+      return;
+    }
+    host.innerHTML = rows.map(w => {
+      const assoc = w.associated;
+      const headerClass = assoc ? 'wifi-card' : 'wifi-card idle';
+      const q = wifiQualityScore(w);
+      let badge = '';
+      if (q !== null) {
+        const cls = qualityClass(q);
+        badge = '<span class="wifi-q ' + cls + '">' + q + '/100</span>';
+      }
+      const sigClass = !assoc || !w.signal_dbm ? 'muted'
+        : (w.signal_dbm < -85 ? 'err' : (w.signal_dbm < -75 ? 'warn' : 'ok'));
+      const lines = [];
+      lines.push('<div class="wifi-head"><b>' + escape(w.iface) + '</b> '
+        + (assoc ? '<span class="status-pill on">associated</span>'
+                 : '<span class="status-pill warn">unassociated</span>')
+        + ' ' + badge
+        + ' <span class="muted">' + escape(w.hw_addr || '-') + '</span>'
+        + (w.source ? ' <span class="muted">(' + escape(w.source) + ')</span>' : '')
+        + '</div>');
+      if (!assoc) {
+        lines.push('<div class="muted">radio is up but not joined to an AP — no SSID / channel / bitrate data</div>');
+        return '<div class="' + headerClass + '">' + lines.join('') + '</div>';
+      }
+      lines.push('<dl class="wifi-grid">');
+      lines.push('<dt>SSID</dt><dd>' + escape(w.ssid || '(unknown)') + '</dd>');
+      lines.push('<dt>BSSID</dt><dd class="mono">' + escape(w.bssid || '-') + '</dd>');
+      if (w.frequency_mhz > 0) {
+        const ch = w.channel_width_mhz > 0 ? (w.channel + ' (' + w.channel_width_mhz + ' MHz wide)') : String(w.channel);
+        lines.push('<dt>Channel</dt><dd>' + escape(ch) + ' · ' + w.frequency_mhz + ' MHz · ' + escape(w.band) + '</dd>');
+      }
+      const sigParts = ['<span class="' + sigClass + '">' + Math.round(w.signal_dbm) + ' dBm</span>'];
+      if (w.signal_avg_dbm && w.signal_avg_dbm !== w.signal_dbm) sigParts.push('avg ' + Math.round(w.signal_avg_dbm));
+      if (w.noise_dbm) sigParts.push('noise ' + Math.round(w.noise_dbm) + ' · SNR ' + Math.round(w.signal_dbm - w.noise_dbm) + ' dB');
+      lines.push('<dt>Signal</dt><dd>' + sigParts.join(' · ') + '</dd>');
+      if (w.tx_bitrate_mbps > 0 || w.rx_bitrate_mbps > 0) {
+        lines.push('<dt>Bitrate</dt><dd>tx ' + w.tx_bitrate_mbps.toFixed(1) + ' Mbit/s · rx ' + w.rx_bitrate_mbps.toFixed(1) + ' Mbit/s</dd>');
+      }
+      if (w.tx_power_dbm > 0) lines.push('<dt>TX power</dt><dd>' + w.tx_power_dbm.toFixed(1) + ' dBm</dd>');
+      if (w.link_quality > 0) {
+        const max = w.link_quality_max || 70;
+        lines.push('<dt>Quality</dt><dd>' + w.link_quality + '/' + max + ' (' + Math.round(w.link_quality / max * 100) + '%)</dd>');
+      }
+      const failHi = (w.tx_failed || 0) > 0 || (w.beacon_loss || 0) > 0;
+      lines.push('<dt>Counters</dt><dd' + (failHi ? ' class="warn"' : '') + '>retries ' + (w.retries || 0)
+        + ' · tx-failed ' + (w.tx_failed || 0) + ' · beacon-loss ' + (w.beacon_loss || 0) + '</dd>');
+      if ((w.rx_bytes || 0) + (w.tx_bytes || 0) > 0) {
+        lines.push('<dt>Station</dt><dd>rx ' + fmtBytes(w.rx_bytes) + ' (' + w.rx_packets + ' pkts) · tx ' + fmtBytes(w.tx_bytes) + ' (' + w.tx_packets + ' pkts)</dd>');
+      }
+      if (w.connected_for) lines.push('<dt>Up since</dt><dd>' + escape(w.connected_for) + ' ago</dd>');
+      lines.push('</dl>');
+      return '<div class="' + headerClass + '">' + lines.join('') + '</div>';
+    }).join('');
+  }
+
   function renderRoutes(rows) {
     document.getElementById('routes-body').innerHTML = (rows || []).map(r =>
       '<tr>'
@@ -1732,6 +1885,7 @@
       renderNeighbours(snap.neighbours, snap.ip_conflicts);
       renderIfaces(snap.ifaces, snap.wifi);
       renderWiFi(snap.wifi);
+      renderWiFiDetail(snap.wifi);
       renderRoutes(snap.routes);
       renderWatcher(snap.watcher);
       renderFirewall(snap.filter_rules, snap.firewall, snap.firewall_rules);

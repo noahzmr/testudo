@@ -45,6 +45,7 @@ type snapshot struct {
 	TopProcesses  []procRollupView     `json:"top_processes"`
 	TopServices   []serviceRollupView  `json:"top_services"`
 	Telemetry     telemetryView        `json:"telemetry"`
+	Clock         clockView            `json:"clock"`
 	WiFi          []wifiView           `json:"wifi"`
 	Subsystems    []subsystemView      `json:"subsystems"`
 	Audit         []auditView          `json:"audit"`
@@ -133,6 +134,24 @@ type gradeView struct {
 	// and PMTUPenalty is the points it shaved off the score.
 	PMTUBlackhole bool `json:"pmtu_blackhole"`
 	PMTUPenalty   int  `json:"pmtu_penalty"`
+	// ConnectStall mirrors NetworkGrade: one or more sockets are wedged in the
+	// TCP handshake (connections failing to establish). ConnectPenalty is the
+	// points it shaved off; StalledConnects is the live count.
+	ConnectStall    bool `json:"connect_stall"`
+	ConnectPenalty  int  `json:"connect_penalty"`
+	StalledConnects int  `json:"stalled_connects"`
+	// Active-traffic connection faults (mirror NetworkGrade): connections
+	// dropping, frozen (zero-window send-stall), or unable to start (ephemeral
+	// exhaustion). Each carries its fixed penalty and a backing measurement.
+	ConnResetSpike      bool    `json:"conn_reset_spike"`
+	ConnResetRate       float64 `json:"conn_reset_rate"`
+	ResetPenalty        int     `json:"reset_penalty"`
+	SendStall           bool    `json:"send_stall"`
+	SendStalls          int     `json:"send_stalls"`
+	StallPenalty        int     `json:"stall_penalty"`
+	EphemeralExhaustion bool    `json:"ephemeral_exhaustion"`
+	EphemeralUtil       float64 `json:"ephemeral_util"`
+	EphemeralPenalty    int     `json:"ephemeral_penalty"`
 	// NoData lists the sub-score names that have not yet produced a
 	// measurement (e.g. ["WiFi", "HTTP"]). The dashboard renders these
 	// bars violet and excludes them from the overall grade.
@@ -232,6 +251,27 @@ type telemetryView struct {
 	WorstRTX  float64 `json:"worst_rtx"`
 	WorstRTT  float64 `json:"worst_rtt_ms"`
 	LastError string  `json:"last_error,omitempty"`
+
+	// Active-traffic connection health (mirrors the TUI Health card).
+	ConnectStall     bool    `json:"connect_stall"`
+	StalledConn      int     `json:"stalled_conn"`
+	SendStall        bool    `json:"send_stall"`
+	SendStalls       int     `json:"send_stalls"`
+	ConnResetSpike   bool    `json:"conn_reset_spike"`
+	ConnFailRate     float64 `json:"conn_fail_rate"`
+	TimeWait         int     `json:"time_wait"`
+	EphemeralUtil    float64 `json:"ephemeral_util"`
+	EphemeralExhaust bool    `json:"ephemeral_exhaust"`
+}
+
+// clockView mirrors the TUI Health card's system-clock (NTP) status.
+type clockView struct {
+	Enabled      bool    `json:"enabled"`
+	Synchronised bool    `json:"synchronised"`
+	OffsetMs     float64 `json:"offset_ms"`
+	EstErrorMs   float64 `json:"est_error_ms"`
+	State        string  `json:"state"`
+	LastError    string  `json:"last_error,omitempty"`
 }
 
 type deviceView struct {
@@ -664,6 +704,28 @@ func (s *Server) buildSnapshot() snapshot {
 			WorstRTX:  st.WorstRTX,
 			WorstRTT:  st.WorstRTT,
 			LastError: st.LastErr,
+
+			ConnectStall:     st.ConnectStall,
+			StalledConn:      st.StalledConn,
+			SendStall:        st.SendStall,
+			SendStalls:       st.SendStalls,
+			ConnResetSpike:   st.ConnResetSpike,
+			ConnFailRate:     st.ConnFailRate,
+			TimeWait:         st.TimeWait,
+			EphemeralUtil:    st.EphemeralUtil,
+			EphemeralExhaust: st.EphemeralExhaust,
+		}
+	}
+
+	if ntp := eng.NTP(); ntp != nil {
+		st := ntp.Status()
+		snap.Clock = clockView{
+			Enabled:      true,
+			Synchronised: st.Synchronised,
+			OffsetMs:     st.OffsetMs,
+			EstErrorMs:   st.EstErrorMs,
+			State:        st.State,
+			LastError:    st.LastErr,
 		}
 	}
 

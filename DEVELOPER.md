@@ -7,13 +7,13 @@ who need to build, run, test, and extend Testudo locally.
 
 ## 1. Prerequisites
 
-| Requirement | Notes |
-|---|---|
-| Go | 1.22 or newer |
-| Linux kernel | 5.4+ recommended (AF_PACKET, netlink, nftables) |
+| Requirement  | Notes                                                    |
+| ------------ | -------------------------------------------------------- |
+| Go           | 1.22 or newer                                            |
+| Linux kernel | 5.4+ recommended (AF_PACKET, netlink, nftables)          |
 | Capabilities | `CAP_NET_RAW`, `CAP_NET_ADMIN` for the binary at runtime |
-| Optional | `iptables` binary for the legacy firewall backend |
-| Optional | `sqlite3` CLI for ad-hoc inspection of session storage |
+| Optional     | `iptables` binary for the legacy firewall backend        |
+| Optional     | `sqlite3` CLI for ad-hoc inspection of session storage   |
 
 Testudo is developed against Ubuntu and Debian-based systems. Fedora / Arch /
 openSUSE are roadmap targets - patches welcome.
@@ -121,12 +121,12 @@ Key invariants:
 
 ## 5. Storage Layers
 
-| Layer | Where | Lifetime | Used by |
-|---|---|---|---|
-| Layer 1: ring buffer | RAM (`capture.RingBuffer`) | seconds | live render, instant replay |
-| Layer 2: flow aggregation | RAM (`flows.Aggregator`) | minutes | TUI, web, anomaly correlation |
-| Layer 3: metrics | SQLite (`storage/metrics/`) | days–weeks | dashboards, alerting |
-| Layer 4: PCAP | filesystem (`storage/captures/`) | incident-scoped | forensics |
+| Layer                     | Where                            | Lifetime        | Used by                       |
+| ------------------------- | -------------------------------- | --------------- | ----------------------------- |
+| Layer 1: ring buffer      | RAM (`capture.RingBuffer`)       | seconds         | live render, instant replay   |
+| Layer 2: flow aggregation | RAM (`flows.Aggregator`)         | minutes         | TUI, web, anomaly correlation |
+| Layer 3: metrics          | SQLite (`storage/metrics/`)      | days–weeks      | dashboards, alerting          |
+| Layer 4: PCAP             | filesystem (`storage/captures/`) | incident-scoped | forensics                     |
 
 The persistence-friendly projection of a flow is `flows.FlowSummary` - that's
 what replay and the metrics layer serialise. See

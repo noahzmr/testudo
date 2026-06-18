@@ -54,3 +54,45 @@ func TestRecomputePopulatesPercentiles(t *testing.T) {
 		t.Errorf("P99RTT = %v, want 99ms", ts.P99RTT)
 	}
 }
+
+// TestWindowLossPctReflectsRecent verifies the live-window loss view tracks
+// current conditions instead of the diluted cumulative average: a long healthy
+// history followed by a burst of loss must register as high recent loss even
+// though the lifetime loss percentage stays tiny.
+func TestWindowLossPctReflectsRecent(t *testing.T) {
+	a := NewAggregator()
+	// 500 good probes, then liveWindow consecutive losses.
+	for i := 0; i < 500; i++ {
+		a.RecordLatency("t", 10*time.Millisecond)
+	}
+	for i := 0; i < liveWindow; i++ {
+		a.RecordLoss("t")
+	}
+	snap := a.SnapshotTargets()
+	if len(snap) != 1 {
+		t.Fatalf("want 1 target, got %d", len(snap))
+	}
+	s := snap[0]
+	if s.WindowLossPct != 100 {
+		t.Errorf("recent window is all losses: want WindowLossPct=100, got %.1f", s.WindowLossPct)
+	}
+	if s.LossPct >= 10 {
+		t.Errorf("cumulative loss should stay small (~%d/%d): got %.1f%%", liveWindow, 500+liveWindow, s.LossPct)
+	}
+}
+
+// TestWindowLossPctRecovers confirms the window clears once recent probes
+// succeed again, so the grade recovers when the outage ends.
+func TestWindowLossPctRecovers(t *testing.T) {
+	a := NewAggregator()
+	for i := 0; i < liveWindow; i++ {
+		a.RecordLoss("t")
+	}
+	for i := 0; i < liveWindow; i++ {
+		a.RecordLatency("t", 5*time.Millisecond)
+	}
+	s := a.SnapshotTargets()[0]
+	if s.WindowLossPct != 0 {
+		t.Errorf("after a full window of successes WindowLossPct should be 0, got %.1f", s.WindowLossPct)
+	}
+}

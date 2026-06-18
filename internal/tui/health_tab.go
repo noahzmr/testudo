@@ -99,6 +99,8 @@ func (t *healthTab) View(w, h int) string {
 	b.WriteString("\n")
 	renderTelemetrySection(&b, innerW, t.eng.TCPInfo())
 	b.WriteString("\n")
+	renderClockSection(&b, t.eng.NTP())
+	b.WriteString("\n")
 	renderIfaceSection(&b, innerW, t.ifaces, t.wifi)
 
 	return boxStyle.Render(b.String())
@@ -220,6 +222,82 @@ func renderTelemetrySection(b *strings.Builder, innerW int, ti *collectors.TCPIn
 		rtxCell(st.WorstRTX),
 		dimStyle.Render(fmtAgo(st.Updated))))
 	b.WriteString("\n")
+
+	// Connection-establishment / teardown health: only surfaced when there's
+	// something to say, so a healthy host stays quiet.
+	if st.ConnectStall {
+		b.WriteString("  " + errStyle.Render(fmt.Sprintf("connect-stall: %d socket(s) stuck in handshake (SYN_SENT)", st.StalledConn)))
+		b.WriteString("\n")
+	}
+	if st.SendStall {
+		b.WriteString("  " + warnStyle.Render(fmt.Sprintf("send-stall: %d connection(s) frozen (peer zero-window / path blocked)", st.SendStalls)))
+		b.WriteString("\n")
+	}
+	if st.ConnResetSpike {
+		b.WriteString("  " + errStyle.Render(fmt.Sprintf("connection failures: %.1f/s (refused/failed connects + resets)", st.ConnFailRate)))
+		b.WriteString("\n")
+	}
+	if st.TimeWait > 0 || st.EphemeralUtil > 0 {
+		line := fmt.Sprintf("  ephemeral ports: %.0f%% used · %d TIME_WAIT", st.EphemeralUtil*100, st.TimeWait)
+		if st.EphemeralExhaust {
+			b.WriteString("  " + errStyle.Render(strings.TrimSpace(line)+" - near exhaustion"))
+		} else {
+			b.WriteString(dimStyle.Render(line))
+		}
+		b.WriteString("\n")
+	}
+}
+
+// renderClockSection draws the system-clock (NTP discipline) health card. ntp
+// may be nil when clock monitoring is disabled in config.
+func renderClockSection(b *strings.Builder, ntp *collectors.NTPCollector) {
+	b.WriteString(headerStyle.Render("System Clock · NTP"))
+	b.WriteString("\n")
+	if ntp == nil {
+		b.WriteString("  " + subtitleStyle.Render("disabled (NTPEnabled=false)"))
+		b.WriteString("\n")
+		return
+	}
+	st := ntp.Status()
+	if st.LastErr != "" {
+		b.WriteString("  " + errStyle.Render("error: "+st.LastErr))
+		b.WriteString("\n")
+		return
+	}
+	if !st.Supported {
+		b.WriteString("  " + dimStyle.Render("awaiting first sample"))
+		b.WriteString("\n")
+		return
+	}
+	state := okStyle.Render("synchronised")
+	if !st.Synchronised {
+		state = errStyle.Render("UNSYNCHRONISED (no NTP discipline)")
+	}
+	b.WriteString(fmt.Sprintf("  %s · offset %s · est.err %.1fms · %s",
+		state, clockOffsetCell(st.OffsetMs, st.Synchronised), st.EstErrorMs,
+		dimStyle.Render(fmtAgo(st.Updated))))
+	b.WriteString("\n")
+}
+
+// clockOffsetCell colours a clock offset (ms): green under 25ms, amber under
+// 100ms, red beyond. Dim when the clock is unsynchronised (offset is stale).
+func clockOffsetCell(ms float64, synced bool) string {
+	s := fmt.Sprintf("%+.1fms", ms)
+	if !synced {
+		return dimStyle.Render(s)
+	}
+	abs := ms
+	if abs < 0 {
+		abs = -abs
+	}
+	switch {
+	case abs < 25:
+		return okStyle.Render(s)
+	case abs < 100:
+		return warnStyle.Render(s)
+	default:
+		return errStyle.Render(s)
+	}
 }
 
 // rttMsCell colours an RTT figure: green under 50ms, amber under 150ms, red

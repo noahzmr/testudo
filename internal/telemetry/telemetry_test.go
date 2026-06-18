@@ -5,6 +5,26 @@ import (
 	"testing"
 )
 
+func TestIsConnecting(t *testing.T) {
+	tests := []struct {
+		name  string
+		state uint8
+		want  bool
+	}{
+		{"established", TCPEstablished, false},
+		{"syn_sent", TCPSynSent, true},
+		{"syn_recv", TCPSynRecv, true},
+		{"other", 8, false}, // CLOSE_WAIT etc. -> not a handshake
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsConnecting(tt.state); got != tt.want {
+				t.Errorf("IsConnecting(%d) = %v, want %v", tt.state, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRetransRate(t *testing.T) {
 	tests := []struct {
 		name                                       string

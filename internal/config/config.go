@@ -284,6 +284,14 @@ type Config struct {
 	TCPTelemetryEnabled  bool
 	TCPTelemetryInterval time.Duration
 
+	// NTPEnabled turns on the clock-offset collector (internal/collectors/ntp.go).
+	// It reads the kernel clock-discipline state via adjtimex(2) on NTPInterval -
+	// pure-Go, no network or exec - and raises an anomaly when the clock is
+	// unsynchronised or its estimated offset exceeds NTPOffsetWarnMs.
+	NTPEnabled      bool
+	NTPInterval     time.Duration
+	NTPOffsetWarnMs float64
+
 	// DeviceChatterEnabled turns on the per-device baseline anomaly.
 	// Reads from the in-memory DeviceBandwidth aggregator, so it
 	// requires capture to be running to be useful.
@@ -378,6 +386,9 @@ func Default() Config {
 		NetlinkWatchReconcileInterval: 60 * time.Second,
 		TCPTelemetryEnabled:           true,
 		TCPTelemetryInterval:          10 * time.Second,
+		NTPEnabled:                    true,
+		NTPInterval:                   30 * time.Second,
+		NTPOffsetWarnMs:               100,
 		DeviceChatterEnabled:          true,
 		DeviceChatterFactor:           3.0,
 		WebEnabled:                    false,

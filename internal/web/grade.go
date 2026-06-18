@@ -52,7 +52,7 @@ func computeGradeView(
 	hasLoss := len(wan) > 0
 	hasRTT := hasRTTDataW(wan)
 	hasJit := hasRTTDataW(wan)
-	hasDNS := hasDNSDataW(dns)
+	dnsScore, hasDNS := scoreDNSW(dns, th.DNSLatencyMs)
 	hasLAN := len(lan) > 0 || l3.DuplicateIPs > 0
 	hasHTTP := len(httpT) > 0
 	hasStab := hasStabDataW(ifaces) || l3.HasNeigh || nlw.HasData
@@ -69,7 +69,6 @@ func computeGradeView(
 		}
 	}
 	jitScore := subScore(avgJit(wan), th.JitterMs)
-	dnsScore := subScore(avgDNS(dns), th.DNSLatencyMs)
 	lanScore := scoreLANW(lan, l3.DuplicateIPs, th)
 	httpScore := scoreHTTPW(httpT)
 	stabScore := scoreStabilityW(ifaces, l3.StaleRatio, l3.HasNeigh, nlw.FlapRate, nlw.RouteChurn, nlw.HasData)
@@ -120,7 +119,11 @@ func computeGradeView(
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 			Firewall: fwScore, NAT: natScore, Congestion: congScore,
 			PMTUBlackhole: tcp.PMTUBlackhole,
-			NoData:        noData,
+			ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
+			ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
+			SendStall: tcp.SendStall, SendStalls: tcp.SendStalls,
+			EphemeralExhaustion: tcp.EphemeralExhaust, EphemeralUtil: tcp.EphemeralUtil,
+			NoData: noData,
 		}
 		attachQualityView(&g, wan, qc)
 		return g
@@ -138,7 +141,11 @@ func computeGradeView(
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 		Firewall: fwScore, NAT: natScore, Congestion: congScore,
 		PMTUBlackhole: tcp.PMTUBlackhole,
-		NoData:        noData,
+		ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
+		ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
+		SendStall: tcp.SendStall, SendStalls: tcp.SendStalls,
+		EphemeralExhaustion: tcp.EphemeralExhaust, EphemeralUtil: tcp.EphemeralUtil,
+		NoData: noData,
 	}
 	// Baseline-relative early warning, identical to the TUI: nudge the score
 	// down when tonight is far worse than normal, then derive the letter.
@@ -147,6 +154,22 @@ func computeGradeView(
 	if g.PMTUBlackhole {
 		g.PMTUPenalty = pmtuBlackholePenaltyW
 		g.Score -= g.PMTUPenalty
+	}
+	if g.ConnectStall {
+		g.ConnectPenalty = connectStallPenaltyW
+		g.Score -= g.ConnectPenalty
+	}
+	if g.ConnResetSpike {
+		g.ResetPenalty = connResetPenaltyW
+		g.Score -= g.ResetPenalty
+	}
+	if g.SendStall {
+		g.StallPenalty = sendStallPenaltyW
+		g.Score -= g.StallPenalty
+	}
+	if g.EphemeralExhaustion {
+		g.EphemeralPenalty = ephemeralExhaustPenaltyW
+		g.Score -= g.EphemeralPenalty
 	}
 	if g.Score < 0 {
 		g.Score = 0
@@ -158,6 +181,16 @@ func computeGradeView(
 // pmtuBlackholePenaltyW mirrors the TUI's fixed PMTU black-hole penalty.
 const pmtuBlackholePenaltyW = 15
 
+// connectStallPenaltyW mirrors the TUI's fixed connect-stall penalty.
+const connectStallPenaltyW = 20
+
+// Mirror the TUI's active-traffic connection-fault penalties.
+const (
+	connResetPenaltyW        = 15
+	sendStallPenaltyW        = 10
+	ephemeralExhaustPenaltyW = 15
+)
+
 // tcpGradeInputW carries per-flow TCP telemetry into the web grade, mirroring
 // the TUI's TCPGradeInput. Built in buildSnapshot from the telemetry collector
 // and the flow table.
@@ -167,6 +200,15 @@ type tcpGradeInputW struct {
 	WorstFlowRTTms float64
 	HasWorstRTT    bool
 	PMTUBlackhole  bool
+	ConnectStall   bool
+	StalledConn    int
+
+	ConnResetSpike   bool
+	ConnFailRate     float64
+	SendStall        bool
+	SendStalls       int
+	EphemeralExhaust bool
+	EphemeralUtil    float64
 }
 
 // tcpGradeFrom builds the web grade's TCP input from the telemetry collector
@@ -179,7 +221,16 @@ func tcpGradeFrom(eng *engine.Engine) tcpGradeInputW {
 	if ti == nil || fl == nil {
 		return in
 	}
-	in.PMTUBlackhole = ti.Status().PMTUBlackhole
+	stat := ti.Status()
+	in.PMTUBlackhole = stat.PMTUBlackhole
+	in.ConnectStall = stat.ConnectStall
+	in.StalledConn = stat.StalledConn
+	in.ConnResetSpike = stat.ConnResetSpike
+	in.ConnFailRate = stat.ConnFailRate
+	in.SendStall = stat.SendStall
+	in.SendStalls = stat.SendStalls
+	in.EphemeralExhaust = stat.EphemeralExhaust
+	in.EphemeralUtil = stat.EphemeralUtil
 
 	var samples []telemetry.RTXSample
 	var rtts []float64
@@ -260,6 +311,47 @@ func hasDNSDataW(ds []metrics.DNSStats) bool {
 		}
 	}
 	return false
+}
+
+// scoreDNSW mirrors tui/grade.go scoreDNSSub: blend DNS latency with the
+// failure rate (5% comfort line) so a timeout ("context deadline exceeded",
+// recorded as a failure with no latency sample) still drags the grade. Returns
+// hasData=true whenever any query was attempted, success or failure, so a
+// fully-failing resolver isn't silently excluded. Mirrors the TUI exactly.
+func scoreDNSW(ds []metrics.DNSStats, threshold float64) (score int, hasData bool) {
+	if !hasDNSActivityW(ds) {
+		return 100, false
+	}
+	fail := subScore(avgDNSFailPctW(ds), 5)
+	if !hasDNSDataW(ds) {
+		return fail, true
+	}
+	lat := subScore(avgDNS(ds), threshold)
+	return (lat + fail) / 2, true
+}
+
+func hasDNSActivityW(ds []metrics.DNSStats) bool {
+	for _, d := range ds {
+		if d.Queries > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func avgDNSFailPctW(ds []metrics.DNSStats) float64 {
+	var sum float64
+	var n int
+	for _, d := range ds {
+		if d.Queries > 0 {
+			sum += float64(d.Failures) / float64(d.Queries) * 100
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
 func hasStabDataW(ifs []netops.IfaceInfo) bool {
@@ -370,30 +462,49 @@ func scoreStabilityW(ifs []netops.IfaceInfo, neighStaleRatio float64, hasNeigh b
 	return sum / n
 }
 
+// scoreWiFiW mirrors tui/grade.go scoreWiFi: blend RSSI with SNR and the TX
+// failure rate so a strong-signal-but-failing link is graded honestly.
 func scoreWiFiW(snaps []collectors.WiFiSnapshot) int {
 	if len(snaps) == 0 {
 		return 100
 	}
-	var sum float64
-	var n int
+	var blendSum float64
+	var nIface int
 	for _, s := range snaps {
-		if s.Associated && s.Signal != 0 {
-			sum += s.Signal
-			n++
+		if !s.Associated || s.Signal == 0 {
+			continue
 		}
+		comps := []int{wifiSignalScoreW(s.Signal)}
+		if s.Noise != 0 {
+			comps = append(comps, wifiSNRScoreW(s.Signal-s.Noise))
+		}
+		if tot := s.TxPackets + s.TxFailed; tot >= 100 {
+			comps = append(comps, subScore(float64(s.TxFailed)/float64(tot)*100, 5))
+		}
+		sum := 0
+		for _, c := range comps {
+			sum += c
+		}
+		blendSum += float64(sum) / float64(len(comps))
+		nIface++
 	}
-	if n == 0 {
+	if nIface == 0 {
 		return 100
 	}
-	avg := sum / float64(n)
-	score := int((avg+90)/30*100 + 0.5)
-	if score < 0 {
-		score = 0
+	return clampScoreW(int(blendSum/float64(nIface) + 0.5))
+}
+
+func wifiSignalScoreW(dBm float64) int { return clampScoreW(int((dBm+90)/30*100 + 0.5)) }
+func wifiSNRScoreW(snr float64) int    { return clampScoreW(int((snr-10)/20*100 + 0.5)) }
+
+func clampScoreW(v int) int {
+	if v < 0 {
+		return 0
 	}
-	if score > 100 {
-		score = 100
+	if v > 100 {
+		return 100
 	}
-	return score
+	return v
 }
 
 func letterVerdict(score int) (string, string) {
@@ -466,13 +577,15 @@ func isWANTargetW(t string) bool {
 
 // ---- averages ----
 
+// avgLoss / avgRTT use the live-window views (WindowLossPct / RecentRTT) so the
+// web grade reflects current conditions, identical to the TUI.
 func avgLoss(ts []metrics.TargetStats) float64 {
 	if len(ts) == 0 {
 		return 0
 	}
 	var sum float64
 	for _, t := range ts {
-		sum += t.LossPct
+		sum += t.WindowLossPct
 	}
 	return sum / float64(len(ts))
 }
@@ -481,8 +594,12 @@ func avgRTT(ts []metrics.TargetStats) float64 {
 	var sum float64
 	var n int
 	for _, t := range ts {
-		if t.AvgRTT > 0 {
-			sum += float64(t.AvgRTT.Microseconds()) / 1000.0
+		rtt := t.RecentRTT
+		if rtt <= 0 {
+			rtt = t.AvgRTT
+		}
+		if rtt > 0 {
+			sum += float64(rtt.Microseconds()) / 1000.0
 			n++
 		}
 	}

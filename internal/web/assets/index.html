@@ -21,6 +21,7 @@
       <symbol id="i-devices" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="17" x2="7.01" y2="17"/></symbol>
       <symbol id="i-ifaces" viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="11" rx="2"/><line x1="6" y1="9" x2="6" y2="5"/><line x1="12" y1="9" x2="12" y2="5"/><line x1="18" y1="9" x2="18" y2="5"/></symbol>
       <symbol id="i-routes" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v3a4 4 0 0 0 4 4h5.5"/></symbol>
+      <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.5a16 16 0 0 1 20 0"/><path d="M5 12a11 11 0 0 1 14 0"/><path d="M8.5 15.5a6 6 0 0 1 7 0"/><line x1="12" y1="19" x2="12.01" y2="19"/></symbol>
       <symbol id="i-firewall" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
       <symbol id="i-nat" viewBox="0 0 24 24"><polyline points="7 4 3 8 7 12"/><line x1="3" y1="8" x2="17" y2="8"/><polyline points="17 12 21 16 17 20"/><line x1="21" y1="16" x2="7" y2="16"/></symbol>
       <symbol id="i-tcpdump" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></symbol>
@@ -51,6 +52,7 @@
           <div class="nav-group-label">Network</div>
           <button data-tab="devices" class="tab"><svg class="nav-ico"><use href="#i-devices"/></svg> Devices</button>
           <button data-tab="ifaces" class="tab"><svg class="nav-ico"><use href="#i-ifaces"/></svg> Interfaces</button>
+          <button data-tab="wifi" class="tab"><svg class="nav-ico"><use href="#i-wifi"/></svg> WiFi</button>
           <button data-tab="routes" class="tab"><svg class="nav-ico"><use href="#i-routes"/></svg> Routes</button>
         </div>
 
@@ -293,6 +295,15 @@
             <tbody id="ifaces-body"></tbody>
           </table>
         </div>
+      </div>
+    </section>
+
+    <!-- WIFI ---------------------------------------------------------- -->
+    <section data-pane="wifi" class="pane" role="tabpanel" aria-label="WiFi">
+      <div class="card">
+        <h2>WiFi · wireless link quality</h2>
+        <p class="muted">One card per radio with a computed link-quality grade (RSSI + SNR + TX-failure blend), live signal, PHY bitrate, and the full nl80211/iw counter set. The grade looks beyond raw signal: a strong-signal link with a high retry/failure rate still grades down.</p>
+        <div id="wifi-detail" class="wifi-list"></div>
       </div>
     </section>
 

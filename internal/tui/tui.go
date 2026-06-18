@@ -101,6 +101,7 @@ func NewApp(eng *engine.Engine) *App {
 		newFlowsTab(eng, app),
 		newDevicesTab(eng, app),
 		newIfacesTab(eng, app),
+		newWiFiTab(eng),
 		newRoutesTab(eng, app),
 		newFirewallTab(eng, app),
 		newNATTab(eng, app),

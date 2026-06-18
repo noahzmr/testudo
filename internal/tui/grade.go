@@ -81,6 +81,32 @@ type NetworkGrade struct {
 	PMTUBlackhole bool
 	PMTUPenalty   int
 
+	// ConnectStall: one or more sockets are wedged in the TCP handshake
+	// (SYN_SENT across ticks) - connections that can't establish, the
+	// "waiting for connection" timeout users feel. Like PMTU it takes a fixed
+	// penalty so the letter reflects it even when established-flow averages look
+	// fine. StalledConnects is the live count for the operator-facing note.
+	ConnectStall    bool
+	ConnectPenalty  int
+	StalledConnects int
+
+	// ConnResetSpike: failed-connect + reset rate is abnormally high (connections
+	// keep dropping). SendStall: a connection is frozen with data wedged in its
+	// send queue (peer zero-window / path block). EphemeralExhaustion: local
+	// ephemeral ports are near-exhausted (new outbound connections start failing).
+	// Each takes a fixed penalty; the *Rate/*Util values back the operator note.
+	ConnResetSpike bool
+	ConnResetRate  float64
+	ResetPenalty   int
+
+	SendStall    bool
+	SendStalls   int
+	StallPenalty int
+
+	EphemeralExhaustion bool
+	EphemeralUtil       float64
+	EphemeralPenalty    int
+
 	// Baseline-relative early warning: the worst current÷normal RTT ratio
 	// across WAN targets that have a learned baseline. BaselinePenalty is the
 	// points the modifier shaved off the absolute score. HasBaseline is false
@@ -206,6 +232,10 @@ func ComputeGrade(
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 			Firewall: fwScore, NAT: natScore, Congestion: congScore,
 			PMTUBlackhole: tcp.PMTUBlackhole,
+			ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
+			ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
+			SendStall: tcp.SendStall, SendStalls: tcp.SendStalls,
+			EphemeralExhaustion: tcp.EphemeralExhaust, EphemeralUtil: tcp.EphemeralUtil,
 		}
 		attachQualityContext(&g, wan, qc)
 		return g
@@ -224,6 +254,10 @@ func ComputeGrade(
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 		Firewall: fwScore, NAT: natScore, Congestion: congScore,
 		PMTUBlackhole: tcp.PMTUBlackhole,
+		ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
+		ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
+		SendStall: tcp.SendStall, SendStalls: tcp.SendStalls,
+		EphemeralExhaustion: tcp.EphemeralExhaust, EphemeralUtil: tcp.EphemeralUtil,
 	}
 	// Baseline-relative early warning: nudge the absolute score down when tonight
 	// is far worse than the learned normal, then derive the letter from the
@@ -238,6 +272,28 @@ func ComputeGrade(
 		g.PMTUPenalty = pmtuBlackholePenalty
 		g.Score -= g.PMTUPenalty
 	}
+	// Connections that can't even establish are a hard, user-visible fault:
+	// a fixed penalty on top of the weighted score so the letter drops even
+	// when the established-flow averages still look healthy.
+	if g.ConnectStall {
+		g.ConnectPenalty = connectStallPenalty
+		g.Score -= g.ConnectPenalty
+	}
+	// Connections actively dropping, frozen, or unable to start are each their
+	// own user-visible fault; like PMTU/connect-stall they apply on top of the
+	// weighted score and stack, clamped at zero.
+	if g.ConnResetSpike {
+		g.ResetPenalty = connResetPenalty
+		g.Score -= g.ResetPenalty
+	}
+	if g.SendStall {
+		g.StallPenalty = sendStallPenalty
+		g.Score -= g.StallPenalty
+	}
+	if g.EphemeralExhaustion {
+		g.EphemeralPenalty = ephemeralExhaustPenalty
+		g.Score -= g.EphemeralPenalty
+	}
 	if g.Score < 0 {
 		g.Score = 0
 	}
@@ -248,6 +304,19 @@ func ComputeGrade(
 // pmtuBlackholePenalty is the fixed score reduction applied when a frag-needed
 // / PMTU black-hole condition is active.
 const pmtuBlackholePenalty = 15
+
+// connectStallPenalty is the fixed score reduction applied when one or more
+// sockets are wedged in the TCP handshake (connections failing to establish).
+const connectStallPenalty = 20
+
+// Fixed penalties for the active-traffic connection faults, mirrored in the web
+// grade. Resets (connections dropping) and ephemeral exhaustion (new ones can't
+// start) bite harder than a transient send-stall.
+const (
+	connResetPenalty        = 15
+	sendStallPenalty        = 10
+	ephemeralExhaustPenalty = 15
+)
 
 // attachQualityContext folds the baseline ratio, bufferbloat letter, and ISP
 // isolation verdict onto the grade. It computes (but does not apply) the
@@ -324,6 +393,15 @@ type TCPGradeInput struct {
 	WorstFlowRTTms float64 // worst active-flow smoothed RTT, ms
 	HasWorstRTT    bool
 	PMTUBlackhole  bool // a flow currently shows the frag-needed shape
+	ConnectStall   bool // a socket is wedged in the TCP handshake right now
+	StalledConn    int  // count of sockets stuck mid-handshake
+
+	ConnResetSpike   bool    // failed-connect + reset rate past comfort line
+	ConnFailRate     float64 // failed/refused connects + resets per second
+	SendStall        bool    // a connection is send-stalled (zero-window) right now
+	SendStalls       int     // count of send-stalled connections
+	EphemeralExhaust bool    // ephemeral local ports near-exhausted
+	EphemeralUtil    float64 // ephemeral-port utilisation (0..1)
 }
 
 // tcpInputFrom adapts the per-flow TCP telemetry collector and the flow table
@@ -335,7 +413,16 @@ func tcpInputFrom(ti *collectors.TCPInfoCollector, fl *flows.Aggregator) TCPGrad
 	if ti == nil || fl == nil {
 		return in
 	}
-	in.PMTUBlackhole = ti.Status().PMTUBlackhole
+	stat := ti.Status()
+	in.PMTUBlackhole = stat.PMTUBlackhole
+	in.ConnectStall = stat.ConnectStall
+	in.StalledConn = stat.StalledConn
+	in.ConnResetSpike = stat.ConnResetSpike
+	in.ConnFailRate = stat.ConnFailRate
+	in.SendStall = stat.SendStall
+	in.SendStalls = stat.SendStalls
+	in.EphemeralExhaust = stat.EphemeralExhaust
+	in.EphemeralUtil = stat.EphemeralUtil
 
 	var samples []telemetry.RTXSample
 	var rtts []float64
@@ -452,13 +539,29 @@ func scoreJitterSub(ts []metrics.TargetStats, threshold float64) subScore {
 	return scoreFromMetric("jitter", avgJitterMs(ts), threshold, "ms")
 }
 
-// scoreDNSSub computes the DNS latency sub-score. HasData=false when no
-// resolver has answered a query yet.
+// scoreDNSSub computes the DNS sub-score from both latency and failure rate.
+//
+// A DNS timeout ("context deadline exceeded") is recorded as a failure with no
+// latency sample (see metrics.RecordDNS), so a latency-only score is blind to
+// failing resolvers - if every query times out, AvgLatency stays 0 and the
+// whole dimension would silently drop out of the grade. We therefore blend the
+// failure rate (5% comfort line) with latency, and treat any query activity -
+// success or failure - as data so timeouts always count.
 func scoreDNSSub(ds []metrics.DNSStats, threshold float64) subScore {
-	if !hasDNSData(ds) {
+	if !hasDNSActivity(ds) {
 		return subScore{Name: "dns", Unit: "ms", OK: true}
 	}
-	return scoreFromMetric("dns", avgDNSms(ds), threshold, "ms")
+	fail := scoreFromMetric("dns", avgDNSFailPct(ds), 5, "%")
+	if !hasDNSData(ds) {
+		// Queries happened but none succeeded: score on the failure rate alone,
+		// surfaced as a percentage so the bar reads "100.0%" rather than "-".
+		return fail
+	}
+	lat := scoreFromMetric("dns", avgDNSms(ds), threshold, "ms")
+	return subScore{
+		Name: "dns", Score: (lat.Score + fail.Score) / 2,
+		Value: lat.Value, Unit: "ms", OK: lat.OK && fail.OK, HasData: true,
+	}
 }
 
 // scoreLAN blends LAN loss and LAN RTT into a single sub-score. LAN
@@ -589,27 +692,65 @@ func scoreWiFi(snaps []collectors.WiFiSnapshot) subScore {
 	if len(snaps) == 0 {
 		return subScore{Name: "wifi", Unit: "dBm", OK: true}
 	}
-	var sum float64
-	var n int
+	var blendSum, sigSum float64
+	var nIface, nSig int
 	for _, s := range snaps {
-		if s.Associated && s.Signal != 0 {
-			sum += s.Signal
-			n++
+		if !s.Associated || s.Signal == 0 {
+			continue
 		}
+		// Per-interface blend of every available quality signal, not just RSSI:
+		// a strong signal with a high retry/failure rate or a collapsed SNR is
+		// still a bad link, and signal alone would hide that.
+		comps := []int{wifiSignalScore(s.Signal)}
+		sigSum += s.Signal
+		nSig++
+		if s.Noise != 0 {
+			comps = append(comps, wifiSNRScore(s.Signal-s.Noise))
+		}
+		if tot := s.TxPackets + s.TxFailed; tot >= 100 {
+			failPct := float64(s.TxFailed) / float64(tot) * 100
+			comps = append(comps, scoreFromMetric("wifi-fail", failPct, 5, "%").Score)
+		}
+		sum := 0
+		for _, c := range comps {
+			sum += c
+		}
+		blendSum += float64(sum) / float64(len(comps))
+		nIface++
 	}
-	if n == 0 {
+	if nIface == 0 {
 		return subScore{Name: "wifi", Unit: "dBm", OK: true}
 	}
-	avg := sum / float64(n)
-	// Map dBm to 0..100. -60 = excellent (100), -90 = unusable (0).
-	score := int((avg+90)/30*100 + 0.5)
+	score := int(blendSum/float64(nIface) + 0.5)
 	if score < 0 {
 		score = 0
 	}
 	if score > 100 {
 		score = 100
 	}
-	return subScore{Name: "wifi", Score: score, Value: avg, Unit: "dBm", OK: avg > -75, HasData: true}
+	return subScore{Name: "wifi", Score: score, Value: sigSum / float64(nSig), Unit: "dBm", OK: score >= 50, HasData: true}
+}
+
+// wifiSignalScore maps RSSI (dBm) to 0..100: -60 excellent (100), -90 unusable (0).
+func wifiSignalScore(dBm float64) int {
+	return clampScore(int((dBm+90)/30*100 + 0.5))
+}
+
+// wifiSNRScore maps signal-to-noise margin (dB) to 0..100: >=30dB excellent,
+// <=10dB unusable. SNR is a better "will this link actually carry data" signal
+// than raw RSSI when the driver reports a noise floor.
+func wifiSNRScore(snr float64) int {
+	return clampScore(int((snr-10)/20*100 + 0.5))
+}
+
+func clampScore(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
 }
 
 // hasRTTData reports whether any target has produced a non-zero RTT
@@ -632,6 +773,35 @@ func hasDNSData(ds []metrics.DNSStats) bool {
 		}
 	}
 	return false
+}
+
+// hasDNSActivity reports whether any DNS query has been attempted, successful
+// or not. Unlike hasDNSData it counts pure-failure resolvers, so a totally
+// failing resolver still registers as a measured (bad) dimension.
+func hasDNSActivity(ds []metrics.DNSStats) bool {
+	for _, d := range ds {
+		if d.Queries > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// avgDNSFailPct is the mean failure percentage across resolvers that have been
+// queried. A query that timed out ("context deadline exceeded") is a failure.
+func avgDNSFailPct(ds []metrics.DNSStats) float64 {
+	var sum float64
+	var n int
+	for _, d := range ds {
+		if d.Queries > 0 {
+			sum += float64(d.Failures) / float64(d.Queries) * 100
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
 func letterAndVerdict(score int) (string, string) {
@@ -735,17 +905,24 @@ func filterICMPTargets(in []metrics.TargetStats) []metrics.TargetStats {
 
 // ---- helpers that average across targets ----
 
+// avgLossPct averages the *live-window* loss across targets (not the
+// cumulative-since-startup LossPct), so a current outage moves the grade
+// instead of being diluted by hours of prior good history.
 func avgLossPct(ts []metrics.TargetStats) float64 {
 	if len(ts) == 0 {
 		return 0
 	}
 	var sum float64
 	for _, t := range ts {
-		sum += t.LossPct
+		sum += t.WindowLossPct
 	}
 	return sum / float64(len(ts))
 }
 
+// avgRTTms averages the recent-window RTT across targets (RecentRTT, the mean
+// of the last liveWindow successes), falling back to the 256-sample AvgRTT only
+// when no recent sample exists. This keeps the RTT sub-score live rather than
+// smoothing a current spike into minutes of history.
 func avgRTTms(ts []metrics.TargetStats) float64 {
 	if len(ts) == 0 {
 		return 0
@@ -753,8 +930,12 @@ func avgRTTms(ts []metrics.TargetStats) float64 {
 	var sum float64
 	var n int
 	for _, t := range ts {
-		if t.AvgRTT > 0 {
-			sum += float64(t.AvgRTT.Microseconds()) / 1000.0
+		rtt := t.RecentRTT
+		if rtt <= 0 {
+			rtt = t.AvgRTT
+		}
+		if rtt > 0 {
+			sum += float64(rtt.Microseconds()) / 1000.0
 			n++
 		}
 	}
