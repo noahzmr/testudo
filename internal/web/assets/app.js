@@ -420,20 +420,20 @@
   // GRADE_HELP describes each Network Quality sub-score: what it measures and
   // how the value is derived. Surfaced as a hover/focus tooltip on each bar.
   const GRADE_HELP = {
-    Loss:       'Packet loss, worse of two sources: ICMP/probe loss over the last 30 results, and the TCP retransmission rate (a retransmit is a lost segment). ICMP echo often survives a path that drops or resets TCP, so probe loss alone is optimistic — the worse figure is used. Threshold: your Packet-loss setting.',
+    Loss:       'Packet loss, worse of two sources: ICMP/probe loss over the last 30 results, and the TCP retransmission rate (a retransmit is a lost segment). ICMP echo often survives a path that drops or resets TCP, so probe loss alone is optimistic - the worse figure is used. Threshold: your Packet-loss setting.',
     RTT:        'WAN round-trip latency. Mean RTT of recent probes to external targets, sharpened by the worst active TCP flow. Threshold: your RTT setting.',
-    Jitter:     'Latency variation — the mean change between consecutive RTT samples. High jitter degrades VoIP/video/gaming. Threshold: your Jitter setting.',
+    Jitter:     'Latency variation - the mean change between consecutive RTT samples. High jitter degrades VoIP/video/gaming. Threshold: your Jitter setting.',
     DNS:        'Resolver health. Blends DNS query latency with the failure/timeout rate across probed resolvers, so timeouts count even when nothing resolves. Threshold: DNS-latency setting + 5% failures.',
     LAN:        'LAN reachability. Blends loss and RTT to LAN hosts (50 ms comfort) and hard-penalises any active duplicate-IP (ARP) conflict.',
     HTTP:       'Service health of configured HTTP endpoints. Blends time-to-first-byte (500 ms comfort) with the request failure/timeout rate (2% comfort).',
     Stab:       'Interface stability. Kernel error/drop ratio, unreachable-neighbour ratio, and link-flap / default-route churn from the netlink watcher (2/min comfort).',
-    WiFi:       'Wireless link quality across associated radios. Blends RSSI (−60 dBm great, −90 unusable), signal-to-noise ratio, and the TX-failure rate — so a strong signal that keeps failing still scores low.',
+    WiFi:       'Wireless link quality across associated radios. Blends RSSI (−60 dBm great, −90 unusable), signal-to-noise ratio, and the TX-failure rate - so a strong signal that keeps failing still scores low.',
     NAT:        'Connection-tracking pressure. Live conntrack entries ÷ nf_conntrack_max; near saturation new connections fail host-wide (70% comfort).',
     Congestion: 'Per-flow TCP retransmission rate from tcp_info (INET_DIAG/eBPF), byte-weighted so busy flows dominate. Threshold: your Retransmissions setting.',
-    Throughput: 'Achievable speed. The best download/upload observed recently (while transferring) vs your configured expected link speed; reaching ~90% of the rated speed scores 100. Set Expected down/up in Settings — left unset or idle, this dimension shows no data. (Firewall DROP velocity is intentionally not part of the grade — a blocked packet is policy, not quality.)',
+    Throughput: 'Achievable speed. The best download/upload observed recently (while transferring) vs your configured expected link speed; reaching ~90% of the rated speed scores 100. Set Expected down/up in Settings - left unset or idle, this dimension shows no data. (Firewall DROP velocity is intentionally not part of the grade - a blocked packet is policy, not quality.)',
   };
   // GRADE_SCORING is appended to every tooltip: the shared 0–100 mapping.
-  const GRADE_SCORING = ' — Scored 100 at zero, 50 at the comfort threshold, 0 at twice the threshold. Dimensions with no measurements yet are excluded from the overall grade.';
+  const GRADE_SCORING = ' - Scored 100 at zero, 50 at the comfort threshold, 0 at twice the threshold. Dimensions with no measurements yet are excluded from the overall grade.';
 
   function renderGrade(g) {
     const badge = document.getElementById('grade-badge');
@@ -463,7 +463,7 @@
     bars.innerHTML = rows.map(([label, score]) => {
       let tip = escape(GRADE_HELP[label] || '') + GRADE_SCORING;
       if (label === 'Loss' && g.loss_has_tcp) {
-        tip += escape(' — now: ICMP ' + (g.loss_icmp_pct || 0).toFixed(1) + '%, TCP retrans '
+        tip += escape(' - now: ICMP ' + (g.loss_icmp_pct || 0).toFixed(1) + '%, TCP retrans '
           + (g.loss_tcp_pct || 0).toFixed(1) + '%, conn-fail ' + (g.loss_conn_fail_rate || 0).toFixed(1) + '/s.');
       }
       const attrs = ' data-tip="' + tip + '" tabindex="0"';
@@ -1457,7 +1457,7 @@
     const host = document.getElementById('wifi-detail');
     if (!host) return;
     if (!rows || rows.length === 0) {
-      host.innerHTML = '<div class="muted">no wireless interfaces detected (no NICs under /sys/class/net/*/wireless). nl80211 needs CAP_NET_ADMIN — run with sudo or grant <code>setcap cap_net_admin+ep</code>.</div>';
+      host.innerHTML = '<div class="muted">no wireless interfaces detected (no NICs under /sys/class/net/*/wireless). nl80211 needs CAP_NET_ADMIN - run with sudo or grant <code>setcap cap_net_admin+ep</code>.</div>';
       return;
     }
     host.innerHTML = rows.map(w => {
@@ -1480,7 +1480,7 @@
         + (w.source ? ' <span class="muted">(' + escape(w.source) + ')</span>' : '')
         + '</div>');
       if (!assoc) {
-        lines.push('<div class="muted">radio is up but not joined to an AP — no SSID / channel / bitrate data</div>');
+        lines.push('<div class="muted">radio is up but not joined to an AP - no SSID / channel / bitrate data</div>');
         return '<div class="' + headerClass + '">' + lines.join('') + '</div>';
       }
       lines.push('<dl class="wifi-grid">');
