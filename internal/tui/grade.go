@@ -74,6 +74,20 @@ type NetworkGrade struct {
 	// when no active TCP flows carry telemetry.
 	Congestion subScore
 
+	// Throughput - best recently-observed download/upload vs the operator's
+	// configured expected link speed. Neutral 100 (no data) when expected speeds
+	// aren't set or the link has been idle, so it never penalises an unused link.
+	Throughput subScore
+
+	// Loss breakdown: the Loss sub-score follows the worse of ICMP/probe loss and
+	// the TCP retransmission rate. These carry the components (plus the live
+	// connection-failure rate) so the dashboard can explain why loss is high even
+	// when ping looks clean. LossHasTCP gates whether the TCP figures are real.
+	LossICMPPct      float64
+	LossTCPPct       float64
+	LossConnFailRate float64
+	LossHasTCP       bool
+
 	// PMTU black-hole: a frag-needed condition (a flow retransmitting without
 	// forward progress) is a real "some sites won't load" fault. When set, the
 	// grade takes a fixed penalty and the letter reflects it. PMTUPenalty is
@@ -157,32 +171,42 @@ func ComputeGrade(
 	fwHasDropRules bool,
 	l3 L3GradeInput,
 	tcp TCPGradeInput,
+	tp ThroughputGradeInput,
 	th config.Thresholds,
 	qc quality.GradeContext,
 ) NetworkGrade {
-	// Weights sum to 1.0. WAN reachability remains the spine of the
-	// grade; new dimensions slot in around it. The firewall signal took 5%
-	// from HTTP; the conntrack/NAT signal takes 5% from Jitter (which is
-	// highly correlated with RTT, so the information loss is minimal).
+	// Weights sum to 1.0 and are tuned so the dimensions that actually describe
+	// connection quality dominate: end-to-end reachability (loss/RTT/jitter),
+	// achievable throughput, and per-flow congestion together are ~60% of the
+	// grade. DNS/LAN/HTTP/stability/WiFi fill in the experience. Conntrack
+	// exhaustion stays small (it only bites at saturation). Firewall DROP
+	// velocity is deliberately NOT weighted: a blocked packet is a policy
+	// decision, not a statement about the network's quality - it remains
+	// visible as an alert and on the Firewall tab, but never moves the grade.
 	const (
-		wLoss       = 0.20
+		wLoss       = 0.18
 		wRTT        = 0.15
-		wJitter     = 0.05
+		wThroughput = 0.12
+		wCongestion = 0.10
 		wDNS        = 0.10
-		wLAN        = 0.15
+		wLAN        = 0.10
+		wStab       = 0.08
+		wJitter     = 0.05
 		wHTTP       = 0.05
-		wStab       = 0.10
-		wWiFi       = 0.10
-		wFirewall   = 0.05
-		wNAT        = 0.05
-		wCongestion = 0.05
+		wWiFi       = 0.05
+		wNAT        = 0.02
 	)
 
 	wan := filterTargets(targets, isWANTarget)
 	lan := filterTargets(targets, isLANTarget)
 	httpT := filterTargets(targets, isHTTPTarget)
 
-	loss := scoreLossSub(wan, th.PacketLossPct)
+	// Loss blends ICMP/probe loss with TCP-layer loss: a retransmission is a
+	// lost segment, and TCP connections fail far more often than ICMP echo
+	// survives a lossy/middlebox path. The sub-score follows the worse of the
+	// two so a clean ping can't hide failing connections; the components are
+	// kept for the detailed breakdown.
+	loss := scoreLossSub(wan, th.PacketLossPct, tcp)
 	rtt := scoreRTTSub(wan, th.RTTMs)
 	// On a busy host the connection the user actually cares about may be worse
 	// than the probe target; let the worst active-flow RTT sharpen the RTT
@@ -203,18 +227,20 @@ func ComputeGrade(
 	fwScore := scoreFirewallSub(fwDropRate, fwHasDropRules)
 	natScore := scoreNATSub(l3.ConntrackUtil, l3.HasConntrack)
 	congScore := scoreCongestionSub(tcp.FlowRTXRate, tcp.HasFlowRTX, th.RetransmissionsPct)
+	tpScore := scoreThroughputSub(tp.PeakDownMbps, tp.PeakUpMbps, th.ExpectedDownMbps, th.ExpectedUpMbps)
 
 	// Renormalize over sub-scores that actually have data. A sub-score
 	// with HasData=false drops out of both the numerator and the
 	// denominator so "we haven't measured X yet" never inflates (or
-	// deflates) the grade.
+	// deflates) the grade. Firewall is intentionally absent: drops are policy,
+	// not network quality, so the sub-score is computed for display only.
 	parts := []struct {
 		w float64
 		s subScore
 	}{
-		{wLoss, loss}, {wRTT, rtt}, {wJitter, jit}, {wDNS, dnsLat},
-		{wLAN, lanScore}, {wHTTP, httpScore}, {wStab, stabScore}, {wWiFi, wifiScore},
-		{wFirewall, fwScore}, {wNAT, natScore}, {wCongestion, congScore},
+		{wLoss, loss}, {wRTT, rtt}, {wThroughput, tpScore}, {wCongestion, congScore},
+		{wDNS, dnsLat}, {wLAN, lanScore}, {wStab, stabScore}, {wJitter, jit},
+		{wHTTP, httpScore}, {wWiFi, wifiScore}, {wNAT, natScore},
 	}
 	var weighted, totalW float64
 	for _, p := range parts {
@@ -230,7 +256,7 @@ func ComputeGrade(
 			HasData: false,
 			Loss:    loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-			Firewall: fwScore, NAT: natScore, Congestion: congScore,
+			Firewall: fwScore, NAT: natScore, Congestion: congScore, Throughput: tpScore,
 			PMTUBlackhole: tcp.PMTUBlackhole,
 			ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
 			ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
@@ -238,6 +264,7 @@ func ComputeGrade(
 			EphemeralExhaustion: tcp.EphemeralExhaust, EphemeralUtil: tcp.EphemeralUtil,
 		}
 		attachQualityContext(&g, wan, qc)
+		attachLossDetail(&g, wan, tcp)
 		return g
 	}
 	score := int(weighted/totalW + 0.5)
@@ -252,7 +279,7 @@ func ComputeGrade(
 		Score: score, HasData: true,
 		Loss: loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-		Firewall: fwScore, NAT: natScore, Congestion: congScore,
+		Firewall: fwScore, NAT: natScore, Congestion: congScore, Throughput: tpScore,
 		PMTUBlackhole: tcp.PMTUBlackhole,
 		ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
 		ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
@@ -264,6 +291,7 @@ func ComputeGrade(
 	// modified score (so the operator sees the warning in the letter, not just a
 	// badge). Empty baseline → zero penalty, grade unchanged.
 	attachQualityContext(&g, wan, qc)
+	attachLossDetail(&g, wan, tcp)
 	g.Score -= g.BaselinePenalty
 	// PMTU black-hole is a real "some sites won't load" fault: a fixed penalty
 	// on top of the weighted score so the letter reflects it even when the
@@ -322,6 +350,17 @@ const (
 // isolation verdict onto the grade. It computes (but does not apply) the
 // baseline penalty; the caller subtracts it so the "awaiting probes" path can
 // surface context without a misleading penalty.
+// attachLossDetail records the loss breakdown (ICMP vs TCP retransmits, plus
+// the live connection-failure rate) onto the grade so the dashboards can show
+// why loss is high even when ping is clean.
+func attachLossDetail(g *NetworkGrade, wan []metrics.TargetStats, tcp TCPGradeInput) {
+	_, icmp, tcpLoss, _ := lossComponents(wan, tcp)
+	g.LossICMPPct = icmp
+	g.LossTCPPct = tcpLoss
+	g.LossHasTCP = tcp.HasFlowRTX
+	g.LossConnFailRate = tcp.ConnFailRate
+}
+
 func attachQualityContext(g *NetworkGrade, wan []metrics.TargetStats, qc quality.GradeContext) {
 	current := make(map[string]float64, len(wan))
 	for _, t := range wan {
@@ -444,6 +483,67 @@ func tcpInputFrom(ti *collectors.TCPInfoCollector, fl *flows.Aggregator) TCPGrad
 	return in
 }
 
+// ThroughputGradeInput carries the best recently-observed download/upload
+// throughput (Mbit/s) into the grade. The zero value is neutral: with no
+// observed throughput the Throughput sub-score reports no data and is excluded.
+type ThroughputGradeInput struct {
+	PeakDownMbps float64
+	PeakUpMbps   float64
+}
+
+// throughputInputFrom reads the recent peak download/upload throughput from the
+// bandwidth history. Returns the neutral zero value when history is absent.
+func throughputInputFrom(bw *metrics.BandwidthHistory) ThroughputGradeInput {
+	var in ThroughputGradeInput
+	if bw == nil {
+		return in
+	}
+	in.PeakDownMbps, in.PeakUpMbps = bw.RecentPeakMbps()
+	return in
+}
+
+// throughputActivityFloor is the fraction of the expected speed a direction
+// must recently have reached for it to be judged at all. Below it the link is
+// treated as idle in that direction (no demand observed) and excluded, so a
+// quiet link is never scored as "slow".
+const throughputActivityFloor = 0.10
+
+// throughputGoodFraction is the share of the rated speed treated as "full
+// speed": real links rarely hit 100% of their provisioned rate (protocol
+// overhead, ISP shaping), so reaching 90% scores 100.
+const throughputGoodFraction = 0.90
+
+// scoreThroughputSub scores the best recently-observed throughput against the
+// configured expected link speed, per direction, and returns the worse of the
+// two directions that have both an expected speed and recent activity. Reports
+// no data when nothing is configured or the link has been idle.
+func scoreThroughputSub(peakDown, peakUp, expDown, expUp float64) subScore {
+	worst := -1
+	var worstVal float64
+	consider := func(peak, exp float64) {
+		if exp <= 0 || peak < exp*throughputActivityFloor {
+			return // unconfigured, or no meaningful transfer to judge
+		}
+		ratio := peak / (exp * throughputGoodFraction)
+		s := int(ratio*100 + 0.5)
+		if s > 100 {
+			s = 100
+		}
+		if s < 0 {
+			s = 0
+		}
+		if worst == -1 || s < worst {
+			worst, worstVal = s, peak
+		}
+	}
+	consider(peakDown, expDown)
+	consider(peakUp, expUp)
+	if worst == -1 {
+		return subScore{Name: "tput", Unit: "Mbps", OK: true}
+	}
+	return subScore{Name: "tput", Score: worst, Value: worstVal, Unit: "Mbps", OK: worst >= 50, HasData: true}
+}
+
 // scoreCongestionSub maps the flow-weighted retransmission rate against the
 // retransmission threshold. Neutral-100 with HasData=false when no active TCP
 // flows carry telemetry, so a quiet host isn't graded on a fabricated zero.
@@ -510,14 +610,37 @@ func scoreFromMetric(name string, value, threshold float64, unit string) subScor
 	return subScore{Name: name, Score: score, Value: value, Unit: unit, OK: ok, HasData: true}
 }
 
-// scoreLossSub computes the WAN packet-loss sub-score. Empty WAN target
-// set => HasData=false (the sub-score is excluded from the grade and
-// rendered violet by the dashboard).
-func scoreLossSub(ts []metrics.TargetStats, threshold float64) subScore {
-	if len(ts) == 0 {
+// scoreLossSub computes the loss sub-score from the worse of ICMP/probe loss
+// and the TCP retransmission rate (a retransmit is a lost segment). ICMP echo
+// frequently survives a path that drops or resets TCP, so probe loss alone is
+// optimistic - folding in TCP loss makes the figure reflect what connections
+// actually experience. HasData=false (excluded) only when neither source has
+// reported anything yet.
+func scoreLossSub(ts []metrics.TargetStats, threshold float64, tcp TCPGradeInput) subScore {
+	worst, _, _, has := lossComponents(ts, tcp)
+	if !has {
 		return subScore{Name: "loss", Unit: "%", OK: true}
 	}
-	return scoreFromMetric("loss", avgLossPct(ts), threshold, "%")
+	return scoreFromMetric("loss", worst, threshold, "%")
+}
+
+// lossComponents returns the ICMP/probe loss %, the TCP retransmission loss %,
+// their worst, and whether any source had data. Shared by the sub-score and the
+// detailed breakdown so they never disagree.
+func lossComponents(ts []metrics.TargetStats, tcp TCPGradeInput) (worst, icmp, tcpLoss float64, has bool) {
+	if len(ts) > 0 {
+		icmp = avgLossPct(ts)
+		has = true
+	}
+	if tcp.HasFlowRTX {
+		tcpLoss = tcp.FlowRTXRate
+		has = true
+	}
+	worst = icmp
+	if tcpLoss > worst {
+		worst = tcpLoss
+	}
+	return worst, icmp, tcpLoss, has
 }
 
 // scoreRTTSub computes the WAN RTT sub-score. HasData=false when no

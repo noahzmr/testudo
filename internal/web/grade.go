@@ -28,28 +28,43 @@ func computeGradeView(
 	l3 collectors.NeighConntrackSignal,
 	nlw collectors.NetlinkWatchSignal,
 	tcp tcpGradeInputW,
+	peakDownMbps, peakUpMbps float64,
 	th config.Thresholds,
 	qc quality.GradeContext,
 ) gradeView {
+	// Weights mirror internal/tui/grade.go: quality-bearing dimensions dominate,
+	// and Firewall DROP velocity is deliberately unweighted (policy, not quality).
 	const (
-		wLoss       = 0.20
+		wLoss       = 0.18
 		wRTT        = 0.15
-		wJitter     = 0.05
+		wThroughput = 0.12
+		wCongestion = 0.10
 		wDNS        = 0.10
-		wLAN        = 0.15
+		wLAN        = 0.10
+		wStab       = 0.08
+		wJitter     = 0.05
 		wHTTP       = 0.05
-		wStab       = 0.10
-		wWiFi       = 0.10
-		wFirewall   = 0.05
-		wNAT        = 0.05
-		wCongestion = 0.05
+		wWiFi       = 0.05
+		wNAT        = 0.02
 	)
 
 	wan := filterT(targets, isWANTargetW)
 	lan := filterT(targets, isLANTargetW)
 	httpT := filterT(targets, isHTTPTargetW)
 
-	hasLoss := len(wan) > 0
+	// Loss blends ICMP/probe loss with the TCP retransmission rate (a retransmit
+	// is a lost segment); TCP fails far more often than ICMP echo on a degraded
+	// path, so the worse of the two drives the figure. Mirrors the TUI.
+	lossICMP := avgLoss(wan)
+	lossTCP := 0.0
+	if tcp.HasFlowRTX {
+		lossTCP = tcp.FlowRTXRate
+	}
+	worstLoss := lossICMP
+	if lossTCP > worstLoss {
+		worstLoss = lossTCP
+	}
+	hasLoss := len(wan) > 0 || tcp.HasFlowRTX
 	hasRTT := hasRTTDataW(wan)
 	hasJit := hasRTTDataW(wan)
 	dnsScore, hasDNS := scoreDNSW(dns, th.DNSLatencyMs)
@@ -58,7 +73,7 @@ func computeGradeView(
 	hasStab := hasStabDataW(ifaces) || l3.HasNeigh || nlw.HasData
 	hasWiFi := hasWiFiDataW(wifi)
 
-	lossScore := subScore(avgLoss(wan), th.PacketLossPct)
+	lossScore := subScore(worstLoss, th.PacketLossPct)
 	rttScore := subScore(avgRTT(wan), th.RTTMs)
 	// Worst active-flow RTT can only sharpen the RTT sub-score downward, the
 	// same as the TUI.
@@ -80,9 +95,11 @@ func computeGradeView(
 		congThresh = 5
 	}
 	congScore := subScore(tcp.FlowRTXRate, congThresh)
+	tputScore, hasTput := scoreThroughputW(peakDownMbps, peakUpMbps, th.ExpectedDownMbps, th.ExpectedUpMbps)
 
 	// Renormalize over sub-scores that have data so "no measurement yet"
-	// doesn't inflate the overall grade. Mirrors internal/tui/grade.go.
+	// doesn't inflate the overall grade. Mirrors internal/tui/grade.go. Firewall
+	// is computed for display but intentionally not weighted into the grade.
 	parts := []struct {
 		w  float64
 		s  int
@@ -91,15 +108,15 @@ func computeGradeView(
 	}{
 		{wLoss, lossScore, hasLoss, "Loss"},
 		{wRTT, rttScore, hasRTT, "RTT"},
-		{wJitter, jitScore, hasJit, "Jitter"},
+		{wThroughput, tputScore, hasTput, "Throughput"},
+		{wCongestion, congScore, tcp.HasFlowRTX, "Congestion"},
 		{wDNS, dnsScore, hasDNS, "DNS"},
 		{wLAN, lanScore, hasLAN, "LAN"},
-		{wHTTP, httpScore, hasHTTP, "HTTP"},
 		{wStab, stabScore, hasStab, "Stab"},
+		{wJitter, jitScore, hasJit, "Jitter"},
+		{wHTTP, httpScore, hasHTTP, "HTTP"},
 		{wWiFi, wifiScore, hasWiFi, "WiFi"},
-		{wFirewall, fwScore, fwHasDropRules, "Firewall"},
 		{wNAT, natScore, l3.HasConntrack, "NAT"},
-		{wCongestion, congScore, tcp.HasFlowRTX, "Congestion"},
 	}
 	var weighted, totalW float64
 	noData := []string{}
@@ -117,7 +134,8 @@ func computeGradeView(
 			HasData: false,
 			Loss:    lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
-			Firewall: fwScore, NAT: natScore, Congestion: congScore,
+			Firewall: fwScore, NAT: natScore, Congestion: congScore, Throughput: tputScore,
+			LossICMPPct: lossICMP, LossTCPPct: lossTCP, LossConnFailRate: tcp.ConnFailRate, LossHasTCP: tcp.HasFlowRTX,
 			PMTUBlackhole: tcp.PMTUBlackhole,
 			ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
 			ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
@@ -277,6 +295,36 @@ func attachQualityView(g *gradeView, wan []metrics.TargetStats, qc quality.Grade
 
 // scoreNATW mirrors tui/grade.go scoreNATSub: conntrack utilisation vs a 70%
 // comfort line. Neutral 100 when nf_conntrack_max is unknown.
+// scoreThroughputW mirrors tui/grade.go scoreThroughputSub: best recently-
+// observed throughput vs the configured expected speed, per direction, worse of
+// the two. Returns ok=false (excluded) when unconfigured or the link is idle.
+func scoreThroughputW(peakDown, peakUp, expDown, expUp float64) (score int, ok bool) {
+	const activityFloor = 0.10
+	const goodFraction = 0.90
+	worst := -1
+	consider := func(peak, exp float64) {
+		if exp <= 0 || peak < exp*activityFloor {
+			return
+		}
+		s := int(peak/(exp*goodFraction)*100 + 0.5)
+		if s > 100 {
+			s = 100
+		}
+		if s < 0 {
+			s = 0
+		}
+		if worst == -1 || s < worst {
+			worst = s
+		}
+	}
+	consider(peakDown, expDown)
+	consider(peakUp, expUp)
+	if worst == -1 {
+		return 100, false
+	}
+	return worst, true
+}
+
 func scoreNATW(conntrackUtil float64, hasConntrack bool) int {
 	if !hasConntrack {
 		return 100

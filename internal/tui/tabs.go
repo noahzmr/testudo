@@ -87,7 +87,7 @@ func (t *dashboardTab) View(w, h int) string {
 	}
 	fwRate, fwHas := t.eng.FirewallSignal()
 	qc := t.eng.QualitySnapshot()
-	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), tcpInputFrom(t.eng.TCPInfo(), t.eng.Flows()), t.eng.Settings().Snapshot(), qc.GradeContext())
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), tcpInputFrom(t.eng.TCPInfo(), t.eng.Flows()), throughputInputFrom(t.eng.Bandwidth()), t.eng.Settings().Snapshot(), qc.GradeContext())
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -95,15 +95,20 @@ func (t *dashboardTab) View(w, h int) string {
 		"",
 		renderSubScoreBar(grade.Loss, w),
 		renderSubScoreBar(grade.RTT, w),
+		renderSubScoreBar(grade.Throughput, w),
+		renderSubScoreBar(grade.Congestion, w),
 		renderSubScoreBar(grade.Jitter, w),
 		renderSubScoreBar(grade.DNS, w),
 		renderSubScoreBar(grade.LAN, w),
 		renderSubScoreBar(grade.HTTP, w),
 		renderSubScoreBar(grade.Stab, w),
 		renderSubScoreBar(grade.WiFi, w),
-		renderSubScoreBar(grade.Firewall, w),
 		renderSubScoreBar(grade.NAT, w),
-		renderSubScoreBar(grade.Congestion, w),
+	}
+	if grade.Loss.HasData && grade.LossHasTCP {
+		gradeRows = append(gradeRows,
+			dimStyle.Render(fmt.Sprintf("  loss detail: ICMP %.1f%% · TCP retrans %.1f%% · conn-fail %.1f/s",
+				grade.LossICMPPct, grade.LossTCPPct, grade.LossConnFailRate)))
 	}
 	if grade.PMTUBlackhole {
 		gradeRows = append(gradeRows,
@@ -1629,6 +1634,10 @@ func (t *settingsTab) rows() []thresholdRow {
 			apply: func(t *config.Thresholds, v float64) { t.RTTMs = v }},
 		{label: "Retransmissions threshold", value: th.RetransmissionsPct, unit: "%", stepBig: 1, stepSmall: 0.1,
 			apply: func(t *config.Thresholds, v float64) { t.RetransmissionsPct = v }},
+		{label: "Expected download speed", value: th.ExpectedDownMbps, unit: "Mbps", stepBig: 50, stepSmall: 5,
+			apply: func(t *config.Thresholds, v float64) { t.ExpectedDownMbps = v }},
+		{label: "Expected upload speed", value: th.ExpectedUpMbps, unit: "Mbps", stepBig: 10, stepSmall: 1,
+			apply: func(t *config.Thresholds, v float64) { t.ExpectedUpMbps = v }},
 		{label: "Incident cooldown", value: th.IncidentCooldown.Seconds(), unit: "s", stepBig: 30, stepSmall: 5,
 			apply: func(t *config.Thresholds, v float64) { t.IncidentCooldown = time.Duration(v * float64(time.Second)) }},
 		{label: "Allow netops writes", value: bool01(th.AllowNetopsWrite), unit: "", isBool: true,

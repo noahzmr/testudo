@@ -94,6 +94,8 @@ type persistedThresholds struct {
 	IPFIXDomainID       uint32  `json:"ipfix_domain_id"`
 	EBPFEnabled         bool    `json:"ebpf_enabled"`
 	FlowRetransPct      float64 `json:"flow_retrans_pct"`
+	ExpectedDownMbps    float64 `json:"expected_down_mbps"`
+	ExpectedUpMbps      float64 `json:"expected_up_mbps"`
 	MaxMindEnabled      bool    `json:"maxmind_enabled"`
 	MaxMindDBDir        string  `json:"maxmind_db_dir"`
 	MaxMindAccountID    string  `json:"maxmind_account_id"`
@@ -122,6 +124,8 @@ func (p persistedThresholds) toThresholds() Thresholds {
 		IPFIXDomainID:       p.IPFIXDomainID,
 		EBPFEnabled:         p.EBPFEnabled,
 		FlowRetransPct:      p.FlowRetransPct,
+		ExpectedDownMbps:    p.ExpectedDownMbps,
+		ExpectedUpMbps:      p.ExpectedUpMbps,
 		MaxMindEnabled:      p.MaxMindEnabled,
 		MaxMindDBDir:        p.MaxMindDBDir,
 		MaxMindAccountID:    p.MaxMindAccountID,
@@ -151,6 +155,8 @@ func persistedFromThresholds(t Thresholds) persistedThresholds {
 		IPFIXDomainID:       t.IPFIXDomainID,
 		EBPFEnabled:         t.EBPFEnabled,
 		FlowRetransPct:      t.FlowRetransPct,
+		ExpectedDownMbps:    t.ExpectedDownMbps,
+		ExpectedUpMbps:      t.ExpectedUpMbps,
 		MaxMindEnabled:      t.MaxMindEnabled,
 		MaxMindDBDir:        t.MaxMindDBDir,
 		MaxMindAccountID:    t.MaxMindAccountID,

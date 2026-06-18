@@ -129,6 +129,15 @@ type gradeView struct {
 	Firewall   int  `json:"firewall_score"`
 	NAT        int  `json:"nat_score"`
 	Congestion int  `json:"congestion_score"`
+	Throughput int  `json:"throughput_score"`
+
+	// Loss breakdown: the Loss score follows the worse of ICMP/probe loss and
+	// the TCP retransmission rate, with the live connection-failure rate for
+	// context. Mirrors NetworkGrade so the bar tooltip can explain a high score.
+	LossICMPPct      float64 `json:"loss_icmp_pct"`
+	LossTCPPct       float64 `json:"loss_tcp_pct"`
+	LossConnFailRate float64 `json:"loss_conn_fail_rate"`
+	LossHasTCP       bool    `json:"loss_has_tcp"`
 
 	// PMTUBlackhole mirrors NetworkGrade: a frag-needed condition is active,
 	// and PMTUPenalty is the points it shaved off the score.
@@ -459,6 +468,8 @@ type thresholdsView struct {
 	IPFIXDomainID       uint32  `json:"ipfix_domain_id"`
 	EBPFEnabled         bool    `json:"ebpf_enabled"`
 	FlowRetransPct      float64 `json:"flow_retrans_pct"`
+	ExpectedDownMbps    float64 `json:"expected_down_mbps"`
+	ExpectedUpMbps      float64 `json:"expected_up_mbps"`
 }
 
 type tcpdumpView struct {
@@ -617,7 +628,11 @@ func (s *Server) buildSnapshot() snapshot {
 			Detail: st.Detail, FlapRate: st.FlapRate, RouteChurn: st.RouteChurn,
 		}
 	}
-	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, tcpGradeFrom(eng), th, gctx)
+	var peakDown, peakUp float64
+	if bw := eng.Bandwidth(); bw != nil {
+		peakDown, peakUp = bw.RecentPeakMbps()
+	}
+	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, tcpGradeFrom(eng), peakDown, peakUp, th, gctx)
 
 	// Self-status surface: subsystem health table, privsep posture, and the
 	// grade self-health badge. The web server is now unprivileged - the privsep
@@ -943,6 +958,8 @@ func (s *Server) buildSnapshot() snapshot {
 		IPFIXDomainID:       th.IPFIXDomainID,
 		EBPFEnabled:         th.EBPFEnabled,
 		FlowRetransPct:      th.FlowRetransPct,
+		ExpectedDownMbps:    th.ExpectedDownMbps,
+		ExpectedUpMbps:      th.ExpectedUpMbps,
 	}
 	return snap
 }

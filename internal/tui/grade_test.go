@@ -24,7 +24,7 @@ func TestDNSFailureCountsInGrade(t *testing.T) {
 
 	// A resolver that answers every query fast -> DNS dimension is healthy.
 	good := []metrics.DNSStats{{Name: "example.com", Queries: 10, Failures: 0, AvgLatency: 15 * time.Millisecond}}
-	gGood := ComputeGrade(healthyWAN(), good, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, th, qc)
+	gGood := ComputeGrade(healthyWAN(), good, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, ThroughputGradeInput{}, th, qc)
 	if !gGood.DNS.HasData || gGood.DNS.Score < 90 {
 		t.Fatalf("healthy DNS: want HasData with high score, got HasData=%v score=%d", gGood.DNS.HasData, gGood.DNS.Score)
 	}
@@ -33,7 +33,7 @@ func TestDNSFailureCountsInGrade(t *testing.T) {
 	// dimension must still register as data and score near zero - previously it
 	// dropped out entirely and the grade looked fine.
 	failing := []metrics.DNSStats{{Name: "example.com", Queries: 10, Failures: 10, AvgLatency: 0}}
-	gFail := ComputeGrade(healthyWAN(), failing, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, th, qc)
+	gFail := ComputeGrade(healthyWAN(), failing, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, ThroughputGradeInput{}, th, qc)
 	if !gFail.DNS.HasData {
 		t.Fatalf("all-failing DNS must count as measured data, got HasData=false")
 	}
@@ -53,9 +53,9 @@ func TestConnectStallPenalty(t *testing.T) {
 	qc := quality.GradeContext{}
 	dns := []metrics.DNSStats{{Name: "example.com", Queries: 5, AvgLatency: 15 * time.Millisecond}}
 
-	base := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, th, qc)
+	base := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, ThroughputGradeInput{}, th, qc)
 	stalled := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{},
-		TCPGradeInput{ConnectStall: true, StalledConn: 3}, th, qc)
+		TCPGradeInput{ConnectStall: true, StalledConn: 3}, ThroughputGradeInput{}, th, qc)
 
 	if !stalled.ConnectStall || stalled.ConnectPenalty != connectStallPenalty {
 		t.Fatalf("expected ConnectStall with penalty %d, got stall=%v penalty=%d",
@@ -77,7 +77,7 @@ func TestActiveTrafficFaultPenalties(t *testing.T) {
 	th := config.DefaultThresholds()
 	qc := quality.GradeContext{}
 	dns := []metrics.DNSStats{{Name: "example.com", Queries: 5, AvgLatency: 15 * time.Millisecond}}
-	base := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, th, qc)
+	base := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, ThroughputGradeInput{}, th, qc)
 
 	cases := []struct {
 		name    string
@@ -87,11 +87,13 @@ func TestActiveTrafficFaultPenalties(t *testing.T) {
 	}{
 		{"reset", TCPGradeInput{ConnResetSpike: true, ConnFailRate: 9}, connResetPenalty, func(g NetworkGrade) bool { return g.ConnResetSpike && g.ResetPenalty == connResetPenalty }},
 		{"send-stall", TCPGradeInput{SendStall: true, SendStalls: 2}, sendStallPenalty, func(g NetworkGrade) bool { return g.SendStall && g.StallPenalty == sendStallPenalty }},
-		{"ephemeral", TCPGradeInput{EphemeralExhaust: true, EphemeralUtil: 0.9}, ephemeralExhaustPenalty, func(g NetworkGrade) bool { return g.EphemeralExhaustion && g.EphemeralPenalty == ephemeralExhaustPenalty }},
+		{"ephemeral", TCPGradeInput{EphemeralExhaust: true, EphemeralUtil: 0.9}, ephemeralExhaustPenalty, func(g NetworkGrade) bool {
+			return g.EphemeralExhaustion && g.EphemeralPenalty == ephemeralExhaustPenalty
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			g := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, tc.in, th, qc)
+			g := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, tc.in, ThroughputGradeInput{}, th, qc)
 			if !tc.check(g) {
 				t.Fatalf("%s: flag/penalty not set as expected: %+v", tc.name, g)
 			}
@@ -103,7 +105,7 @@ func TestActiveTrafficFaultPenalties(t *testing.T) {
 
 	// All three at once stack.
 	all := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{},
-		TCPGradeInput{ConnResetSpike: true, SendStall: true, EphemeralExhaust: true}, th, qc)
+		TCPGradeInput{ConnResetSpike: true, SendStall: true, EphemeralExhaust: true}, ThroughputGradeInput{}, th, qc)
 	want := base.Score - connResetPenalty - sendStallPenalty - ephemeralExhaustPenalty
 	if want < 0 {
 		want = 0
@@ -131,5 +133,72 @@ func TestWiFiBlendCatchesFailingLink(t *testing.T) {
 	}
 	if fs.Score >= cs.Score {
 		t.Errorf("failing link should score lower than clean: clean=%d failing=%d", cs.Score, fs.Score)
+	}
+}
+
+// TestThroughputScoring covers the achievable-vs-expected speed sub-score:
+// unconfigured or idle links report no data; an idle link is never penalised;
+// a link that can't reach its rated speed scores low; the worse direction wins.
+func TestThroughputScoring(t *testing.T) {
+	cases := []struct {
+		name                     string
+		down, up, expDown, expUp float64
+		wantData                 bool
+		wantMin, wantMax         int
+	}{
+		{"unconfigured", 50, 10, 0, 0, false, 0, 0},
+		{"idle below floor", 5, 0, 100, 0, false, 0, 0},        // 5 < 10% of 100 -> no demand seen
+		{"full speed", 92, 0, 100, 0, true, 100, 100},          // >=90% rated -> 100
+		{"half speed", 45, 0, 100, 0, true, 45, 55},            // ~50
+		{"worst direction wins", 92, 9, 100, 20, true, 45, 55}, // up at 9/18 ~50 drives it
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scoreThroughputSub(c.down, c.up, c.expDown, c.expUp)
+			if s.HasData != c.wantData {
+				t.Fatalf("HasData = %v, want %v (%+v)", s.HasData, c.wantData, s)
+			}
+			if c.wantData && (s.Score < c.wantMin || s.Score > c.wantMax) {
+				t.Errorf("score %d outside [%d,%d]", s.Score, c.wantMin, c.wantMax)
+			}
+		})
+	}
+}
+
+// TestFirewallNotWeighted confirms firewall DROP velocity no longer moves the
+// Network Quality grade (it is policy, not network quality).
+func TestFirewallNotWeighted(t *testing.T) {
+	th := config.DefaultThresholds()
+	qc := quality.GradeContext{}
+	dns := []metrics.DNSStats{{Name: "example.com", Queries: 5, AvgLatency: 15 * time.Millisecond}}
+
+	noFw := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, ThroughputGradeInput{}, th, qc)
+	heavyFw := ComputeGrade(healthyWAN(), dns, nil, nil, 5000, true, L3GradeInput{}, TCPGradeInput{}, ThroughputGradeInput{}, th, qc)
+	if noFw.Score != heavyFw.Score {
+		t.Errorf("firewall drops must not change the grade: no-fw=%d heavy-fw=%d", noFw.Score, heavyFw.Score)
+	}
+}
+
+// TestLossReflectsTCP confirms the Loss sub-score follows TCP retransmissions
+// when ICMP probes look clean - ping surviving a path that drops TCP must not
+// hide the loss real connections experience.
+func TestLossReflectsTCP(t *testing.T) {
+	th := config.DefaultThresholds()
+	qc := quality.GradeContext{}
+	dns := []metrics.DNSStats{{Name: "example.com", Queries: 5, AvgLatency: 15 * time.Millisecond}}
+
+	// Clean ICMP target (0% loss) but 12% TCP retransmissions.
+	clean := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{}, TCPGradeInput{}, ThroughputGradeInput{}, th, qc)
+	lossy := ComputeGrade(healthyWAN(), dns, nil, nil, 0, false, L3GradeInput{},
+		TCPGradeInput{FlowRTXRate: 12, HasFlowRTX: true}, ThroughputGradeInput{}, th, qc)
+
+	if !lossy.LossHasTCP || lossy.LossTCPPct != 12 {
+		t.Fatalf("expected TCP loss component 12%%, got hasTCP=%v tcp=%.1f", lossy.LossHasTCP, lossy.LossTCPPct)
+	}
+	if lossy.Loss.Score >= clean.Loss.Score {
+		t.Errorf("TCP retransmissions must drag the Loss sub-score: clean=%d lossy=%d", clean.Loss.Score, lossy.Loss.Score)
+	}
+	if lossy.Loss.Value < 12 {
+		t.Errorf("loss value should reflect the 12%% TCP loss, got %.1f", lossy.Loss.Value)
 	}
 }

@@ -147,6 +147,26 @@ func (b *BandwidthHistory) Snapshot() []BandwidthSnapshot {
 	return out
 }
 
+// RecentPeakMbps returns the best download (RX) and upload (TX) throughput in
+// Mbit/s observed over the recent sample window, taken as the max across all
+// non-loopback interfaces (the busy uplink dominates; summing would double-count
+// bridges/veths). It is the "achievable speed" estimate the Throughput grade
+// dimension compares against the configured expected link speed.
+func (b *BandwidthHistory) RecentPeakMbps() (down, up float64) {
+	for _, s := range b.Snapshot() {
+		if s.Iface == "lo" {
+			continue
+		}
+		if d := s.PeakRx * 8 / 1e6; d > down {
+			down = d
+		}
+		if u := s.PeakTx * 8 / 1e6; u > up {
+			up = u
+		}
+	}
+	return down, up
+}
+
 func appendRing(buf []float64, v float64, max int) []float64 {
 	buf = append(buf, v)
 	if len(buf) > max {

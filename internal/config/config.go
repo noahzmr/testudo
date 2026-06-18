@@ -57,6 +57,14 @@ type Thresholds struct {
 	EBPFEnabled    bool    // enable eBPF backend (requires -tags ebpf + caps)
 	FlowRetransPct float64 // per-flow RTX-rate alert threshold, percent
 
+	// Expected provisioned link speed (Mbit/s) used by the Throughput grade
+	// dimension. The grade scores the best recently-observed throughput against
+	// these: a link that can't reach its rated speed when in use drags the
+	// grade. 0 disables the dimension (it reports "no data" and is excluded), so
+	// the grade is never penalised on a link whose capacity hasn't been declared.
+	ExpectedDownMbps float64
+	ExpectedUpMbps   float64
+
 	// MaxMind GeoIP enrichment (internal/integrations/maxmind). When enabled,
 	// observed public IPs are annotated with country / ASN / anonymity signals
 	// from local .mmdb files (or a sidecar mmdb-server). The engine reconciles

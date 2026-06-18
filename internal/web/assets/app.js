@@ -336,6 +336,8 @@
       jitter_ms:            parseFloat(val('s-jitter')) || 0,
       rtt_ms:               parseFloat(val('s-rtt')) || 0,
       retransmissions_pct:  parseFloat(val('s-retrans')) || 0,
+      expected_down_mbps:   parseFloat(val('s-expdown')) || 0,
+      expected_up_mbps:     parseFloat(val('s-expup')) || 0,
       incident_cooldown_sec: parseFloat(val('s-cooldown')) || 0,
       allow_netops_write:   document.getElementById('s-allow').checked,
       sentry_dsn:           val('s-sentry'),
@@ -418,7 +420,7 @@
   // GRADE_HELP describes each Network Quality sub-score: what it measures and
   // how the value is derived. Surfaced as a hover/focus tooltip on each bar.
   const GRADE_HELP = {
-    Loss:       'WAN packet loss. Percentage of the last 30 ICMP/probe results to external targets that were lost (a live window, not a lifetime average). Threshold: your Packet-loss setting.',
+    Loss:       'Packet loss, worse of two sources: ICMP/probe loss over the last 30 results, and the TCP retransmission rate (a retransmit is a lost segment). ICMP echo often survives a path that drops or resets TCP, so probe loss alone is optimistic — the worse figure is used. Threshold: your Packet-loss setting.',
     RTT:        'WAN round-trip latency. Mean RTT of recent probes to external targets, sharpened by the worst active TCP flow. Threshold: your RTT setting.',
     Jitter:     'Latency variation — the mean change between consecutive RTT samples. High jitter degrades VoIP/video/gaming. Threshold: your Jitter setting.',
     DNS:        'Resolver health. Blends DNS query latency with the failure/timeout rate across probed resolvers, so timeouts count even when nothing resolves. Threshold: DNS-latency setting + 5% failures.',
@@ -426,9 +428,9 @@
     HTTP:       'Service health of configured HTTP endpoints. Blends time-to-first-byte (500 ms comfort) with the request failure/timeout rate (2% comfort).',
     Stab:       'Interface stability. Kernel error/drop ratio, unreachable-neighbour ratio, and link-flap / default-route churn from the netlink watcher (2/min comfort).',
     WiFi:       'Wireless link quality across associated radios. Blends RSSI (−60 dBm great, −90 unusable), signal-to-noise ratio, and the TX-failure rate — so a strong signal that keeps failing still scores low.',
-    Firewall:   'Managed firewall pressure. DROP/REJECT events per second across blocking rules that carry counters (10/s comfort).',
     NAT:        'Connection-tracking pressure. Live conntrack entries ÷ nf_conntrack_max; near saturation new connections fail host-wide (70% comfort).',
     Congestion: 'Per-flow TCP retransmission rate from tcp_info (INET_DIAG/eBPF), byte-weighted so busy flows dominate. Threshold: your Retransmissions setting.',
+    Throughput: 'Achievable speed. The best download/upload observed recently (while transferring) vs your configured expected link speed; reaching ~90% of the rated speed scores 100. Set Expected down/up in Settings — left unset or idle, this dimension shows no data. (Firewall DROP velocity is intentionally not part of the grade — a blocked packet is policy, not quality.)',
   };
   // GRADE_SCORING is appended to every tooltip: the shared 0–100 mapping.
   const GRADE_SCORING = ' — Scored 100 at zero, 50 at the comfort threshold, 0 at twice the threshold. Dimensions with no measurements yet are excluded from the overall grade.';
@@ -448,18 +450,22 @@
     const rows = [
       ['Loss',       g.loss_score],
       ['RTT',        g.rtt_score],
-      ['Jitter',     g.jitter_score],
+      ['Throughput', g.throughput_score],
+      ['Congestion', g.congestion_score],
       ['DNS',        g.dns_score],
       ['LAN',        g.lan_score],
-      ['HTTP',       g.http_score],
       ['Stab',       g.stab_score],
+      ['Jitter',     g.jitter_score],
+      ['HTTP',       g.http_score],
       ['WiFi',       g.wifi_score],
-      ['Firewall',   g.firewall_score],
       ['NAT',        g.nat_score],
-      ['Congestion', g.congestion_score],
     ];
     bars.innerHTML = rows.map(([label, score]) => {
-      const tip = escape(GRADE_HELP[label] || '') + GRADE_SCORING;
+      let tip = escape(GRADE_HELP[label] || '') + GRADE_SCORING;
+      if (label === 'Loss' && g.loss_has_tcp) {
+        tip += escape(' — now: ICMP ' + (g.loss_icmp_pct || 0).toFixed(1) + '%, TCP retrans '
+          + (g.loss_tcp_pct || 0).toFixed(1) + '%, conn-fail ' + (g.loss_conn_fail_rate || 0).toFixed(1) + '/s.');
+      }
       const attrs = ' data-tip="' + tip + '" tabindex="0"';
       if (noData.has(label)) {
         return '<div class="grade-bar"' + attrs + '>'
@@ -1717,6 +1723,8 @@
     document.getElementById('s-jitter').value = t.jitter_ms;
     document.getElementById('s-rtt').value = t.rtt_ms;
     document.getElementById('s-retrans').value = t.retransmissions_pct;
+    document.getElementById('s-expdown').value = t.expected_down_mbps || 0;
+    document.getElementById('s-expup').value = t.expected_up_mbps || 0;
     document.getElementById('s-cooldown').value = t.incident_cooldown_sec;
     document.getElementById('s-allow').checked = !!t.allow_netops_write;
     document.getElementById('s-sentry').value = t.sentry_dsn || '';
