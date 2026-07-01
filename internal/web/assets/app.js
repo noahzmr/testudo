@@ -216,6 +216,156 @@
         });
         showToast('forward removed');
         break;
+      case 'wg-add': {
+        const serverKeygen = val('wg-keygen') !== 'client';
+        const pub = val('wg-pubkey');
+        if (!serverKeygen && !pub) { showToast('client keygen needs the peer public key', true); return; }
+        const res = await post('/api/wireguard/peer', {
+          name: val('wg-name'),
+          preset: val('wg-preset'),
+          server_keygen: serverKeygen,
+          public_key: pub,
+          fixed_ip: val('wg-fixedip'),
+        });
+        showToast('peer provisioned (' + (res && res.assigned_ip || '') + ')');
+        clearInputs(['wg-name', 'wg-pubkey', 'wg-fixedip']);
+        // Server-side keygen returns the client config exactly once. Show it in
+        // a modal and render the QR client-side; the server never stored it.
+        if (res && res.client_config) showWireGuardConfig(res.assigned_ip, res.client_config);
+        break;
+      }
+      case 'wg-edit':
+        openWGEdit(btn.dataset.pubkey, btn.dataset.short, btn.dataset.endpoint, btn.dataset.allowed, parseInt(btn.dataset.keepalive || '0', 10));
+        return; // modal handles the save; no refresh needed yet
+      case 'wg-edit-cancel':
+        document.getElementById('wg-edit-modal').hidden = true;
+        return;
+      case 'wg-edit-save': {
+        const pub = document.getElementById('wg-edit-modal').dataset.pubkey;
+        const kaRaw = val('wg-edit-keepalive');
+        const body = {
+          public_key: pub,
+          endpoint: val('wg-edit-endpoint'),
+          allowed_ips: wgCombo.getValues(),
+          preset: val('wg-edit-preset'),
+        };
+        // Blank = leave unchanged; a number (incl. 0 = off) is sent through.
+        if (kaRaw !== '') body.keepalive_sec = parseInt(kaRaw, 10);
+        await post('/api/wireguard/peer/update', body);
+        document.getElementById('wg-edit-modal').hidden = true;
+        showToast('peer updated');
+        break;
+      }
+      case 'wg-netplan-render': {
+        const res = await post('/api/wireguard/netplan/render', { private_key: val('wg-if-key') });
+        const pre = document.getElementById('wg-netplan-preview');
+        pre.textContent = (res && res.netplan) || '';
+        pre.hidden = false;
+        showToast('netplan rendered (preview)');
+        break;
+      }
+      case 'wg-netplan-write': {
+        if (!confirm('Write the netplan file for the wg interface? Apply afterwards with `sudo netplan apply`.')) return;
+        const res = await post('/api/wireguard/netplan/write', { private_key: val('wg-if-key') });
+        // Wipe the private key field after a successful write.
+        const k = document.getElementById('wg-if-key'); if (k) k.value = '';
+        showToast('wrote ' + ((res && res.path) || 'netplan') + ' - run netplan apply below');
+        break;
+      }
+      case 'wg-np-load':
+        await loadNetplanFiles();
+        showToast('netplan files loaded');
+        break;
+      case 'wg-np-save': {
+        const path = document.getElementById('wg-np-select').value;
+        if (!path) { showToast('no netplan file selected', true); return; }
+        await post('/api/wireguard/netplan/save', {
+          path: path,
+          content: document.getElementById('wg-np-editor').value,
+        });
+        showToast('saved ' + path);
+        break;
+      }
+      case 'wg-np-apply':
+        if (!confirm('Run `netplan apply`? This reloads the system network config and can briefly interrupt connectivity.')) return;
+        await post('/api/wireguard/netplan/apply', {});
+        showToast('netplan apply ok');
+        break;
+      case 'wg-np-save-apply': {
+        const path = document.getElementById('wg-np-select').value;
+        if (!path) { showToast('no netplan file selected', true); return; }
+        if (!confirm('Save ' + path + ' and run netplan apply?\nBacked up first; auto-rolls back if it fails validation or apply.')) return;
+        await post('/api/wireguard/netplan/save-apply', {
+          path: path,
+          content: document.getElementById('wg-np-editor').value,
+        });
+        showToast('saved & applied ' + path);
+        break;
+      }
+      case 'wg-deprovision':
+        if (!confirm('Deprovision peer ' + btn.dataset.short + '? Removes peer, route, firewall rules, and frees the IP.')) return;
+        await post('/api/wireguard/peer/deprovision', { public_key: btn.dataset.pubkey });
+        showToast('peer deprovisioned');
+        break;
+      case 'wg-iface-create': {
+        const dev = val('wg-if-new-dev');
+        if (!dev) { showToast('device name required', true); return; }
+        const res = await post('/api/wireguard/interface', {
+          device: dev,
+          address: val('wg-if-new-addr'),
+          listen_port: parseInt(val('wg-if-new-port') || '0', 10),
+          private_key: val('wg-if-new-key'),
+        });
+        const k = document.getElementById('wg-if-new-key'); if (k) k.value = '';
+        clearInputs(['wg-if-new-dev', 'wg-if-new-addr', 'wg-if-new-port']);
+        if (res && res.public_key) {
+          showWireGuardConfig(dev + ' public key', 'PublicKey = ' + res.public_key + '\n\n(interface created; private key is stored only in the netplan file)');
+        } else {
+          showToast('interface ' + dev + ' created');
+        }
+        break;
+      }
+      case 'wg-iface-delete':
+        if (!confirm('Delete interface ' + btn.dataset.dev + '? Removes its Testudo netplan file and applies. Peers on it are lost.')) return;
+        await post('/api/wireguard/interface/delete', { device: btn.dataset.dev });
+        showToast('interface ' + btn.dataset.dev + ' deleted');
+        break;
+      case 'wg-iface-tune':
+        if (!confirm('Tune ' + btn.dataset.dev + ' for max performance?\nSets MTU 1420, txqueuelen 1000, and enlarges UDP socket buffers (system-wide).')) return;
+        await post('/api/wireguard/interface/tune', { device: btn.dataset.dev, recommended: true });
+        showToast(btn.dataset.dev + ' tuned - if errors persist, lower the MTU');
+        break;
+      case 'wg-iface-mtu': {
+        const cur = btn.dataset.mtu && btn.dataset.mtu !== '0' ? btn.dataset.mtu : '1420';
+        const mtu = prompt('MTU for ' + btn.dataset.dev + ' (1420 default; try 1380 or 1280 if you see tx/rx errors):', cur);
+        if (!mtu) return;
+        const n = parseInt(mtu, 10);
+        if (!(n >= 576 && n <= 9000)) { showToast('MTU must be 576-9000', true); return; }
+        await post('/api/wireguard/interface/tune', { device: btn.dataset.dev, mtu: n });
+        showToast(btn.dataset.dev + ' MTU set to ' + n);
+        break;
+      }
+      case 'wg-iface-rename': {
+        const name = prompt('Name for ' + btn.dataset.dev + ':', btn.dataset.label || '');
+        if (name === null) return;
+        await post('/api/wireguard/interface/name', { device: btn.dataset.dev, name: name.trim() });
+        showToast('interface name saved');
+        break;
+      }
+      case 'wg-iface-restart':
+        if (!confirm('Restart ' + btn.dataset.dev + '? Bounces the link (down/up) - the tunnel drops briefly.')) return;
+        await post('/api/wireguard/interface/restart', { device: btn.dataset.dev });
+        showToast(btn.dataset.dev + ' restarted');
+        break;
+      case 'wg-config-copy': {
+        const txt = document.getElementById('wg-config-text').textContent || '';
+        try { await navigator.clipboard.writeText(txt); showToast('config copied'); }
+        catch (_) { showToast('copy failed - select the text manually', true); }
+        break;
+      }
+      case 'wg-config-close':
+        hideWireGuardConfig();
+        break;
       case 'ct-flush': {
         const f = JSON.parse(btn.dataset.flow);
         if (!confirm('Flush ' + f.proto + ' flow ' + f.orig_src + ':' + f.orig_sport + ' -> ' + f.orig_dst + ':' + f.orig_dport + '?')) return;
@@ -1623,6 +1773,429 @@
     ).join('') || '<tr><td colspan="5" class="muted">no port forwards configured</td></tr>';
   }
 
+  // Tiny unicode sparkline for per-peer throughput history.
+  function wgSpark(values) {
+    const bars = '▁▂▃▄▅▆▇█';
+    const v = (values || []).filter(x => typeof x === 'number');
+    if (!v.length) return '<span class="muted">-</span>';
+    const max = Math.max.apply(null, v) || 1;
+    return v.map(x => bars[Math.min(bars.length - 1, Math.floor((x / max) * (bars.length - 1)))]).join('');
+  }
+
+  // wgDriftBadge renders the live-vs-netplan drift indicator for a peer.
+  function wgDriftBadge(drift) {
+    switch (drift) {
+      case 'not-persistent': return ' <span class="status-pill warn" title="live in kernel but not in netplan - lost on next apply/reboot">not persistent</span>';
+      case 'config-only':    return ' <span class="status-pill off" title="declared in netplan but not up on the device">config only</span>';
+      case 'config-mismatch':return ' <span class="status-pill warn" title="AllowedIPs differ live vs netplan">config drift</span>';
+      default: return '';
+    }
+  }
+
+  function wgSevClass(sev) {
+    if (sev === 'CRITICAL' || sev === 'ERROR') return 'off';
+    if (sev === 'WARN') return 'warn';
+    return 'on';
+  }
+
+  // renderWGStats fills the WireGuard-only KPI strip from the WG snapshot.
+  // rx/tx errors + drops are interface-level (WireGuard has no per-peer error
+  // counters) and summed across every wg device for the global view.
+  function renderWGStats(devs) {
+    const el = document.getElementById('wg-stats');
+    if (!el) return;
+    let peers = 0, healthy = 0, warn = 0, down = 0, never = 0, rx = 0, tx = 0;
+    let rxErr = 0, txErr = 0, rxDrop = 0, txDrop = 0;
+    for (const d of devs) {
+      rxErr += (d.rx_errors || 0); txErr += (d.tx_errors || 0);
+      rxDrop += (d.rx_dropped || 0); txDrop += (d.tx_dropped || 0);
+      for (const p of (d.peers || [])) {
+        peers++;
+        rx += (p.rx_bytes || 0);
+        tx += (p.tx_bytes || 0);
+        switch (p.severity) {
+          case 'OK': healthy++; break;
+          case 'WARN': warn++; break;
+          case 'ERROR': down++; break;
+          case 'CRITICAL': never++; break;
+        }
+      }
+    }
+    const unhealthy = warn + down + never;
+    const healthState = peers === 0 ? '' : (down + never > 0 ? 'err' : (warn > 0 ? 'warn' : 'ok'));
+    const errTotal = rxErr + txErr;
+    const dropTotal = rxDrop + txDrop;
+    el.innerHTML = ''
+      + kpiTile('Devices', String(devs.length), { sub: 'wg interfaces' })
+      + kpiTile('Peers', String(peers), { sub: healthy + ' healthy', state: healthState })
+      + kpiTile('Degraded', String(unhealthy), {
+          state: unhealthy ? (down + never ? 'err' : 'warn') : '',
+          sub: warn + ' stale · ' + down + ' down · ' + never + ' never' })
+      + kpiTile('RX', fmtBytes(rx), { arrow: 'down', sub: 'total received' })
+      + kpiTile('TX', fmtBytes(tx), { arrow: 'up', sub: 'total sent' })
+      + kpiTile('Errors', String(errTotal), {
+          state: errTotal ? 'err' : '', sub: rxErr + ' rx · ' + txErr + ' tx (iface)' })
+      + kpiTile('Drops', String(dropTotal), {
+          state: dropTotal ? 'warn' : '', sub: rxDrop + ' rx · ' + txDrop + ' tx (iface)' });
+  }
+
+  // renderWGDashboard fills the dashboard's WireGuard section: an overall
+  // "healthy/degraded" line + KPI tiles (D2) and a per-interface summary (D1).
+  function renderWGDashboard(devices) {
+    const card = document.getElementById('wg-dash-card');
+    if (!card) return;
+    const devs = devices || [];
+    if (!devs.length) { card.hidden = true; return; }
+    card.hidden = false;
+
+    let ifaces = devs.length, peers = 0, active = 0, stale = 0, drift = 0, rx = 0, tx = 0, down = 0;
+    for (const d of devs) {
+      if (!d.up) down++;
+      drift += (d.drift_count || 0);
+      rx += (d.rx_bytes || 0); tx += (d.tx_bytes || 0);
+      for (const p of (d.peers || [])) {
+        peers++;
+        if (p.severity === 'OK') active++;
+        else if (p.severity === 'WARN' || p.severity === 'ERROR') stale++;
+      }
+    }
+    const bad = down > 0 || stale > 0 || drift > 0;
+    const overall = document.getElementById('wg-dash-overall');
+    if (overall) {
+      overall.innerHTML = bad
+        ? '<span class="severity severity-WARN">degraded</span>'
+        : '<span class="severity severity-INFO">healthy</span>';
+    }
+    document.getElementById('wg-dash-kpis').innerHTML = ''
+      + kpiTile('Tunnels', String(ifaces), { state: down ? 'err' : 'ok', sub: down + ' down' })
+      + kpiTile('Peers', active + '/' + peers, { state: stale ? 'warn' : 'ok', sub: 'active / total' })
+      + kpiTile('Stale', String(stale), { state: stale ? 'warn' : '', sub: 'handshake stale/down' })
+      + kpiTile('Drift', String(drift), { state: drift ? 'warn' : '', sub: 'live ≠ netplan' })
+      + kpiTile('RX', fmtBytes(rx), { arrow: 'down', sub: 'total' })
+      + kpiTile('TX', fmtBytes(tx), { arrow: 'up', sub: 'total' });
+
+    document.getElementById('wg-dash-ifaces').innerHTML = devs.map(d => {
+      const a = (d.peers || []).filter(p => p.severity === 'OK').length;
+      const link = d.up ? '<span class="status-pill on">up</span>' : '<span class="status-pill off">down</span>';
+      const dr = d.drift_count > 0 ? ' <span class="status-pill warn">drift ' + d.drift_count + '</span>' : '';
+      const nm = d.label ? escape(d.label) + ' (' + escape(d.name) + ')' : escape(d.name);
+      return '<div class="wg-dash-row"><b>' + nm + '</b> ' + link + dr
+        + ' <span class="muted">:' + d.listen_port + ' · ' + a + '/' + (d.peers || []).length + ' peers · '
+        + fmtBytes(d.rx_bytes) + '↓ ' + fmtBytes(d.tx_bytes) + '↑</span></div>';
+    }).join('');
+  }
+
+  function renderWireGuard(devices) {
+    const el = document.getElementById('wg-body');
+    const devs = devices || [];
+    renderWGStats(devs);
+    if (!el) return;
+    if (!devs.length) {
+      el.innerHTML = '<p class="muted">no WireGuard devices found (reading state needs CAP_NET_ADMIN; a tunnel may still be up)</p>';
+      return;
+    }
+    // Preserve each table's horizontal/vertical scroll across the 2s re-render:
+    // capture by device name, rebuild, then restore.
+    const scrollPos = {};
+    el.querySelectorAll('.wg-table-wrap[data-dev]').forEach(w => {
+      scrollPos[w.dataset.dev] = { x: w.scrollLeft, y: w.scrollTop };
+    });
+    el.innerHTML = devs.map(d => {
+      const linkPill = d.up
+        ? '<span class="status-pill ' + (d.running ? 'on' : 'warn') + '">' + (d.running ? 'UP' : 'UP (no carrier)') + '</span>'
+        : '<span class="status-pill off">DOWN</span>';
+      // Device health pill from tx/rx-error health (+ link state).
+      const devHealth = d.health || 'OK';
+      const healthPill = '<span class="status-pill ' + wgSevClass(devHealth) + '" title="device health from tx/rx errors + link state">'
+        + escape(devHealth) + '</span>';
+      const errTot = (d.rx_errors || 0) + (d.tx_errors || 0);
+      const dropTot = (d.rx_dropped || 0) + (d.tx_dropped || 0);
+      const growing = (d.err_delta || 0) > 0 ? ' <span class="loss-warn">▲+' + d.err_delta + '</span>' : '';
+      const errBadge = errTot > 0 ? ' · <span class="' + (d.err_delta > 0 ? 'loss-warn' : 'muted') + '">err ' + errTot + growing + '</span>' : '';
+      const dropGrow = (d.drop_delta || 0) > 0 ? ' <span class="warn">▲+' + d.drop_delta + '</span>' : '';
+      const dropBadge = dropTot > 0 ? ' · <span class="muted">drop ' + dropTot + dropGrow + '</span>' : '';
+      // Netplan reconciliation for the device header.
+      const npPill = !d.netplan_known
+        ? ' <span class="status-pill muted" title="not found in a parsed netplan file">no netplan</span>'
+        : (d.drift_count > 0
+            ? ' <span class="status-pill warn" title="peers whose live state differs from netplan">drift ' + d.drift_count + '</span>'
+            : ' <span class="status-pill on" title="live matches netplan">in sync</span>');
+      const cfgAddr = d.configured_address ? ' · cfg ' + escape(d.configured_address) : '';
+      const label = d.label ? '<b>' + escape(d.label) + '</b> <code class="muted">' + escape(d.name) + '</code>' : 'wg <b>' + escape(d.name) + '</b>';
+      const delBtn = d.netplan_known
+        ? ' <button class="btn btn-small btn-danger" data-action="wg-iface-delete" data-dev="' + escape(d.name) + '" title="delete the Testudo netplan for this interface">delete</button>'
+        : '';
+      const ifaceBtns = '<span class="wg-iface-btns">'
+        + '<button class="btn btn-small" data-action="wg-iface-tune" data-dev="' + escape(d.name) + '" title="apply the recommended max-performance profile (MTU 1420, txqueuelen 1000, socket buffers)">⚡ tune</button> '
+        + '<button class="btn btn-small" data-action="wg-iface-mtu" data-dev="' + escape(d.name) + '" data-mtu="' + (d.mtu || 0) + '" title="set MTU manually (lower to 1380/1280 if errors persist)">MTU</button> '
+        + '<button class="btn btn-small" data-action="wg-iface-rename" data-dev="' + escape(d.name) + '" data-label="' + escape(d.label || '') + '">rename</button> '
+        + '<button class="btn btn-small" data-action="wg-iface-restart" data-dev="' + escape(d.name) + '">restart</button>'
+        + delBtn
+        + '</span>';
+      const mtu = d.mtu ? ' · mtu ' + d.mtu : '';
+      const txq = d.txqlen ? '/txq ' + d.txqlen : '';
+      const head = '<h3 class="wg-dev-head">' + label + ' ' + linkPill + ' ' + healthPill + npPill
+        + ' · listen :' + d.listen_port + cfgAddr + mtu + txq + ' · ' + (d.peers || []).length + ' peers'
+        + ' · rx ' + fmtBytes(d.rx_bytes) + ' / tx ' + fmtBytes(d.tx_bytes)
+        + errBadge + dropBadge + ' ' + ifaceBtns + '</h3>';
+      const rows = (d.peers || []).map(p => {
+        const hs = '<span class="status-pill ' + wgSevClass(p.severity) + '">' + escape(p.handshake) + '</span>';
+        const health = p.health || p.severity || 'OK';
+        const healthCell = '<span class="status-pill ' + wgSevClass(health) + '" title="worst of handshake + device tx/rx-error health">' + escape(health) + '</span>';
+        const allowed = (p.allowed_ips || []).join(', ');
+        // Name primary, key on hover.
+        const nameCell = p.name
+          ? '<b title="' + escape(p.public_key) + '">' + escape(p.name) + '</b> <code class="muted">' + escape(p.short) + '</code>'
+          : '<code title="' + escape(p.public_key) + '">' + escape(p.short) + '</code>';
+        const drift = wgDriftBadge(p.drift);
+        return '<tr>'
+          + '<td>' + nameCell + '</td>'
+          + '<td>' + healthCell + drift + '</td>'
+          + '<td>' + escape(p.endpoint || '-') + '</td>'
+          + '<td>' + hs + '</td>'
+          + '<td><code>' + escape(allowed || '-') + '</code></td>'
+          + '<td>' + fmtBytes(p.rx_bytes) + '</td>'
+          + '<td>' + fmtBytes(p.tx_bytes) + '</td>'
+          + '<td class="wg-spark">' + wgSpark(p.tx_history) + '</td>'
+          + '<td class="wg-actions">'
+            + '<button class="btn btn-small" data-action="wg-edit"'
+              + ' data-pubkey="' + escape(p.public_key) + '" data-short="' + escape(p.name || p.short) + '"'
+              + ' data-endpoint="' + escape(p.endpoint || '') + '"'
+              + ' data-keepalive="' + (p.keepalive_sec || 0) + '"'
+              + ' data-allowed="' + escape((p.allowed_ips || []).join(', ')) + '">edit</button> '
+            + '<button class="btn btn-small btn-danger" data-action="wg-deprovision" data-pubkey="' + escape(p.public_key) + '" data-short="' + escape(p.name || p.short) + '">remove</button>'
+          + '</td>'
+          + '</tr>';
+      }).join('') || '<tr><td colspan="9" class="muted">no peers configured</td></tr>';
+      return head + '<div class="table-wrap wg-table-wrap" data-dev="' + escape(d.name) + '"><table>'
+        + '<thead><tr><th>Peer</th><th>Health</th><th>Endpoint</th><th>Handshake</th><th>Allowed IPs</th><th>RX</th><th>TX</th><th>TX bps</th><th></th></tr></thead>'
+        + '<tbody>' + rows + '</tbody></table></div>';
+    }).join('');
+    // Restore scroll positions captured before the rebuild.
+    el.querySelectorAll('.wg-table-wrap[data-dev]').forEach(w => {
+      const pos = scrollPos[w.dataset.dev];
+      if (pos) { w.scrollLeft = pos.x; w.scrollTop = pos.y; }
+    });
+  }
+
+  // showWireGuardConfig displays the one-shot server-side-keygen client config.
+  // The config (with its PRIVATE key) lives only in the browser; the QR is
+  // rendered client-side and nothing is sent back to the server.
+  function showWireGuardConfig(ip, config) {
+    const modal = document.getElementById('wg-config-modal');
+    if (!modal) return;
+    document.getElementById('wg-config-ip').textContent = ip || '';
+    document.getElementById('wg-config-text').textContent = config || '';
+    const qr = document.getElementById('wg-qr');
+    if (qr) {
+      // QR generation is a client-side concern (never server-side). If a QR
+      // encoder is available on the page, use it; otherwise fall back to the
+      // copyable config text above (which imports directly into any client).
+      if (window.QRCode && typeof window.QRCode.toCanvas === 'function') {
+        qr.innerHTML = '';
+        const c = document.createElement('canvas');
+        qr.appendChild(c);
+        window.QRCode.toCanvas(c, config, { width: 240, errorCorrectionLevel: 'M' }, () => {});
+      } else {
+        qr.innerHTML = '<span class="muted">QR: import the config text above into your WireGuard client, or paste it into a client-side QR generator.</span>';
+      }
+    }
+    modal.hidden = false;
+  }
+
+  function hideWireGuardConfig() {
+    const modal = document.getElementById('wg-config-modal');
+    if (!modal) return;
+    // Wipe the secret from the DOM on dismiss.
+    document.getElementById('wg-config-text').textContent = '';
+    const qr = document.getElementById('wg-qr');
+    if (qr) qr.innerHTML = '';
+    modal.hidden = true;
+  }
+
+  // openWGEdit populates and shows the full peer-edit modal from the peer's
+  // current endpoint / allowed IPs, seeding the Allowed-IPs combo box.
+  function openWGEdit(pubkey, short, endpoint, allowed, keepalive) {
+    const modal = document.getElementById('wg-edit-modal');
+    if (!modal) return;
+    modal.dataset.pubkey = pubkey || '';
+    document.getElementById('wg-edit-short').textContent = short || '';
+    document.getElementById('wg-edit-endpoint').value = endpoint || '';
+    const ka = document.getElementById('wg-edit-keepalive');
+    if (ka) ka.value = (keepalive && keepalive > 0) ? String(keepalive) : '';
+    const values = (allowed || '').split(',').map(s => s.trim()).filter(Boolean);
+    wgCombo.setValues(values);
+    modal.hidden = false;
+  }
+
+  // ---- Netplan file browser/editor --------------------------------
+  let wgNetplanFiles = [];
+  async function loadNetplanFiles() {
+    const res = await post('/api/wireguard/netplan/list', {});
+    wgNetplanFiles = (res && res.files) || [];
+    const sel = document.getElementById('wg-np-select');
+    const editor = document.getElementById('wg-np-editor');
+    if (!sel || !editor) return;
+    sel.innerHTML = wgNetplanFiles.map((f, i) =>
+      '<option value="' + escape(f.path) + '" data-i="' + i + '">' + escape(f.name) + (f.managed ? ' (testudo)' : '') + '</option>'
+    ).join('') || '<option value="">no netplan files found</option>';
+    showSelectedNetplan();
+  }
+  function showSelectedNetplan() {
+    const sel = document.getElementById('wg-np-select');
+    const editor = document.getElementById('wg-np-editor');
+    const managed = document.getElementById('wg-np-managed');
+    if (!sel || !editor) return;
+    const f = wgNetplanFiles.find(x => x.path === sel.value);
+    editor.value = f ? f.content : '';
+    if (managed) managed.textContent = f && f.managed ? 'managed by testudo' : '';
+  }
+
+  // ---- Allowed-IPs multi-select combo box (EUI-style token input) ---
+  // Pills for each selected CIDR, a filterable dropdown of suggestions, and
+  // type-to-add for custom values. Self-contained; no external dependency.
+  const wgCombo = (function () {
+    const state = { values: [], active: -1 };
+    const els = () => ({
+      root: document.getElementById('wg-allowed-combo'),
+      pills: document.getElementById('wg-allowed-pills'),
+      input: document.getElementById('wg-allowed-input'),
+      menu: document.getElementById('wg-allowed-menu'),
+    });
+
+    // Suggestions drawn from the persisted WireGuard settings.
+    function suggestions() {
+      const t = lastThresholds || {};
+      const out = ['0.0.0.0/0', '::/0'];
+      if (t.wireguard_tunnel_subnet) out.push(t.wireguard_tunnel_subnet);
+      if (t.wireguard_server_addr) out.push(t.wireguard_server_addr);
+      (t.wireguard_lan_subnets || '').split(',').map(s => s.trim()).filter(Boolean).forEach(s => out.push(s));
+      return out.filter((v, i) => out.indexOf(v) === i); // de-dupe, keep order
+    }
+
+    function setValues(vals) {
+      state.values = (vals || []).slice();
+      state.active = -1;
+      const { input } = els();
+      if (input) input.value = '';
+      renderPills();
+      hideMenu();
+    }
+    function getValues() { return state.values.slice(); }
+
+    function renderPills() {
+      const { pills, input } = els();
+      if (!pills || !input) return;
+      pills.querySelectorAll('.combo-pill').forEach(n => n.remove());
+      state.values.forEach((v, i) => {
+        const pill = document.createElement('span');
+        pill.className = 'combo-pill';
+        pill.innerHTML = escape(v) + ' <button type="button" data-i="' + i + '" aria-label="remove">×</button>';
+        pills.insertBefore(pill, input);
+      });
+    }
+
+    function add(v) {
+      v = (v || '').trim();
+      if (!v || state.values.includes(v)) return;
+      state.values.push(v);
+      const { input } = els();
+      if (input) input.value = '';
+      renderPills();
+      renderMenu();
+    }
+    function removeAt(i) { state.values.splice(i, 1); renderPills(); renderMenu(); }
+
+    function candidates() {
+      const { input } = els();
+      const q = (input ? input.value : '').trim().toLowerCase();
+      return suggestions().filter(s => !state.values.includes(s) && (!q || s.toLowerCase().includes(q)));
+    }
+
+    function renderMenu() {
+      const { input, menu } = els();
+      if (!input || !menu) return;
+      const q = input.value.trim();
+      const cands = candidates();
+      let html = cands.map((s, i) =>
+        '<div class="combo-opt mono' + (i === state.active ? ' active' : '') + '" data-val="' + escape(s) + '">' + escape(s) + '</div>'
+      ).join('');
+      // Offer to create a custom value that isn't already an option/selected.
+      if (q && !suggestions().includes(q) && !state.values.includes(q)) {
+        const idx = cands.length;
+        html += '<div class="combo-opt' + (idx === state.active ? ' active' : '') + '" data-val="' + escape(q) + '">'
+          + '<span class="combo-create">+ add</span> <span class="mono">' + escape(q) + '</span></div>';
+      }
+      menu.innerHTML = html || '<div class="combo-empty">no matches</div>';
+      menu.hidden = false;
+    }
+    function hideMenu() { const { menu } = els(); if (menu) { menu.hidden = true; state.active = -1; } }
+
+    // menu rows in current order (candidates + optional create row).
+    function menuRows() {
+      const { menu } = els();
+      return menu ? Array.from(menu.querySelectorAll('.combo-opt')) : [];
+    }
+
+    function init() {
+      const { root, pills, input, menu } = els();
+      if (!root || !input) return;
+      input.addEventListener('focus', renderMenu);
+      input.addEventListener('input', () => { state.active = -1; renderMenu(); });
+      input.addEventListener('keydown', (e) => {
+        const rows = menuRows();
+        if (e.key === 'ArrowDown') { e.preventDefault(); state.active = Math.min(rows.length - 1, state.active + 1); renderMenu(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); state.active = Math.max(0, state.active - 1); renderMenu(); }
+        else if (e.key === 'Enter') {
+          e.preventDefault();
+          const rowsNow = menuRows();
+          if (state.active >= 0 && rowsNow[state.active]) add(rowsNow[state.active].dataset.val);
+          else if (input.value.trim()) add(input.value);
+        } else if (e.key === 'Escape') { hideMenu(); }
+        else if (e.key === 'Backspace' && input.value === '' && state.values.length) { removeAt(state.values.length - 1); }
+        else if (e.key === ',' || e.key === ' ') {
+          // comma/space commits the typed token, matching paste-friendly entry.
+          if (input.value.trim()) { e.preventDefault(); add(input.value); }
+        }
+      });
+      // Click a menu option.
+      menu.addEventListener('mousedown', (e) => {
+        const opt = e.target.closest('.combo-opt');
+        if (!opt) return;
+        e.preventDefault();
+        add(opt.dataset.val);
+        input.focus();
+      });
+      // Remove a pill.
+      pills.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-i]');
+        if (!btn) return;
+        removeAt(parseInt(btn.dataset.i, 10));
+        input.focus();
+      });
+      // Clicking anywhere in the box focuses the input.
+      pills.addEventListener('mousedown', (e) => { if (e.target === pills) input.focus(); });
+      // Close the menu on outside click.
+      document.addEventListener('mousedown', (e) => { if (!root.contains(e.target)) hideMenu(); });
+    }
+
+    return { init, setValues, getValues };
+  })();
+
+  // Prefill the netplan interface card once from persisted settings; leave the
+  // operator's edits in place after that.
+  let wgIfaceLoaded = false;
+  function prefillWGInterface(t) {
+    if (wgIfaceLoaded || !t) return;
+    wgIfaceLoaded = true;
+    const addr = document.getElementById('wg-if-addr');
+    const port = document.getElementById('wg-if-port');
+    const path = document.getElementById('wg-if-path');
+    if (addr && !addr.value) addr.value = t.wireguard_server_addr || '';
+    if (port && !port.value) port.value = t.wireguard_listen_port || 51820;
+    if (path && !path.value) path.value = t.wireguard_netplan_path || '/etc/netplan/60-testudo-wg.yaml';
+  }
+
   function renderConntrack(ct, allowWrite) {
     ct = ct || {};
     // Utilisation gauge: live entries / nf_conntrack_max.
@@ -1865,12 +2438,14 @@
 
   // ---- Refresh loop ----
   let refreshing = false;
+  let lastThresholds = {};
   async function refresh() {
     if (refreshing) return;
     refreshing = true;
     try {
       const snap = await api('/api/snapshot');
       if (!snap) return;
+      lastThresholds = snap.thresholds || {};
       document.getElementById('session-id').textContent = snap.session || '-';
       document.getElementById('uptime').textContent = snap.uptime || '-';
       const upTop = document.getElementById('uptime-top');
@@ -1898,6 +2473,9 @@
       renderWatcher(snap.watcher);
       renderFirewall(snap.filter_rules, snap.firewall, snap.firewall_rules);
       renderNAT(snap.nat);
+      renderWGDashboard(snap.wireguard);
+      renderWireGuard(snap.wireguard);
+      prefillWGInterface(snap.thresholds);
       renderConntrack(snap.conntrack, snap.thresholds && snap.thresholds.allow_netops_write);
       renderTCPDump(snap.tcpdump);
       renderAlerts(snap.anomalies);
@@ -1944,6 +2522,11 @@
     window.location.href = '/login';
   });
 
+  wgCombo.init();
+  {
+    const npSel = document.getElementById('wg-np-select');
+    if (npSel) npSel.addEventListener('change', showSelectedNetplan);
+  }
   refresh();
   setInterval(refresh, 2000);
 })();

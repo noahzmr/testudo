@@ -132,6 +132,12 @@ type GradeContext struct {
 	FaultLayer   FaultLayer
 	FaultVerdict string
 	HasFault     bool
+
+	// WireGuard sub-score (M4). WGHasData=false means no WG device exists or its
+	// state could not be read, so the sub-score is neutral and excluded from the
+	// weighted grade entirely - a host without WireGuard is never penalised.
+	WGScore   int // 0..100
+	WGHasData bool
 }
 
 // baselineModifierStart is the ratio above which baseline-relative degradation

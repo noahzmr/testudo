@@ -105,6 +105,7 @@ func NewApp(eng *engine.Engine) *App {
 		newRoutesTab(eng, app),
 		newFirewallTab(eng, app),
 		newNATTab(eng, app),
+		newWireGuardTab(eng, app),
 		newTCPDumpTab(eng, app),
 		newTalkersTab(eng),
 		newProbesTab(eng),
@@ -148,7 +149,9 @@ func (a *App) refreshGrade() {
 		wifi = wc.Snapshot()
 	}
 	fwRate, fwHas := a.eng.FirewallSignal()
-	a.grade = ComputeGrade(targets, dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(a.eng.Neigh(), a.eng.NetlinkWatch()), tcpInputFrom(a.eng.TCPInfo(), a.eng.Flows()), throughputInputFrom(a.eng.Bandwidth()), a.eng.Settings().Snapshot(), a.eng.QualitySnapshot().GradeContext())
+	gctx := a.eng.QualitySnapshot().GradeContext()
+	gctx.WGScore, gctx.WGHasData = a.eng.WireGuardGrade()
+	a.grade = ComputeGrade(targets, dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(a.eng.Neigh(), a.eng.NetlinkWatch()), tcpInputFrom(a.eng.TCPInfo(), a.eng.Flows()), throughputInputFrom(a.eng.Bandwidth()), a.eng.Settings().Snapshot(), gctx)
 }
 
 // refreshActive triggers an immediate one-shot slow-refresh of the

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/capture"
@@ -31,6 +32,7 @@ type snapshot struct {
 	FirewallRules []firewallRuleView   `json:"firewall_rules"`
 	FilterRules   []filterRuleView     `json:"filter_rules"`
 	NAT           []natView            `json:"nat"`
+	WireGuard     []wgDeviceView       `json:"wireguard"`
 	Neighbours    []neighbourView      `json:"neighbours"`
 	Conflicts     []ipConflictView     `json:"ip_conflicts"`
 	Conntrack     conntrackView        `json:"conntrack"`
@@ -130,6 +132,7 @@ type gradeView struct {
 	NAT        int  `json:"nat_score"`
 	Congestion int  `json:"congestion_score"`
 	Throughput int  `json:"throughput_score"`
+	WireGuard  int  `json:"wireguard_score"`
 
 	// Loss breakdown: the Loss score follows the worse of ICMP/probe loss and
 	// the TCP retransmission rate, with the live connection-failure rate for
@@ -403,6 +406,63 @@ type natView struct {
 	LANPort uint16 `json:"lan_port"`
 }
 
+// wgDeviceView / wgPeerView mirror the WireGuard snapshot for the dashboard.
+// PUBLIC keys only - no private or preshared material is ever sent to the
+// browser (secrets rule).
+type wgDeviceView struct {
+	Name       string       `json:"name"`
+	Label      string       `json:"label"` // human name from wg_iface_meta
+	PublicKey  string       `json:"public_key"`
+	ListenPort int          `json:"listen_port"`
+	Peers      []wgPeerView `json:"peers"`
+
+	// Interface-level health for this wg device, from the kernel link stats.
+	// WireGuard exposes no per-peer error counters, so rx/tx errors + drops are
+	// interface-scoped (and summed globally by the UI).
+	Up        bool   `json:"up"`
+	Running   bool   `json:"running"`
+	MTU       int    `json:"mtu"`
+	TxQLen    int    `json:"txqlen"`
+	RxBytes   uint64 `json:"rx_bytes"`
+	TxBytes   uint64 `json:"tx_bytes"`
+	RxErrors  uint64 `json:"rx_errors"`
+	TxErrors  uint64 `json:"tx_errors"`
+	RxDropped uint64 `json:"rx_dropped"`
+	TxDropped uint64 `json:"tx_dropped"`
+	// Error/drop growth this tick and the derived health verdicts.
+	ErrDelta  uint64 `json:"err_delta"`
+	DropDelta uint64 `json:"drop_delta"`
+	ErrHealth string `json:"err_health"` // OK / WARN / ERROR from tx/rx errors
+	Health    string `json:"health"`     // overall (errors + link state)
+	// Netplan reconciliation.
+	NetplanKnown      bool   `json:"netplan_known"`
+	ConfiguredAddress string `json:"configured_address"`
+	ConfiguredPeers   int    `json:"configured_peers"`
+	DriftCount        int    `json:"drift_count"`
+}
+
+type wgPeerView struct {
+	PublicKey  string   `json:"public_key"`
+	Name       string   `json:"name"`  // display name from wg_peer_meta
+	Short      string   `json:"short"` // truncated key (fallback / on-hover)
+	Endpoint   string   `json:"endpoint"`
+	AllowedIPs []string `json:"allowed_ips"`
+	// Netplan reconciliation.
+	Drift              string    `json:"drift"`           // "" / not-persistent / config-only / config-mismatch
+	ConfiguredOnly     bool      `json:"configured_only"` // in netplan, not on the live device
+	ConfiguredEndpoint string    `json:"configured_endpoint"`
+	ConfiguredIPs      []string  `json:"configured_allowed_ips"`
+	Handshake          string    `json:"handshake"`       // "never" / "12s ago"
+	HandshakeAgeS      int64     `json:"handshake_age_s"` // -1 = never
+	Severity           string    `json:"severity"`        // handshake verdict
+	Health             string    `json:"health"`          // worst of handshake + device tx/rx-error health
+	RxBytes            int64     `json:"rx_bytes"`
+	TxBytes            int64     `json:"tx_bytes"`
+	TxHistory          []float64 `json:"tx_history"`
+	RxHistory          []float64 `json:"rx_history"`
+	KeepaliveSec       int       `json:"keepalive_sec"`
+}
+
 // neighbourView mirrors netops.Neighbour for the Devices view. Conflict is
 // true when this IP is also answered by another MAC (duplicate-IP badge).
 type neighbourView struct {
@@ -470,6 +530,12 @@ type thresholdsView struct {
 	FlowRetransPct      float64 `json:"flow_retrans_pct"`
 	ExpectedDownMbps    float64 `json:"expected_down_mbps"`
 	ExpectedUpMbps      float64 `json:"expected_up_mbps"`
+
+	WireGuardServerAddr   string `json:"wireguard_server_addr"`
+	WireGuardListenPort   int    `json:"wireguard_listen_port"`
+	WireGuardNetplanPath  string `json:"wireguard_netplan_path"`
+	WireGuardTunnelSubnet string `json:"wireguard_tunnel_subnet"`
+	WireGuardLANSubnets   string `json:"wireguard_lan_subnets"`
 }
 
 type tcpdumpView struct {
@@ -632,6 +698,7 @@ func (s *Server) buildSnapshot() snapshot {
 	if bw := eng.Bandwidth(); bw != nil {
 		peakDown, peakUp = bw.RecentPeakMbps()
 	}
+	gctx.WGScore, gctx.WGHasData = eng.WireGuardGrade()
 	snap.Grade = computeGradeView(targets, dnsList, ifs, wifiSnap, fwRate, fwHas, l3, nlw, tcpGradeFrom(eng), peakDown, peakUp, th, gctx)
 
 	// Self-status surface: subsystem health table, privsep posture, and the
@@ -688,6 +755,28 @@ func (s *Server) buildSnapshot() snapshot {
 		Ifaces:  eng.CaptureIfaces(),
 	}
 
+	// WireGuard peer tunnel-IP -> display name, so flows over a wg interface show
+	// the peer name (D3). Built from the collector's merged snapshot.
+	wgPeerName := map[string]string{}
+	if wc := eng.WireGuard(); wc != nil {
+		if wgSnap, ok := wc.Snapshot(); ok {
+			for _, d := range wgSnap.Devices {
+				for _, p := range d.Peers {
+					nm := p.PeerDisplayName()
+					for _, aip := range p.AllowedIPs {
+						ip := aip
+						if i := strings.IndexByte(ip, '/'); i >= 0 {
+							ip = ip[:i]
+						}
+						if ip != "" {
+							wgPeerName[ip] = nm
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Flows (top 100 by recency, decorated). Per-flow TCP telemetry rides
 	// along on the same row so the dashboard renders identical numbers to the
 	// TUI - one flow table, source-tagged.
@@ -698,6 +787,14 @@ func (s *Server) buildSnapshot() snapshot {
 			ALabel: labelFor(f.Key.A.IP), BLabel: labelFor(f.Key.B.IP),
 			Service: f.Service, DNS: f.DNSName,
 			Packets: f.Packets, Bytes: f.Bytes,
+		}
+		// Name a wg peer endpoint when DNS didn't already name the flow.
+		if fv.DNS == "" {
+			if nm := wgPeerName[f.Key.A.IP]; nm != "" {
+				fv.DNS = "wg:" + nm
+			} else if nm := wgPeerName[f.Key.B.IP]; nm != "" {
+				fv.DNS = "wg:" + nm
+			}
 		}
 		if f.HasTCP() {
 			fv.TCPSource = f.TCP.Source
@@ -870,6 +967,44 @@ func (s *Server) buildSnapshot() snapshot {
 		}
 	}
 
+	// WireGuard devices/peers from the collector's enriched snapshot (public
+	// material only). Absent block = no WG device or state unreadable.
+	if wc := eng.WireGuard(); wc != nil {
+		if wgSnap, ok := wc.Snapshot(); ok {
+			for _, d := range wgSnap.Devices {
+				dv := wgDeviceView{
+					Name: d.Name, Label: d.Label, PublicKey: d.PublicKey, ListenPort: d.ListenPort,
+					Up: d.Up, Running: d.Running, MTU: d.MTU, TxQLen: d.TxQLen,
+					RxBytes: d.RxBytes, TxBytes: d.TxBytes,
+					RxErrors: d.RxErrors, TxErrors: d.TxErrors,
+					RxDropped: d.RxDropped, TxDropped: d.TxDropped,
+					ErrDelta: d.ErrDelta, DropDelta: d.DropDelta,
+					ErrHealth: string(d.ErrHealth), Health: string(d.Health),
+					NetplanKnown: d.NetplanKnown, ConfiguredAddress: d.ConfiguredAddress,
+					ConfiguredPeers: d.ConfiguredPeers, DriftCount: d.DriftCount,
+				}
+				for _, p := range d.Peers {
+					age := int64(-1)
+					if !p.Never {
+						age = int64(p.HandshakeAge.Seconds())
+					}
+					dv.Peers = append(dv.Peers, wgPeerView{
+						PublicKey: p.PublicKey, Name: p.Name, Short: p.PeerName(),
+						Endpoint: p.Endpoint, AllowedIPs: p.AllowedIPs,
+						Drift: string(p.Drift), ConfiguredOnly: p.ConfiguredOnly,
+						ConfiguredEndpoint: p.ConfiguredEndpoint, ConfiguredIPs: p.ConfiguredAllowedIPs,
+						Handshake: p.HandshakeLabel(), HandshakeAgeS: age,
+						Severity: string(p.Severity), Health: string(p.Health),
+						RxBytes: p.ReceiveBytes, TxBytes: p.TransmitBytes,
+						TxHistory: p.TXHistory, RxHistory: p.RXHistory,
+						KeepaliveSec: int(p.PersistentKeepalive.Seconds()),
+					})
+				}
+				snap.WireGuard = append(snap.WireGuard, dv)
+			}
+		}
+	}
+
 	// TCPDump jobs.
 	if mgr := eng.TCPDump(); mgr != nil {
 		for _, j := range mgr.List() {
@@ -960,6 +1095,12 @@ func (s *Server) buildSnapshot() snapshot {
 		FlowRetransPct:      th.FlowRetransPct,
 		ExpectedDownMbps:    th.ExpectedDownMbps,
 		ExpectedUpMbps:      th.ExpectedUpMbps,
+
+		WireGuardServerAddr:   th.WireGuardServerAddr,
+		WireGuardListenPort:   th.WireGuardListenPort,
+		WireGuardNetplanPath:  th.WireGuardNetplanPath,
+		WireGuardTunnelSubnet: th.WireGuardTunnelSubnet,
+		WireGuardLANSubnets:   th.WireGuardLANSubnets,
 	}
 	return snap
 }

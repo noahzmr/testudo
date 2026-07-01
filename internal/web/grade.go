@@ -46,6 +46,7 @@ func computeGradeView(
 		wHTTP       = 0.05
 		wWiFi       = 0.05
 		wNAT        = 0.02
+		wWireGuard  = 0.05
 	)
 
 	wan := filterT(targets, isWANTargetW)
@@ -117,6 +118,7 @@ func computeGradeView(
 		{wHTTP, httpScore, hasHTTP, "HTTP"},
 		{wWiFi, wifiScore, hasWiFi, "WiFi"},
 		{wNAT, natScore, l3.HasConntrack, "NAT"},
+		{wWireGuard, qc.WGScore, qc.WGHasData, "WireGuard"},
 	}
 	var weighted, totalW float64
 	noData := []string{}
@@ -135,6 +137,7 @@ func computeGradeView(
 			Loss:    lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 			Firewall: fwScore, NAT: natScore, Congestion: congScore, Throughput: tputScore,
+			WireGuard:   qc.WGScore,
 			LossICMPPct: lossICMP, LossTCPPct: lossTCP, LossConnFailRate: tcp.ConnFailRate, LossHasTCP: tcp.HasFlowRTX,
 			PMTUBlackhole: tcp.PMTUBlackhole,
 			ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
@@ -158,6 +161,7 @@ func computeGradeView(
 		Loss: lossScore, RTT: rttScore, Jitter: jitScore, DNS: dnsScore,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 		Firewall: fwScore, NAT: natScore, Congestion: congScore,
+		WireGuard:     qc.WGScore,
 		PMTUBlackhole: tcp.PMTUBlackhole,
 		ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
 		ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,

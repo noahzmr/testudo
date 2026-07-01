@@ -69,6 +69,8 @@ var commandAliases = map[string]string{
 	"fw":         "Firewall",
 	"firewall":   "Firewall",
 	"nat":        "NAT",
+	"wg":         "WireGuard",
+	"wireguard":  "WireGuard",
 	"tcpdump":    "TCPDump",
 	"pcap":       "TCPDump",
 	"dump":       "TCPDump",

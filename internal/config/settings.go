@@ -103,6 +103,17 @@ type persistedThresholds struct {
 	MaxMindEditions     string  `json:"maxmind_editions"`
 	MaxMindAutoUpdate   bool    `json:"maxmind_auto_update"`
 	MaxMindRefreshHours int     `json:"maxmind_refresh_hours"`
+
+	WireGuardDevice          string `json:"wireguard_device"`
+	WireGuardTunnelSubnet    string `json:"wireguard_tunnel_subnet"`
+	WireGuardServerAddr      string `json:"wireguard_server_addr"`
+	WireGuardServerPublicKey string `json:"wireguard_server_public_key"`
+	WireGuardEndpoint        string `json:"wireguard_endpoint"`
+	WireGuardDNS             string `json:"wireguard_dns"`
+	WireGuardWANIface        string `json:"wireguard_wan_iface"`
+	WireGuardLANSubnets      string `json:"wireguard_lan_subnets"`
+	WireGuardListenPort      int    `json:"wireguard_listen_port"`
+	WireGuardNetplanPath     string `json:"wireguard_netplan_path"`
 }
 
 func (p persistedThresholds) toThresholds() Thresholds {
@@ -133,6 +144,17 @@ func (p persistedThresholds) toThresholds() Thresholds {
 		MaxMindEditions:     p.MaxMindEditions,
 		MaxMindAutoUpdate:   p.MaxMindAutoUpdate,
 		MaxMindRefreshHours: p.MaxMindRefreshHours,
+
+		WireGuardDevice:          p.WireGuardDevice,
+		WireGuardTunnelSubnet:    p.WireGuardTunnelSubnet,
+		WireGuardServerAddr:      p.WireGuardServerAddr,
+		WireGuardServerPublicKey: p.WireGuardServerPublicKey,
+		WireGuardEndpoint:        p.WireGuardEndpoint,
+		WireGuardDNS:             p.WireGuardDNS,
+		WireGuardWANIface:        p.WireGuardWANIface,
+		WireGuardLANSubnets:      p.WireGuardLANSubnets,
+		WireGuardListenPort:      p.WireGuardListenPort,
+		WireGuardNetplanPath:     p.WireGuardNetplanPath,
 	}
 }
 
@@ -164,5 +186,16 @@ func persistedFromThresholds(t Thresholds) persistedThresholds {
 		MaxMindEditions:     t.MaxMindEditions,
 		MaxMindAutoUpdate:   t.MaxMindAutoUpdate,
 		MaxMindRefreshHours: t.MaxMindRefreshHours,
+
+		WireGuardDevice:          t.WireGuardDevice,
+		WireGuardTunnelSubnet:    t.WireGuardTunnelSubnet,
+		WireGuardServerAddr:      t.WireGuardServerAddr,
+		WireGuardServerPublicKey: t.WireGuardServerPublicKey,
+		WireGuardEndpoint:        t.WireGuardEndpoint,
+		WireGuardDNS:             t.WireGuardDNS,
+		WireGuardWANIface:        t.WireGuardWANIface,
+		WireGuardLANSubnets:      t.WireGuardLANSubnets,
+		WireGuardListenPort:      t.WireGuardListenPort,
+		WireGuardNetplanPath:     t.WireGuardNetplanPath,
 	}
 }

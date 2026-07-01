@@ -87,7 +87,9 @@ func (t *dashboardTab) View(w, h int) string {
 	}
 	fwRate, fwHas := t.eng.FirewallSignal()
 	qc := t.eng.QualitySnapshot()
-	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), tcpInputFrom(t.eng.TCPInfo(), t.eng.Flows()), throughputInputFrom(t.eng.Bandwidth()), t.eng.Settings().Snapshot(), qc.GradeContext())
+	gctx := qc.GradeContext()
+	gctx.WGScore, gctx.WGHasData = t.eng.WireGuardGrade()
+	grade := ComputeGrade(t.targets, t.dns, ifaces, wifi, fwRate, fwHas, l3InputFrom(t.eng.Neigh(), t.eng.NetlinkWatch()), tcpInputFrom(t.eng.TCPInfo(), t.eng.Flows()), throughputInputFrom(t.eng.Bandwidth()), t.eng.Settings().Snapshot(), gctx)
 	gradeRows := []string{
 		headerStyle.Render("Network Quality"),
 		"",
@@ -104,6 +106,7 @@ func (t *dashboardTab) View(w, h int) string {
 		renderSubScoreBar(grade.Stab, w),
 		renderSubScoreBar(grade.WiFi, w),
 		renderSubScoreBar(grade.NAT, w),
+		renderSubScoreBar(grade.WireGuard, w),
 	}
 	if grade.Loss.HasData && grade.LossHasTCP {
 		gradeRows = append(gradeRows,

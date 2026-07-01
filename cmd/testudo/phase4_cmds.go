@@ -14,6 +14,8 @@ import (
 	"github.com/noahzmr/testudo/internal/auth"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/discovery"
+	"github.com/noahzmr/testudo/internal/engine"
+	sentryx "github.com/noahzmr/testudo/internal/integrations/sentry"
 	"github.com/noahzmr/testudo/internal/probes"
 	"github.com/noahzmr/testudo/internal/web"
 )
@@ -72,6 +74,8 @@ func cmdWeb(args []string) error {
 	listen := fs.String("listen", cfg.WebListen, "HTTP bind address (host:port)")
 	dbPath := fs.String("db", cfg.SQLitePath, "SQLite database path")
 	storageDir := fs.String("storage", cfg.StorageDir, "storage directory")
+	allowWrites := fs.Bool("allow-netops-write", false, "permit netlink/nftables/netplan writes (firewall, routes, NAT, WireGuard management)")
+	usePrivsep := fs.Bool("privsep", true, "run privileged netops in a separate helper process and drop the engine's capabilities (set false for legacy single-process mode)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -103,15 +107,34 @@ func cmdWeb(args []string) error {
 
 	settings := config.NewSettingsStore(cfg.SettingsPath)
 	_ = settings.Load()
+	// --allow-netops-write=true wins; otherwise the persisted setting stands.
+	if *allowWrites {
+		_ = settings.Update(func(t *config.Thresholds) { t.AllowNetopsWrite = true })
+	}
 	cfg.Thresholds = settings.Snapshot()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	eng := newEngineWithSettings(cfg, store, settings)
+	// Privilege separation: spawn the helper (if enabled) and drop the engine's
+	// capabilities before starting, so the web server runs unprivileged and
+	// privileged netops/WireGuard/netplan writes go through the audited helper.
+	nw, helperClient, helperState := setupNetops(ctx, cfg, cfg.Thresholds.AllowNetopsWrite, *usePrivsep)
+	dsn := cfg.Thresholds.SentryDSN
+	if dsn == "" {
+		dsn = cfg.SentryDSN
+	}
+	_ = sentryx.Init(dsn, "testudo")
+	defer sentryx.Flush()
+
+	eng := engine.New(cfg, store, settings, nw)
+	if helperClient != nil {
+		eng.SetCaptureSpawner(helperCaptureSpawner{client: helperClient})
+	}
 	if err := eng.Start(ctx); err != nil {
 		return err
 	}
+	helperState.report(eng)
 	defer func() {
 		shutdownCtx, c := context.WithTimeout(context.Background(), 3*time.Second)
 		defer c()

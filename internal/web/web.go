@@ -112,6 +112,23 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/nat/del", s.protect(s.handleNATDel))
 	mux.HandleFunc("/api/conntrack/flush", s.protect(s.handleConntrackFlush))
 
+	// WireGuard: read via /api/snapshot; provision/deprovision here. Peer
+	// provisioning is a write-gated, audit-logged transaction with rollback.
+	mux.HandleFunc("/api/wireguard/interface", s.protect(s.handleWireGuardInterfaceCreate))
+	mux.HandleFunc("/api/wireguard/interface/delete", s.protect(s.handleWireGuardInterfaceDelete))
+	mux.HandleFunc("/api/wireguard/interface/name", s.protect(s.handleWireGuardInterfaceName))
+	mux.HandleFunc("/api/wireguard/interface/restart", s.protect(s.handleWireGuardInterfaceRestart))
+	mux.HandleFunc("/api/wireguard/interface/tune", s.protect(s.handleWireGuardInterfaceTune))
+	mux.HandleFunc("/api/wireguard/peer", s.protect(s.handleWireGuardProvision))
+	mux.HandleFunc("/api/wireguard/peer/update", s.protect(s.handleWireGuardUpdate))
+	mux.HandleFunc("/api/wireguard/peer/deprovision", s.protect(s.handleWireGuardDeprovision))
+	mux.HandleFunc("/api/wireguard/netplan/render", s.protect(s.handleWireGuardNetplanRender))
+	mux.HandleFunc("/api/wireguard/netplan/write", s.protect(s.handleWireGuardNetplanWrite))
+	mux.HandleFunc("/api/wireguard/netplan/list", s.protect(s.handleWireGuardNetplanList))
+	mux.HandleFunc("/api/wireguard/netplan/save", s.protect(s.handleWireGuardNetplanSave))
+	mux.HandleFunc("/api/wireguard/netplan/apply", s.protect(s.handleWireGuardNetplanApply))
+	mux.HandleFunc("/api/wireguard/netplan/save-apply", s.protect(s.handleWireGuardNetplanSaveApply))
+
 	// TCPDump
 	mux.HandleFunc("/api/tcpdump/start", s.protect(s.handleTCPDumpStart))
 	mux.HandleFunc("/api/tcpdump/stop", s.protect(s.handleTCPDumpStop))

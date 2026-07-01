@@ -26,6 +26,7 @@ import (
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/quality"
 	"github.com/noahzmr/testudo/internal/storage"
+	"github.com/noahzmr/testudo/internal/wireguard"
 )
 
 type Engine struct {
@@ -53,6 +54,7 @@ type Engine struct {
 	netwatch  *collectors.NetlinkWatchCollector
 	tcpinfo   *collectors.TCPInfoCollector
 	ntp       *collectors.NTPCollector
+	wg0       *wireguard.Collector
 	sup       *supervisor
 	sessionID string
 
@@ -186,6 +188,26 @@ func (e *Engine) TCPInfo() *collectors.TCPInfoCollector { return e.tcpinfo }
 // when NTP monitoring is disabled.
 func (e *Engine) NTP() *collectors.NTPCollector { return e.ntp }
 
+// WireGuard exposes the WireGuard collector so the TUI and Web UI can read the
+// live per-device/per-peer snapshot (handshake age, RX/TX, sparkline) and the
+// grade can read the WG sub-score. Returns nil when WireGuard monitoring is
+// disabled - callers must nil-check.
+func (e *Engine) WireGuard() *wireguard.Collector { return e.wg0 }
+
+// WireGuardSummary returns a compact, secrets-free rollup of the latest
+// WireGuard snapshot and whether a WG device exists. Used by the grade and
+// health surfaces without walking the full snapshot.
+func (e *Engine) WireGuardSummary() (wireguard.Summary, bool) {
+	if e.wg0 == nil {
+		return wireguard.Summary{}, false
+	}
+	snap, ok := e.wg0.Snapshot()
+	if !ok {
+		return wireguard.Summary{}, false
+	}
+	return snap.Summarize(), true
+}
+
 // FirewallSignal returns the current DROP/REJECT velocity (drops per second
 // across managed blocking rules) and whether any counted blocking rule
 // exists. hasDropRules=false maps to a neutral firewall sub-score so hosts
@@ -226,6 +248,7 @@ func (e *Engine) Start(parent context.Context) error {
 		e.startDiscovery(ctx)
 	}
 	e.startSnapshotter(ctx)
+	e.startWireGuardPersister(ctx)
 	e.startDownsampler(ctx)
 	e.startRollupAggregator(ctx)
 	e.startFlowSnapshotter(ctx)
@@ -669,6 +692,15 @@ func (e *Engine) startCollectorsNonCapture(ctx context.Context) {
 			MulticastThreshold: e.cfg.L2MulticastThreshold,
 		})
 	}
+	if e.cfg.WireGuardEnabled && e.netops != nil {
+		e.wg0 = &wireguard.Collector{
+			Netops:     e.netops,
+			Interval:   e.cfg.WireGuardInterval,
+			Names:      e.wireguardPeerNames,
+			IfaceNames: e.wireguardIfaceNames,
+		}
+		cs = append(cs, e.wg0)
+	}
 	for _, c := range cs {
 		c := c
 		e.wg.Add(1)
@@ -772,6 +804,12 @@ func (e *Engine) startAnalyzers(ctx context.Context) {
 			[]events.Kind{}},
 		{&analyzers.RetransmissionDetector{Settings: e.settings, Interval: 20 * time.Second},
 			[]events.Kind{}},
+	}
+	if e.cfg.WireGuardEnabled {
+		specs = append(specs, analyzerSpec{
+			a:     &analyzers.WireGuardHandshakeDetector{CoolDown: 120 * time.Second},
+			kinds: []events.Kind{events.KindWireGuardSnapshot},
+		})
 	}
 	if e.cfg.DeviceChatterEnabled && e.deviceBW != nil {
 		specs = append(specs, analyzerSpec{

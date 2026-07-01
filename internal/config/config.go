@@ -77,23 +77,40 @@ type Thresholds struct {
 	MaxMindEditions     string // comma-separated edition IDs to auto-download
 	MaxMindAutoUpdate   bool   // periodically re-download the configured editions
 	MaxMindRefreshHours int    // refresh cadence in hours; 0 => 7-day default
+
+	// WireGuard management inputs used by the "Provision Peer" flow. These are
+	// operator-set (not end-user) so a peer wizard can't fat-finger the routing
+	// policy. Public material only - no keys except the server's PUBLIC key.
+	WireGuardDevice          string // wg device to manage, e.g. "wg0"
+	WireGuardTunnelSubnet    string // IPAM pool, e.g. "10.8.0.0/24"
+	WireGuardServerAddr      string // server's tunnel address, e.g. "10.8.0.1"
+	WireGuardServerPublicKey string // server's PUBLIC key for client configs
+	WireGuardEndpoint        string // public endpoint host:port for client configs
+	WireGuardDNS             string // optional DNS pushed to clients (e.g. Pi-hole)
+	WireGuardWANIface        string // egress iface for the full-tunnel masquerade
+	WireGuardLANSubnets      string // comma-separated subnets for the split preset
+	WireGuardListenPort      int    // wg interface listen port for netplan render
+	WireGuardNetplanPath     string // netplan file to write, under /etc/netplan
 }
 
 func DefaultThresholds() Thresholds {
 	return Thresholds{
-		PacketLossPct:      2.0,
-		DNSLatencyMs:       120,
-		JitterMs:           20,
-		RTTMs:              150,
-		RetransmissionsPct: 5,
-		IncidentCooldown:   60 * time.Second,
-		AllowNetopsWrite:   false,
-		IPFIXEnabled:       false,
-		IPFIXEndpoint:      "",
-		IPFIXIntervalSec:   30,
-		IPFIXDomainID:      0,
-		EBPFEnabled:        false,
-		FlowRetransPct:     5,
+		PacketLossPct:        2.0,
+		DNSLatencyMs:         120,
+		JitterMs:             20,
+		RTTMs:                150,
+		RetransmissionsPct:   5,
+		IncidentCooldown:     60 * time.Second,
+		AllowNetopsWrite:     false,
+		IPFIXEnabled:         false,
+		IPFIXEndpoint:        "",
+		IPFIXIntervalSec:     30,
+		IPFIXDomainID:        0,
+		EBPFEnabled:          false,
+		FlowRetransPct:       5,
+		WireGuardDevice:      "wg0",
+		WireGuardListenPort:  51820,
+		WireGuardNetplanPath: "/etc/netplan/60-testudo-wg.yaml",
 	}
 }
 
@@ -306,9 +323,19 @@ type Config struct {
 	DeviceChatterEnabled bool
 	DeviceChatterFactor  float64
 
+	// WireGuardEnabled turns on the WireGuard collector (internal/wireguard):
+	// per-device/per-peer state, handshake-anomaly detection, per-peer
+	// throughput history, and replay sample persistence. Reading WireGuard
+	// state needs CAP_NET_ADMIN; without it the subsystem soft-fails to
+	// "not available" rather than erroring. WireGuardInterval is the poll cadence.
+	WireGuardEnabled  bool
+	WireGuardInterval time.Duration
+
 	// WebEnabled toggles the embedded HTTP UI.
 	WebEnabled bool
-	// WebListen is the bind address for the HTTP UI (host:port).
+	// WebListen is the bind address for the HTTP UI (host:port). Defaults to
+	// 0.0.0.0 so the UI is reachable from other hosts; override with --listen
+	// (e.g. 127.0.0.1:8080) to restrict it to loopback.
 	WebListen string
 
 	// SnapshotInterval is the cadence for per-session firewall/route/NAT/topology
@@ -399,8 +426,10 @@ func Default() Config {
 		NTPOffsetWarnMs:               100,
 		DeviceChatterEnabled:          true,
 		DeviceChatterFactor:           3.0,
+		WireGuardEnabled:              true,
+		WireGuardInterval:             7 * time.Second,
 		WebEnabled:                    false,
-		WebListen:                     "127.0.0.1:8080",
+		WebListen:                     "0.0.0.0:8080",
 		SnapshotInterval:              30 * time.Second,
 		PCAPMaxSize:                   64 * 1024 * 1024, // 64 MiB per rotated file
 	}

@@ -140,6 +140,7 @@ func cmdLive(args []string) error {
 	iface := fs.String("iface", "", "comma-separated interfaces to capture on; empty = auto-discover all")
 	allowWrites := fs.Bool("allow-netops-write", false, "permit netlink writes (iface up/down, route add/del, NAT add/del)")
 	usePrivsep := fs.Bool("privsep", true, "run privileged netops in a separate helper process and drop the engine's capabilities (set false for legacy single-process mode)")
+	wireguard := fs.Bool("wireguard", cfg.WireGuardEnabled, "enable WireGuard monitoring (per-peer handshake/throughput; needs CAP_NET_ADMIN to read state)")
 	bufferbloat := fs.Bool("bufferbloat", false, "enable bufferbloat probe (saturates link periodically to measure loaded-RTT delta)")
 	bufferbloatTarget := fs.String("bufferbloat-target", cfg.BufferbloatTarget, "ping target during bufferbloat probe")
 	bufferbloatEvery := fs.Duration("bufferbloat-interval", cfg.BufferbloatInterval, "gap between bufferbloat runs")
@@ -157,6 +158,7 @@ func cmdLive(args []string) error {
 	if *iface != "" {
 		cfg.CaptureIfaces = splitCSV(*iface)
 	}
+	cfg.WireGuardEnabled = *wireguard
 	cfg.BufferbloatEnabled = *bufferbloat
 	if *bufferbloatTarget != "" {
 		cfg.BufferbloatTarget = *bufferbloatTarget
@@ -389,21 +391,6 @@ func parseHostPort(s string, defaultPort uint16) (string, uint16, error) {
 // only to forward one call.
 func openStore(path string) (*storage.Store, error) {
 	return storage.Open(path)
-}
-
-// newEngineWithSettings builds an engine using the given settings store,
-// with netops writes disabled (cmdWeb runs read-only by default; the user
-// can still mutate state through the live mode).
-func newEngineWithSettings(cfg config.Config, store *storage.Store, settings *config.SettingsStore) *engine.Engine {
-	nw := &netops.Writer{AllowWrites: false}
-	// Hook Sentry from persisted Settings, falling back to the static cfg
-	// field for back-compat with environments that still wire the DSN there.
-	dsn := settings.Snapshot().SentryDSN
-	if dsn == "" {
-		dsn = cfg.SentryDSN
-	}
-	_ = sentryx.Init(dsn, "testudo")
-	return engine.New(cfg, store, settings, nw)
 }
 
 func splitCSV(s string) []string {

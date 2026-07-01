@@ -24,6 +24,7 @@
       <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.5a16 16 0 0 1 20 0"/><path d="M5 12a11 11 0 0 1 14 0"/><path d="M8.5 15.5a6 6 0 0 1 7 0"/><line x1="12" y1="19" x2="12.01" y2="19"/></symbol>
       <symbol id="i-firewall" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
       <symbol id="i-nat" viewBox="0 0 24 24"><polyline points="7 4 3 8 7 12"/><line x1="3" y1="8" x2="17" y2="8"/><polyline points="17 12 21 16 17 20"/><line x1="21" y1="16" x2="7" y2="16"/></symbol>
+      <symbol id="i-wireguard" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="2"/></symbol>
       <symbol id="i-tcpdump" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></symbol>
       <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></symbol>
       <symbol id="i-health" viewBox="0 0 24 24"><path d="M3 12h4l2 6 4-14 2 8h6"/></symbol>
@@ -60,6 +61,7 @@
           <div class="nav-group-label">Security</div>
           <button data-tab="firewall" class="tab"><svg class="nav-ico"><use href="#i-firewall"/></svg> Firewall</button>
           <button data-tab="nat" class="tab"><svg class="nav-ico"><use href="#i-nat"/></svg> NAT</button>
+          <button data-tab="wireguard" class="tab"><svg class="nav-ico"><use href="#i-wireguard"/></svg> WireGuard</button>
         </div>
 
         <div class="nav-group">
@@ -135,6 +137,12 @@
           <div class="kpi-group-label">Infrastructure</div>
           <div class="kpi-strip" id="kpi-infra"></div>
         </div>
+      </div>
+
+      <div class="card" id="wg-dash-card" hidden>
+        <h2>WireGuard <span class="muted" id="wg-dash-overall"></span></h2>
+        <div class="kpi-strip" id="wg-dash-kpis"></div>
+        <div id="wg-dash-ifaces"></div>
       </div>
 
       <div class="card-grid">
@@ -407,6 +415,139 @@
             <thead><tr><th>Proto</th><th>Original</th><th>Reply (NAT)</th><th>State</th><th>Bytes</th><th>Timeout</th><th>Action</th></tr></thead>
             <tbody id="conntrack-body"></tbody>
           </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- WIREGUARD ----------------------------------------------------- -->
+    <section data-pane="wireguard" class="pane" role="tabpanel" aria-label="WireGuard">
+      <div class="card kpi-card">
+        <h2>WireGuard stats</h2>
+        <div class="kpi-strip" id="wg-stats"></div>
+      </div>
+      <div class="card">
+        <h2>Add interface</h2>
+        <p class="muted">
+          Creates a netplan tunnel (<code>mode: wireguard</code>) and applies it. Leave the
+          private key blank to generate one - the server public key is shown once; the private
+          key stays in the 0600 netplan file only.
+        </p>
+        <div class="form-grid">
+          <label>device<input id="wg-if-new-dev" placeholder="wg1"/></label>
+          <label>address<input id="wg-if-new-addr" placeholder="10.9.0.1/24"/></label>
+          <label>listen port<input id="wg-if-new-port" type="number" placeholder="51821"/></label>
+          <label>private key<input id="wg-if-new-key" type="password" placeholder="blank = generate"/></label>
+        </div>
+        <div class="row"><button data-action="wg-iface-create" class="btn btn-go">Create interface</button></div>
+      </div>
+      <div class="card">
+        <h2>Add peer</h2>
+        <p class="muted">
+          WireGuard's truth: a tunnel can be <b>UP</b> while a peer is dead (no handshake).
+          Provisioning is a write-gated, audit-logged transaction with rollback - it
+          configures the peer, routes its IP over the tunnel, and applies a firewall
+          preset. Presets (not free-form rules) keep the footguns away.
+        </p>
+        <div class="form-grid">
+          <label>name<input id="wg-name" placeholder="phone, laptop…"/></label>
+          <label>preset<select id="wg-preset">
+            <option value="split">split (LAN subnets only)</option>
+            <option value="full">full tunnel (masquerade WAN)</option>
+            <option value="isolated">isolated (server only)</option>
+          </select></label>
+          <label>keygen<select id="wg-keygen">
+            <option value="server">server-side (render config once)</option>
+            <option value="client">client-supplied public key</option>
+          </select></label>
+          <label>public key<input id="wg-pubkey" placeholder="base64 (client keygen only)"/></label>
+          <label>fixed IP<input id="wg-fixedip" placeholder="blank = next free"/></label>
+        </div>
+        <div class="row"><button data-action="wg-add" class="btn btn-go">Provision peer</button></div>
+      </div>
+      <div class="card">
+        <h2>Devices &amp; peers</h2>
+        <p class="muted">Handshake age is the health signal - <b>never</b>/stale peers are flagged. Public keys only.</p>
+        <div id="wg-body"></div>
+      </div>
+      <div class="card">
+        <h2>Interface (netplan)</h2>
+        <p class="muted">
+          On Ubuntu/Debian the wg interface is declared in
+          <code>netplan</code> (<code>mode: wireguard</code>). Testudo renders and writes it;
+          apply with <code>sudo netplan apply</code>. The private key is used only to
+          render/write the file (0600) and is never stored or logged.
+        </p>
+        <div class="form-grid">
+          <label>address<input id="wg-if-addr" placeholder="10.8.0.1/24"/></label>
+          <label>listen port<input id="wg-if-port" placeholder="51820"/></label>
+          <label>netplan path<input id="wg-if-path" placeholder="/etc/netplan/60-testudo-wg.yaml"/></label>
+          <label>private key<input id="wg-if-key" type="password" placeholder="wg interface private key (write-only)"/></label>
+        </div>
+        <div class="row">
+          <button data-action="wg-netplan-render" class="btn">Render preview</button>
+          <button data-action="wg-netplan-write" class="btn btn-go">Write netplan</button>
+        </div>
+        <pre id="wg-netplan-preview" class="wg-config-pre" hidden></pre>
+      </div>
+      <div class="card">
+        <h2>Netplan files</h2>
+        <p class="muted">
+          View and edit files under <code>/etc/netplan</code>. Files can contain the
+          interface private key, so this is an authenticated action and content is never
+          logged. <b>Save</b> writes the selected file (0600); <b>netplan apply</b> reloads
+          the system network config.
+        </p>
+        <div class="row">
+          <button data-action="wg-np-load" class="btn">Load / refresh</button>
+          <select id="wg-np-select" aria-label="netplan file"></select>
+          <span id="wg-np-managed" class="muted"></span>
+          <button data-action="wg-np-apply" class="btn btn-danger">netplan apply</button>
+        </div>
+        <textarea id="wg-np-editor" class="wg-np-editor" spellcheck="false" autocomplete="off" placeholder="press “Load / refresh”, then pick a file to view / edit"></textarea>
+        <div class="row">
+          <button data-action="wg-np-save" class="btn">Save file</button>
+          <button data-action="wg-np-save-apply" class="btn btn-go" title="backup → write → netplan generate (validate) → apply → rollback on failure">Save &amp; apply (safe)</button>
+        </div>
+      </div>
+      <!-- Full peer-edit modal: endpoint, allowed IPs, preset. -->
+      <div id="wg-edit-modal" class="wg-modal" hidden>
+        <div class="wg-modal-inner card">
+          <h2>Edit peer <span class="muted" id="wg-edit-short"></span></h2>
+          <div class="form-grid">
+            <label>endpoint<input id="wg-edit-endpoint" placeholder="host:port (blank clears)"/></label>
+            <label class="combo-field">allowed IPs
+              <div id="wg-allowed-combo" class="combo">
+                <div id="wg-allowed-pills" class="combo-pills">
+                  <input id="wg-allowed-input" class="combo-input" type="text" autocomplete="off" spellcheck="false" placeholder="type a CIDR or pick…"/>
+                </div>
+                <div id="wg-allowed-menu" class="combo-menu" role="listbox" hidden></div>
+              </div>
+            </label>
+            <label>keepalive (s)<input id="wg-edit-keepalive" type="number" min="0" placeholder="blank = leave · 0 = off · e.g. 25"/></label>
+            <label>preset<select id="wg-edit-preset">
+              <option value="split">split (LAN subnets only)</option>
+              <option value="full">full tunnel (masquerade WAN)</option>
+              <option value="isolated">isolated (server only)</option>
+            </select></label>
+          </div>
+          <div class="row">
+            <button data-action="wg-edit-save" class="btn btn-go">Save</button>
+            <button data-action="wg-edit-cancel" class="btn">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <!-- One-shot client-config modal. The private key lives only here in the
+           browser; the QR is rendered client-side and nothing is sent back. -->
+      <div id="wg-config-modal" class="wg-modal" hidden>
+        <div class="wg-modal-inner card">
+          <h2>WireGuard client config <span class="muted" id="wg-config-ip"></span></h2>
+          <p class="warn">Shown once - contains a PRIVATE key. Copy it or scan the QR now; the server never stores it.</p>
+          <pre id="wg-config-text" class="wg-config-pre"></pre>
+          <div id="wg-qr" class="wg-qr"></div>
+          <div class="row">
+            <button data-action="wg-config-copy" class="btn">Copy</button>
+            <button data-action="wg-config-close" class="btn btn-go">Done (wipe)</button>
+          </div>
         </div>
       </div>
     </section>

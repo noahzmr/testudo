@@ -11,6 +11,7 @@ This directory hosts deeper documentation that doesn't belong in the top-level
 | [storage.md](storage.md)                               | engineers, operators | Four storage layers and their lifetimes                              |
 | [replay.md](replay.md)                                 | operators            | Session capture, replay engine, timeline navigation                  |
 | [firewall.md](firewall.md)                             | operators            | nftables (default) and iptables (fallback) backends                  |
+| [wireguard.md](wireguard.md)                           | engineers, operators | WireGuard monitoring & management subsystem (roadmap)                |
 | [topology.md](topology.md)                             | operators            | Passive topology graph: nodes, edges, sources                        |
 | [alerts.md](alerts.md)                                 | operators            | Severity levels, default thresholds, anomaly engine                  |
 

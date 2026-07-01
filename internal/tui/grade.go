@@ -79,6 +79,10 @@ type NetworkGrade struct {
 	// aren't set or the link has been idle, so it never penalises an unused link.
 	Throughput subScore
 
+	// WireGuard - tunnel health: fraction of peers with a fresh handshake.
+	// Neutral 100 (no data) when no WG device exists or its state is unreadable.
+	WireGuard subScore
+
 	// Loss breakdown: the Loss sub-score follows the worse of ICMP/probe loss and
 	// the TCP retransmission rate. These carry the components (plus the live
 	// connection-failure rate) so the dashboard can explain why loss is high even
@@ -195,6 +199,11 @@ func ComputeGrade(
 		wHTTP       = 0.05
 		wWiFi       = 0.05
 		wNAT        = 0.02
+		// WireGuard tunnel health. Small weight (~5%) and neutral (excluded) when
+		// no WG device exists, so it only bites when a configured tunnel degrades.
+		// Renormalised at runtime alongside the others, so the totals need not be
+		// exactly 1.0.
+		wWireGuard = 0.05
 	)
 
 	wan := filterTargets(targets, isWANTarget)
@@ -228,6 +237,7 @@ func ComputeGrade(
 	natScore := scoreNATSub(l3.ConntrackUtil, l3.HasConntrack)
 	congScore := scoreCongestionSub(tcp.FlowRTXRate, tcp.HasFlowRTX, th.RetransmissionsPct)
 	tpScore := scoreThroughputSub(tp.PeakDownMbps, tp.PeakUpMbps, th.ExpectedDownMbps, th.ExpectedUpMbps)
+	wgScore := scoreWireGuardSub(qc)
 
 	// Renormalize over sub-scores that actually have data. A sub-score
 	// with HasData=false drops out of both the numerator and the
@@ -240,7 +250,7 @@ func ComputeGrade(
 	}{
 		{wLoss, loss}, {wRTT, rtt}, {wThroughput, tpScore}, {wCongestion, congScore},
 		{wDNS, dnsLat}, {wLAN, lanScore}, {wStab, stabScore}, {wJitter, jit},
-		{wHTTP, httpScore}, {wWiFi, wifiScore}, {wNAT, natScore},
+		{wHTTP, httpScore}, {wWiFi, wifiScore}, {wNAT, natScore}, {wWireGuard, wgScore},
 	}
 	var weighted, totalW float64
 	for _, p := range parts {
@@ -257,6 +267,7 @@ func ComputeGrade(
 			Loss:    loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 			LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 			Firewall: fwScore, NAT: natScore, Congestion: congScore, Throughput: tpScore,
+			WireGuard:     wgScore,
 			PMTUBlackhole: tcp.PMTUBlackhole,
 			ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
 			ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
@@ -280,6 +291,7 @@ func ComputeGrade(
 		Loss: loss, RTT: rtt, Jitter: jit, DNS: dnsLat,
 		LAN: lanScore, HTTP: httpScore, Stab: stabScore, WiFi: wifiScore,
 		Firewall: fwScore, NAT: natScore, Congestion: congScore, Throughput: tpScore,
+		WireGuard:     wgScore,
 		PMTUBlackhole: tcp.PMTUBlackhole,
 		ConnectStall:  tcp.ConnectStall, StalledConnects: tcp.StalledConn,
 		ConnResetSpike: tcp.ConnResetSpike, ConnResetRate: tcp.ConnFailRate,
@@ -566,6 +578,20 @@ func scoreNATSub(conntrackUtil float64, hasConntrack bool) subScore {
 		return subScore{Name: "nat", Unit: "%", OK: true}
 	}
 	return scoreFromMetric("nat", conntrackUtil*100, 70, "%")
+}
+
+// scoreWireGuardSub maps the WireGuard tunnel health carried in the grade
+// context to a sub-score. Neutral 100 with HasData=false when no WG device
+// exists or its state couldn't be read, so a host without WireGuard is never
+// penalised (the sub-score drops out of the weighted grade entirely).
+func scoreWireGuardSub(qc quality.GradeContext) subScore {
+	if !qc.WGHasData {
+		return subScore{Name: "wg", Unit: "peers", OK: true}
+	}
+	return subScore{
+		Name: "wg", Score: qc.WGScore, Value: float64(qc.WGScore),
+		Unit: "%", OK: qc.WGScore >= 80, HasData: true,
+	}
 }
 
 // scoreFirewallSub maps the managed DROP/REJECT velocity to a sub-score.

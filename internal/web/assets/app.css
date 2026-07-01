@@ -1014,3 +1014,75 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.12) !important; }
 }
 .sankey-filter-pill.is-active { display: inline-flex; }
 .sankey-filter-pill:hover { background: rgba(240, 136, 62, 0.25); }
+
+/* ---- WireGuard ---------------------------------------------------- */
+.wg-spark { font-family: var(--mono, monospace); letter-spacing: -1px; color: var(--accent-blue, #58a6ff); }
+/* Peer tables scroll on BOTH axes so a long peer list stays inside the card
+   with a sticky header, instead of pushing the page down indefinitely. */
+.wg-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 420px; margin: 0 calc(-1 * var(--sp-1)); }
+.wg-table-wrap thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-alt, #0d1117);
+}
+.wg-dev-head { margin: var(--sp-3) 0 var(--sp-1); }
+.wg-actions { white-space: nowrap; }
+.wg-iface-btns { white-space: nowrap; font-weight: 400; }
+.wg-dash-row { padding: 3px 0; border-top: 1px solid var(--border, #30363d); }
+.wg-dash-row:first-child { border-top: 0; }
+
+/* ---- Multi-select combo box (EUI-style token/pill input) ---------- */
+.combo-field { display: flex; flex-direction: column; gap: 4px; }
+.combo { position: relative; }
+.combo-pills {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  min-height: 34px; padding: 4px 6px;
+  background: var(--bg-alt, #0d1117);
+  border: 1px solid var(--border, #30363d); border-radius: 6px;
+}
+.combo-pills:focus-within { border-color: var(--accent-blue, #58a6ff); }
+.combo-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 6px; font-size: 12px; font-family: var(--mono, monospace);
+  background: rgba(88, 166, 255, 0.15); color: var(--accent-blue, #58a6ff);
+  border: 1px solid rgba(88, 166, 255, 0.4); border-radius: 10px;
+}
+.combo-pill button {
+  background: none; border: 0; color: inherit; cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 0; opacity: 0.8;
+}
+.combo-pill button:hover { opacity: 1; color: var(--accent-red, #f85149); }
+.combo-input {
+  flex: 1; min-width: 120px; border: 0; outline: none; background: transparent;
+  color: var(--fg, #e6edf3); font-size: 13px; padding: 2px;
+}
+.combo-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 130;
+  max-height: 220px; overflow-y: auto;
+  background: var(--bg, #161b22); border: 1px solid var(--border, #30363d);
+  border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+.combo-opt { padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.combo-opt.mono { font-family: var(--mono, monospace); }
+.combo-opt:hover, .combo-opt.active { background: rgba(88, 166, 255, 0.15); }
+.combo-opt .combo-create { color: var(--accent-green, #3fb950); }
+.combo-empty { padding: 6px 10px; font-size: 12px; color: var(--muted, #8b949e); }
+.wg-modal {
+  position: fixed; inset: 0; z-index: 120;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.6);
+}
+.wg-modal[hidden] { display: none; }
+.wg-modal-inner { max-width: 640px; width: 92%; max-height: 88vh; overflow: auto; }
+.wg-config-pre {
+  white-space: pre-wrap; word-break: break-all;
+  background: var(--bg-alt, #0d1117); border: 1px solid var(--border, #30363d);
+  border-radius: 6px; padding: 10px; font-family: var(--mono, monospace); font-size: 12px;
+}
+.wg-qr { display: flex; justify-content: center; padding: 8px 0; min-height: 24px; }
+.wg-np-editor {
+  width: 100%; min-height: 220px; margin: 6px 0; resize: vertical;
+  background: var(--bg-alt, #0d1117); color: var(--fg, #e6edf3);
+  border: 1px solid var(--border, #30363d); border-radius: 6px;
+  padding: 8px; font-family: var(--mono, monospace); font-size: 12px; line-height: 1.45;
+  white-space: pre; overflow: auto;
+}

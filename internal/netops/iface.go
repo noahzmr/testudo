@@ -39,6 +39,7 @@ type IfaceInfo struct {
 	Name       string
 	Index      int
 	MTU        int
+	TxQLen     int
 	Up         bool
 	Running    bool
 	HWAddr     string
@@ -84,10 +85,11 @@ func (w *Writer) ListIfaces() ([]IfaceInfo, error) {
 	for _, l := range links {
 		attrs := l.Attrs()
 		info := IfaceInfo{
-			Name:  attrs.Name,
-			Index: attrs.Index,
-			MTU:   attrs.MTU,
-			Up:    attrs.Flags&net.FlagUp != 0,
+			Name:   attrs.Name,
+			Index:  attrs.Index,
+			MTU:    attrs.MTU,
+			TxQLen: attrs.TxQLen,
+			Up:     attrs.Flags&net.FlagUp != 0,
 			// Carrier-less L3 devices (WireGuard, TUN/TAP, loopback, other
 			// tunnels) never set an operational state, so the kernel reports
 			// OperUnknown even while they are fully up and forwarding. Treat

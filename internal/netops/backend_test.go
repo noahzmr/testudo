@@ -82,3 +82,6 @@ func TestWritesGateBeforeBackend(t *testing.T) {
 type panicBackend struct{}
 
 func (panicBackend) Mutate(Op) error { panic("backend must not be reached when writes are disabled") }
+func (panicBackend) Query(Op) ([]byte, error) {
+	panic("backend must not be reached when writes are disabled")
+}

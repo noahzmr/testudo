@@ -46,6 +46,13 @@ const (
 	// for lack of capabilities. It drives the self-status surface in both UIs and
 	// is persisted so replay shows "capture went degraded at 19:44".
 	KindSubsystemDegraded Kind = "subsystem_degraded"
+
+	// KindWireGuardSnapshot carries a full per-tick view of every WireGuard
+	// device and its peers (see internal/wireguard). The payload is a
+	// WireGuardSnapshotPayload holding PUBLIC keys only - private/preshared keys
+	// never ride the bus. Both UIs, the anomaly analyzer, the WG sub-score, and
+	// the sample persister subscribe to it.
+	KindWireGuardSnapshot Kind = "wireguard_snapshot"
 )
 
 // Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
@@ -421,6 +428,8 @@ func kindMask(k Kind) uint64 {
 		return 1 << 17
 	case KindSubsystemDegraded:
 		return 1 << 18
+	case KindWireGuardSnapshot:
+		return 1 << 19
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

@@ -32,6 +32,11 @@ const (
 	OpCaptureStart  byte = 0x04 // body = JSON {args:[]string}; resp = JSON {pid:int}
 	OpCaptureStop   byte = 0x05 // body = JSON {pid:int}; signals the process group
 	OpCaptureStatus byte = 0x06 // body = JSON {pid:int}; resp = JSON {state,exitErr,done}
+
+	// OpQuery performs a privileged READ and returns its result in the response
+	// body. Unlike OpMutate (error only), the body carries JSON. Used for reads
+	// that need capabilities/root, e.g. listing /etc/netplan (0600 files).
+	OpQuery byte = 0x07 // body = encoded netops query descriptor; resp = JSON
 )
 
 // Response status bytes.

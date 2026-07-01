@@ -148,6 +148,40 @@ CREATE TABLE IF NOT EXISTS conntrack_samples (
 );
 CREATE INDEX IF NOT EXISTS idx_conntrack_session ON conntrack_samples(session_id, ts);
 
+-- Per-tick WireGuard peer samples for replay. PUBLIC KEYS ONLY - private and
+-- preshared keys never touch this table (secrets rule).
+CREATE TABLE IF NOT EXISTS wireguard_samples (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id        TEXT NOT NULL,
+    ts                INTEGER NOT NULL,
+    device            TEXT NOT NULL,
+    peer_public_key   TEXT NOT NULL,
+    handshake_age_sec INTEGER NOT NULL,   -- -1 = never established
+    rx_bytes          INTEGER NOT NULL,
+    tx_bytes          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wg_samples_session ON wireguard_samples(session_id, ts);
+CREATE INDEX IF NOT EXISTS idx_wg_samples_peer ON wireguard_samples(session_id, device, peer_public_key, ts);
+
+-- WireGuard peer metadata neither netplan nor the kernel stores: the human name
+-- and notes, keyed by the peer public key. NOT session-scoped (a peer's name
+-- persists across sessions). PUBLIC KEYS ONLY.
+CREATE TABLE IF NOT EXISTS wg_peer_meta (
+    pubkey     TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    notes      TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
+-- WireGuard interface (device) metadata: a human label neither netplan nor the
+-- kernel stores, keyed by device name (e.g. wg0).
+CREATE TABLE IF NOT EXISTS wg_iface_meta (
+    device     TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    notes      TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
 -- Per-(target, day-of-week, hour) baseline rollup. NOT session-scoped: the
 -- baseline is the long-horizon "normal" learned across sessions. Retained far
 -- longer than raw samples (~1 year vs 30 days) so it survives raw rotation.

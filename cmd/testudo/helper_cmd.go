@@ -121,6 +121,13 @@ func runHelper() error {
 				return nil, -1, fmt.Errorf("decode op: %w", err)
 			}
 			return nil, -1, nw.ApplyOp(o)
+		case privsep.OpQuery:
+			o, err := netops.DecodeOp(body)
+			if err != nil {
+				return nil, -1, fmt.Errorf("decode query: %w", err)
+			}
+			resp, err := nw.QueryOp(o)
+			return resp, -1, err
 		case privsep.OpOpenSocket:
 			return openPrivilegedSocket(body)
 		case privsep.OpCaptureStart:
