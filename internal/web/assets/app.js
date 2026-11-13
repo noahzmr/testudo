@@ -26,6 +26,9 @@
     // Load it lazily when the tab is shown.
     if (target === 'history') loadHistory();
     if (target === 'access') loadAccess();
+    // Hidden panes are not rendered by the poll; paint this one now from
+    // the last snapshot instead of waiting up to 2 s.
+    renderActive();
   }));
 
   // ---- Mobile nav drawer (sidebar collapses below 1080px) ----
@@ -737,22 +740,68 @@
     return mbps + ' Mbps';
   }
 
-  // ---- Sparkline (inline SVG) ----
-  function spark(values, color) {
-    if (!values || values.length === 0) {
-      return '<svg class="spark-svg"><line x1="0" y1="13" x2="100%" y2="13" stroke="#30363d"/></svg>';
+  // ---- Sparklines (inline SVG) ----
+  // sparkLines draws one or more series on a shared zero-based scale. With
+  // opts.threshold the alert threshold is drawn as a dashed line and included
+  // in the scale, so a line's height reads against "when does this alert",
+  // not against its own min/max: a calm 5 ms target hugs the floor, a target
+  // creeping toward the threshold visibly climbs to it.
+  const SPARK_W = 200;
+  const SPARK_H = 26;
+  function sparkLines(series, opts) {
+    opts = opts || {};
+    const open = '<svg class="spark-svg" viewBox="0 0 ' + SPARK_W + ' ' + SPARK_H
+      + '" preserveAspectRatio="none" aria-hidden="true" focusable="false">';
+    const all = [];
+    series.forEach(s => (s.values || []).forEach(v => { if (v >= 0) all.push(v); }));
+    if (!all.length) {
+      return open + '<line x1="0" y1="' + (SPARK_H - 2) + '" x2="' + SPARK_W + '" y2="' + (SPARK_H - 2)
+        + '" stroke="#2a313c" vector-effect="non-scaling-stroke"/></svg>';
     }
-    const w = 200;
-    const h = 26;
-    const max = Math.max(...values, 1);
-    const min = Math.min(...values, 0);
-    const range = (max - min) || 1;
-    const step = values.length > 1 ? w / (values.length - 1) : 0;
-    const points = values.map((v, i) =>
-      i * step + ',' + (h - ((v - min) / range) * (h - 4) - 2)
-    ).join(' ');
-    return '<svg class="spark-svg" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">'
-      + '<polyline fill="none" stroke="' + (color || '#58a6ff') + '" stroke-width="1.2" points="' + points + '"/></svg>';
+    const thr = opts.threshold > 0 ? opts.threshold : 0;
+    const max = Math.max(Math.max(...all), thr) || 1;
+    const y = v => ((SPARK_H - 2) - (Math.max(v, 0) / max) * (SPARK_H - 4)).toFixed(1);
+    let out = open;
+    if (thr) {
+      out += '<line x1="0" x2="' + SPARK_W + '" y1="' + y(thr) + '" y2="' + y(thr)
+        + '" stroke="#d29922" stroke-opacity="0.5" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>';
+    }
+    series.forEach(s => {
+      const v = (s.values || []).filter(x => x >= 0);
+      if (!v.length) return;
+      const step = v.length > 1 ? SPARK_W / (v.length - 1) : 0;
+      const pts = v.map((x, i) => (i * step).toFixed(1) + ',' + y(x)).join(' ');
+      out += '<polyline fill="none" stroke="' + s.color + '" stroke-width="1.5" stroke-linejoin="round"'
+        + ' vector-effect="non-scaling-stroke" points="' + pts + '"/>';
+    });
+    return out + '</svg>';
+  }
+
+  // setHTML skips the DOM write when the markup is unchanged, so a 2 s poll
+  // that brings no news keeps hover, focus and open tooltips intact.
+  function setHTML(el, html) {
+    if (!el || el._html === html) return;
+    el.innerHTML = html;
+    el._html = html;
+  }
+
+  // Probe targets share one aggregator with internal pseudo-targets: WiFi
+  // link metrics ("wifi:<metric>:<iface>"), traceroute hops and bufferbloat
+  // runs. Those are not latencies to a host and have their own views, so the
+  // dashboard drops them (the grade code in internal/web/grade.go does the
+  // same).
+  function targetKind(name) {
+    if (/^(wifi|trace|bufferbloat):/.test(name)) return 'internal';
+    if (/^https?:\/\//.test(name)) return 'http';
+    if (/^(\[[^\]]+\]|[^:]+):\d+$/.test(name)) return 'tcp';
+    return 'icmp';
+  }
+  const KIND_ORDER = { icmp: 0, tcp: 1, http: 2 };
+  // Alert threshold per probe kind, in ms. HTTP uses the TTFB comfort level
+  // the grade scores against.
+  function targetThreshold(kind) {
+    if (kind === 'http') return 500;
+    return Number(lastThresholds.rtt_ms) || 150;
   }
 
   function gradeLetter(score) {
@@ -807,7 +856,7 @@
       ['WiFi',       g.wifi_score],
       ['NAT',        g.nat_score],
     ];
-    bars.innerHTML = rows.map(([label, score]) => {
+    setHTML(bars, rows.map(([label, score]) => {
       let tip = escape(GRADE_HELP[label] || '') + GRADE_SCORING;
       if (label === 'Loss' && g.loss_has_tcp) {
         tip += escape(' - now: ICMP ' + (g.loss_icmp_pct || 0).toFixed(1) + '%, TCP retrans '
@@ -830,7 +879,7 @@
         + '<div class="grade-bar-track"><div class="grade-bar-fill" style="width:' + (score || 0) + '%;background:' + color + '"></div></div>'
         + '<span class="grade-bar-value">' + (score || 0) + '</span>'
         + '</div>';
-    }).join('');
+    }).join(''));
     renderQualityContext(g);
     // Self-health badge: a degraded core signal collector means the grade is
     // measured with reduced coverage - flag it so an A isn't read as "all good".
@@ -1107,29 +1156,40 @@
           state: subState, sub: degraded === 0 ? 'all running' : degraded + ' degraded' });
   }
 
+  // One row per interface with rx and tx on a shared scale, busiest first.
+  // Interfaces that moved no bytes in the whole window (idle bridges, veths,
+  // libvirt) collapse into one line instead of a wall of flat sparklines.
   function renderBandwidth(rows) {
     const el = document.getElementById('bandwidth-list');
     if (!rows || rows.length === 0) {
-      el.innerHTML = '<div class="muted">…awaiting first sample</div>';
+      setHTML(el, '<div class="muted">…awaiting first sample</div>');
       return;
     }
-    el.innerHTML = rows.map(b => {
-      const rxLast = fmtBytes(b.current_rx || 0) + '/s';
-      const txLast = fmtBytes(b.current_tx || 0) + '/s';
-      const rxPeak = fmtBytes(b.peak_rx || 0) + '/s';
-      const txPeak = fmtBytes(b.peak_tx || 0) + '/s';
-      return ''
-        + '<div class="spark" title="rx ' + rxLast + ' · peak ' + rxPeak + '">'
-        +   '<span class="spark-label">' + escape(b.iface) + ' &darr; rx</span>'
-        +   spark(b.rx || [], '#58a6ff')
-        +   '<span class="spark-value">' + rxLast + '</span>'
-        + '</div>'
-        + '<div class="spark" title="tx ' + txLast + ' · peak ' + txPeak + '">'
-        +   '<span class="spark-label">' + escape(b.iface) + ' &uarr; tx</span>'
-        +   spark(b.tx || [], '#3cc7b8')
-        +   '<span class="spark-value">' + txLast + '</span>'
+    const moved = b => (b.rx || []).some(v => v > 0) || (b.tx || []).some(v => v > 0)
+      || (b.current_rx || 0) > 0 || (b.current_tx || 0) > 0;
+    const load = b => (b.current_rx || 0) + (b.current_tx || 0);
+    const peak = b => (b.peak_rx || 0) + (b.peak_tx || 0);
+    const active = rows.filter(moved).sort((a, b) => (load(b) - load(a)) || (peak(b) - peak(a)));
+    const idle = rows.filter(b => !moved(b)).map(b => b.iface).sort();
+    let html = active.map(b => {
+      const rx = fmtBytes(b.current_rx || 0) + '/s';
+      const tx = fmtBytes(b.current_tx || 0) + '/s';
+      const tip = escape(b.iface) + ' · rx ' + rx + ' (peak ' + fmtBytes(b.peak_rx || 0) + '/s) · tx '
+        + tx + ' (peak ' + fmtBytes(b.peak_tx || 0) + '/s)';
+      return '<div class="spark" title="' + tip + '">'
+        + '<span class="spark-label">' + escape(b.iface) + '</span>'
+        + sparkLines([{ values: b.rx, color: '#58a6ff' }, { values: b.tx, color: '#3cc7b8' }])
+        + '<span class="spark-value spark-pair"><span class="rx">&darr; ' + rx + '</span>'
+        + '<span class="tx">&uarr; ' + tx + '</span></span>'
         + '</div>';
     }).join('');
+    if (!active.length) html = '<div class="muted">no traffic in the last 120 s</div>';
+    if (idle.length) {
+      html += '<div class="spark-idle" title="' + escape(idle.join(', ')) + '">'
+        + idle.length + ' idle: ' + escape(idle.slice(0, 6).join(', ')) + (idle.length > 6 ? ', …' : '')
+        + '</div>';
+    }
+    setHTML(el, html);
   }
 
   function renderTalkers(hosts, procs, services) {
@@ -1174,25 +1234,20 @@
     ).join('') || '<tr><td colspan="7" class="muted">no services classified yet</td></tr>';
   }
 
-  function renderSparks(containerID, series, color) {
-    const el = document.getElementById(containerID);
-    const names = Object.keys(series);
-    if (names.length === 0) {
-      el.innerHTML = '<div class="muted">…awaiting samples</div>';
-      return;
-    }
-    el.innerHTML = names.map(name => {
-      const vals = (series[name] || []).filter(v => v >= 0);
-      const last = vals.length ? vals[vals.length - 1].toFixed(1) + 'ms' : '-';
-      return '<div class="spark"><span class="spark-label">' + escape(name) + '</span>'
-        + spark(vals, color)
-        + '<span class="spark-value">' + last + '</span></div>';
-    }).join('');
-  }
-
-  function renderTargets(rows) {
-    document.getElementById('targets-body').innerHTML = (rows || []).map(t => {
+  // Probe targets: one row per real target with its trend inline, so the
+  // dashboard no longer needs a separate sparkline card per protocol.
+  // Internal pseudo-targets are dropped (see targetKind).
+  function renderTargets(rows, series) {
+    series = series || {};
+    const list = (rows || [])
+      .map(t => Object.assign({ kind: targetKind(t.target) }, t))
+      .filter(t => t.kind !== 'internal')
+      .sort((a, b) => (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || a.target.localeCompare(b.target));
+    setHTML(document.getElementById('targets-body'), list.map(t => {
+      const thr = targetThreshold(t.kind);
       const lossClass = t.loss_pct >= 8 ? 'loss-err' : t.loss_pct >= 2 ? 'loss-warn' : 'loss-ok';
+      const lastMs = t.last_rtt_us > 0 ? t.last_rtt_us / 1000 : 0;
+      const lastClass = lastMs > thr ? 'loss-warn' : '';
       let baseline = '<span class="muted">learning…</span>';
       if (t.has_baseline) {
         const d = t.baseline_descr || '';
@@ -1202,29 +1257,36 @@
         baseline = '<span class="' + cls + '" title="' + escape(band) + '">' + escape(d) + '</span>';
       }
       return '<tr>'
-        + '<td>' + escape(t.target) + '</td>'
-        + '<td>' + fmtUs(t.last_rtt_us) + '</td>'
-        + '<td>' + fmtUs(t.avg_rtt_us) + '</td>'
-        + '<td>' + fmtUs(t.p50_rtt_us) + '</td>'
-        + '<td>' + fmtUs(t.p95_rtt_us) + '</td>'
-        + '<td>' + fmtUs(t.p99_rtt_us) + '</td>'
-        + '<td class="' + lossClass + '">' + t.loss_pct.toFixed(1) + '%</td>'
-        + '<td>' + t.jitter_ms.toFixed(1) + 'ms</td>'
+        + '<td><span class="probe-kind">' + t.kind + '</span>' + escape(t.target) + '</td>'
+        + '<td class="trend-cell" title="dashed line: ' + thr + ' ms threshold">'
+        +   sparkLines([{ values: series[t.target], color: '#58a6ff' }], { threshold: thr }) + '</td>'
+        + '<td class="num ' + lastClass + '">' + fmtUs(t.last_rtt_us) + '</td>'
+        + '<td class="num">' + fmtUs(t.avg_rtt_us) + '</td>'
+        + '<td class="num">' + fmtUs(t.p50_rtt_us) + '</td>'
+        + '<td class="num">' + fmtUs(t.p95_rtt_us) + '</td>'
+        + '<td class="num">' + fmtUs(t.p99_rtt_us) + '</td>'
+        + '<td class="num ' + lossClass + '">' + t.loss_pct.toFixed(1) + '%</td>'
+        + '<td class="num">' + t.jitter_ms.toFixed(1) + 'ms</td>'
         + '<td>' + baseline + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="9" class="muted">…awaiting first probe</td></tr>';
+    }).join('') || '<tr><td colspan="10" class="muted">…awaiting first probe</td></tr>');
   }
 
-  function renderDNS(rows) {
-    document.getElementById('dns-body').innerHTML = (rows || []).map(d =>
-      '<tr>'
-      + '<td>' + escape(d.name) + '</td>'
-      + '<td>' + fmtUs(d.last_us) + '</td>'
-      + '<td>' + fmtUs(d.avg_us) + '</td>'
-      + '<td>' + d.queries + '</td>'
-      + '<td>' + (d.failures > 0 ? '<span class="loss-warn">' + d.failures + '</span>' : '0') + '</td>'
-      + '</tr>'
-    ).join('') || '<tr><td colspan="5" class="muted">…awaiting first query</td></tr>';
+  function renderDNS(rows, series) {
+    series = series || {};
+    const thr = Number(lastThresholds.dns_latency_ms) || 120;
+    setHTML(document.getElementById('dns-body'), (rows || []).map(d => {
+      const lastClass = d.last_us / 1000 > thr ? 'loss-warn' : '';
+      return '<tr>'
+        + '<td>' + escape(d.name) + '</td>'
+        + '<td class="trend-cell" title="dashed line: ' + thr + ' ms threshold">'
+        +   sparkLines([{ values: series[d.name], color: '#3cc7b8' }], { threshold: thr }) + '</td>'
+        + '<td class="num ' + lastClass + '">' + fmtUs(d.last_us) + '</td>'
+        + '<td class="num">' + fmtUs(d.avg_us) + '</td>'
+        + '<td class="num">' + d.queries + '</td>'
+        + '<td class="num">' + (d.failures > 0 ? '<span class="loss-warn">' + d.failures + '</span>' : '0') + '</td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">…awaiting first query</td></tr>');
   }
 
   function renderFlows(rows) {
@@ -1254,8 +1316,15 @@
       + '<td>' + fmtBytes(f.bytes) + '</td>'
       + '</tr>'
     ).join('') || '<tr><td colspan="9" class="muted">no flows; start capture in this tab</td></tr>';
+  }
 
-    document.getElementById('flows-body-dash').innerHTML = (rows || []).slice(0, 5).map(f =>
+  // Dashboard "Top flows": the five biggest by bytes, then packets - not the
+  // first five the backend happens to list.
+  function renderTopFlows(rows) {
+    const top = (rows || []).slice()
+      .sort((a, b) => ((b.bytes || 0) - (a.bytes || 0)) || ((b.packets || 0) - (a.packets || 0)))
+      .slice(0, 5);
+    setHTML(document.getElementById('flows-body-dash'), top.map(f =>
       '<tr>'
       + '<td>' + escape(f.proto.toUpperCase()) + '</td>'
       + '<td>' + escape(f.iface) + '</td>'
@@ -1263,10 +1332,10 @@
       + '<td>' + escape(f.a) + ipBadge(f.a_label) + '</td>'
       + '<td>' + escape(f.b) + ipBadge(f.b_label) + '</td>'
       + '<td>' + escape(f.service || '-') + '</td>'
-      + '<td>' + f.packets + '</td>'
-      + '<td>' + fmtBytes(f.bytes) + '</td>'
+      + '<td class="num">' + f.packets + '</td>'
+      + '<td class="num">' + fmtBytes(f.bytes) + '</td>'
       + '</tr>'
-    ).join('') || '<tr><td colspan="8" class="muted">…awaiting flows</td></tr>';
+    ).join('') || '<tr><td colspan="8" class="muted">…awaiting flows</td></tr>');
   }
 
   // Process -> Iface -> Service -> Host Sankey for the Flows tab. Aggregates
@@ -2977,14 +3046,60 @@
   }
 
   // ---- Refresh loop ----
+  // The snapshot is fetched every 2 s, but only the visible pane renders:
+  // hidden panes (the d3 Sankey layout above all) cost nothing until they
+  // are opened, and a tab switch renders from the last snapshot at once.
+  // Polling pauses while the browser tab is in the background, except while
+  // a default-deny commit-confirm is pending (the confirm rides on a poll).
   let refreshing = false;
   let lastThresholds = {};
+  let lastSnap = null;
+  const PANE_RENDERERS = {
+    dashboard: s => {
+      renderGrade(s.grade || {});
+      renderKpis(s);
+      renderWGDashboard(s.wireguard);
+      renderBandwidth(s.bandwidth || []);
+      renderWiFi(s.wifi);
+      renderTargets(s.targets, s.latency_series);
+      renderDNS(s.dns, s.dns_series);
+      renderTopFlows(s.flows);
+    },
+    flows: s => {
+      renderCapture(s.capture || { running: false, ifaces: [] });
+      renderFlows(s.flows);
+      renderFlowsSankey(s.flows);
+    },
+    talkers:   s => renderTalkers(s.top_hosts, s.top_processes, s.top_services),
+    devices:   s => { renderDevices(s.devices); renderNeighbours(s.neighbours, s.ip_conflicts); },
+    ifaces:    s => { renderIfaces(s.ifaces, s.wifi); renderWatcher(s.watcher); },
+    wifi:      s => renderWiFiDetail(s.wifi),
+    routes:    s => { renderRoutes(s.routes); renderWatcher(s.watcher); },
+    firewall:  s => renderFirewall(s.filter_rules, s.firewall, s.firewall_rules),
+    nat:       s => { renderNAT(s.nat); renderConntrack(s.conntrack, s.thresholds && s.thresholds.allow_netops_write); },
+    wireguard: s => renderWireGuard(s.wireguard),
+    tcpdump:   s => renderTCPDump(s.tcpdump),
+    alerts:    s => renderAlerts(s.anomalies),
+    health:    s => renderHealth(s.subsystems, s.audit, s.privsep),
+    settings:  s => renderIPFIX(s.ipfix),
+  };
+  function activePaneName() {
+    const p = document.querySelector('.pane.active');
+    return p ? p.dataset.pane : 'dashboard';
+  }
+  function renderActive() {
+    const fn = lastSnap && PANE_RENDERERS[activePaneName()];
+    if (!fn) return;
+    try { fn(lastSnap); } catch (e) { console.error('render failed', e); }
+  }
+
   async function refresh() {
     if (refreshing) return;
     refreshing = true;
     try {
       const snap = await api('/api/snapshot');
       if (!snap) return;
+      lastSnap = snap;
       lastThresholds = snap.thresholds || {};
       document.getElementById('session-id').textContent = snap.session || '-';
       document.getElementById('uptime').textContent = snap.uptime || '-';
@@ -2994,38 +3109,14 @@
       // operator can see the snapshot loop is actually breathing.
       const dot = document.getElementById('live-dot');
       if (dot) { dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
-      renderGrade(snap.grade || {});
-      renderKpis(snap);
-      renderBandwidth(snap.bandwidth || []);
-      renderTalkers(snap.top_hosts, snap.top_processes, snap.top_services);
-      renderSparks('icmp-sparks', snap.latency_series || {}, '#58a6ff');
-      renderSparks('dns-sparks',  snap.dns_series || {}, '#3cc7b8');
-      renderTargets(snap.targets);
-      renderDNS(snap.dns);
-      renderFlows(snap.flows);
-      renderFlowsSankey(snap.flows);
-      renderDevices(snap.devices);
-      renderNeighbours(snap.neighbours, snap.ip_conflicts);
-      renderIfaces(snap.ifaces, snap.wifi);
-      renderWiFi(snap.wifi);
-      renderWiFiDetail(snap.wifi);
-      renderRoutes(snap.routes);
-      renderWatcher(snap.watcher);
+      // Always, whatever pane is open: the firewall policy renderer carries
+      // the commit-confirm, and the one-shot form prefills must land once.
       lastFWPolicy = snap.firewall_policy || null;
       renderFirewallPolicy(snap.firewall_policy);
-      renderFirewall(snap.filter_rules, snap.firewall, snap.firewall_rules);
-      renderNAT(snap.nat);
-      renderWGDashboard(snap.wireguard);
-      renderWireGuard(snap.wireguard);
       prefillWGInterface(snap.thresholds);
-      renderConntrack(snap.conntrack, snap.thresholds && snap.thresholds.allow_netops_write);
-      renderTCPDump(snap.tcpdump);
-      renderAlerts(snap.anomalies);
-      renderCapture(snap.capture || { running: false, ifaces: [] });
-      renderIPFIX(snap.ipfix);
-      renderHealth(snap.subsystems, snap.audit, snap.privsep);
       renderSettings(snap.thresholds);
       lastWG = snap.wireguard || [];
+      renderActive();
       if (isPaneActive('access') && (++pamTick % 5 === 0)) loadAccess();
     } catch (e) {
       console.error('refresh failed', e);
@@ -3033,10 +3124,15 @@
       refreshing = false;
     }
   }
+  function poll() {
+    if (document.hidden && !fwAutoConfirm) return;
+    refresh();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 
   // Live-update text filters without re-fetching.
-  document.getElementById('flow-filter').addEventListener('input', () => refresh());
-  document.getElementById('alert-filter').addEventListener('input', () => refresh());
+  document.getElementById('flow-filter').addEventListener('input', renderActive);
+  document.getElementById('alert-filter').addEventListener('input', renderActive);
 
   // Sankey filter pill: clears the flow-filter and re-renders. Same handler
   // for click and keyboard activation (Enter / Space) so the pill is usable
@@ -3058,7 +3154,7 @@
   // flow snapshot, so we don't need to refetch.
   ['sankey-metric', 'sankey-topn'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('change', () => refresh());
+    if (el) el.addEventListener('change', renderActive);
   });
 
   document.getElementById('logout').addEventListener('click', async () => {
@@ -3072,6 +3168,6 @@
     if (npSel) npSel.addEventListener('change', showSelectedNetplan);
   }
   refresh();
-  setInterval(refresh, 2000);
+  setInterval(poll, 2000);
   loadMe();
 })();

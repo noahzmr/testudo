@@ -926,6 +926,7 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.12) !important; }
   .kpi-label, .kpi-sub { font-size: var(--fs-2xs); }
   .spark-label { width: 13ch; }
   .spark-value { width: 9ch; }
+  .trend-cell { width: 72px; min-width: 72px; }
 }
 @media (max-width: 340px) {
   .kpi-strip { grid-template-columns: 1fr; }
@@ -1009,6 +1010,46 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.12) !important; }
 }
 .spark-label { width: 18ch; flex-shrink: 0; color: var(--fg-dim); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spark-svg { flex: 1; height: 28px; min-width: 60px; }
+/* rx/tx pair in the bandwidth rows */
+.spark-value.spark-pair { width: 13ch; display: flex; flex-direction: column; line-height: 1.25; font-size: var(--fs-xs); }
+.spark-pair .rx { color: var(--accent-blue); }
+.spark-pair .tx { color: var(--brand); }
+.spark-idle {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-soft);
+  color: var(--fg-faint);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Colour key in a card title (Bandwidth: rx / tx). */
+.legend { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 400; color: var(--fg-dim); }
+.legend .sw { display: inline-block; width: 12px; height: 2px; border-radius: 1px; margin-left: var(--sp-2); }
+.legend .sw:first-child { margin-left: 0; }
+.legend .sw-rx { background: var(--accent-blue); }
+.legend .sw-tx { background: var(--brand); }
+
+/* Data tables with inline trends: numbers right-aligned on tabular figures,
+   the trend column a fixed-width sparkline. */
+th.num, td.num { text-align: right; }
+.trend-cell { width: 168px; min-width: 120px; padding-top: 3px; padding-bottom: 3px; }
+.trend-cell .spark-svg { display: block; width: 100%; height: 24px; }
+.probe-kind {
+  display: inline-block;
+  min-width: 4ch;
+  margin-right: var(--sp-2);
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  font: 600 10px/1.6 var(--font-mono);
+  text-align: center;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
 .spark-value { width: 10ch; flex-shrink: 0; text-align: right; color: var(--fg-muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ============================================================================
@@ -1120,6 +1161,8 @@ tr.row-danger > td { background: rgba(248, 81, 73, 0.12) !important; }
   overflow: hidden;
 }
 .sankey-wrap svg { width: 100%; height: 100%; display: block; }
+/* No flows yet: the message, not a 520px empty box. */
+.sankey-wrap:has(.sankey-empty) { min-height: 0; }
 .sankey-wrap .sankey-node rect { stroke: rgba(0, 0, 0, 0.35); stroke-width: 0.5; cursor: pointer; }
 .sankey-wrap .sankey-node rect:hover { stroke: var(--fg); stroke-width: 1.2; }
 .sankey-wrap .sankey-link { fill: none; mix-blend-mode: screen; transition: stroke-opacity var(--t-fast) var(--ease); cursor: pointer; }

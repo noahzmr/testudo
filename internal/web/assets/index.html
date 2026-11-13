@@ -164,7 +164,7 @@
 
       <div class="card-grid">
         <div class="card">
-          <h2>Bandwidth · per interface <span class="muted">(1Hz, 120s window)</span></h2>
+          <h2>Bandwidth <span class="muted">per interface · last 120 s</span><span class="legend"><i class="sw sw-rx"></i>rx <i class="sw sw-tx"></i>tx</span></h2>
           <div id="bandwidth-list"></div>
         </div>
         <div class="card">
@@ -173,43 +173,31 @@
         </div>
       </div>
 
-      <div class="card-grid">
-        <div class="card">
-          <h2>ICMP latency <span class="muted">(rolling samples)</span></h2>
-          <div id="icmp-sparks"></div>
-        </div>
-        <div class="card">
-          <h2>DNS latency <span class="muted">(rolling samples)</span></h2>
-          <div id="dns-sparks"></div>
-        </div>
-      </div>
-
-      <div class="card-grid">
-        <div class="card">
-          <h2>ICMP · per-target detail</h2>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Target</th><th>Last</th><th>Avg</th><th>P50</th><th>P95</th><th>P99</th><th>Loss%</th><th>Jitter</th><th>Baseline</th></tr></thead>
-              <tbody id="targets-body"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="card">
-          <h2>DNS · per-resolver detail</h2>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Name</th><th>Last</th><th>Avg</th><th>Queries</th><th>Failures</th></tr></thead>
-              <tbody id="dns-body"></tbody>
-            </table>
-          </div>
+      <div class="card">
+        <h2>Probe targets <span class="muted">latency trend against the alert threshold (dashed)</span></h2>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Target</th><th>Trend</th><th class="num">Last</th><th class="num">Avg</th><th class="num">P50</th><th class="num">P95</th><th class="num">P99</th><th class="num">Loss</th><th class="num">Jitter</th><th>Baseline</th></tr></thead>
+            <tbody id="targets-body"></tbody>
+          </table>
         </div>
       </div>
 
       <div class="card">
-        <h2>Top flows</h2>
+          <h2>DNS resolvers</h2>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Name</th><th>Trend</th><th class="num">Last</th><th class="num">Avg</th><th class="num">Queries</th><th class="num">Failures</th></tr></thead>
+              <tbody id="dns-body"></tbody>
+            </table>
+          </div>
+      </div>
+
+      <div class="card">
+        <h2>Top flows <span class="muted">by bytes</span></h2>
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th>Packets</th><th>Bytes</th></tr></thead>
+          <table class="data-table">
+            <thead><tr><th>Proto</th><th>Iface</th><th>Process</th><th>A</th><th>B</th><th>Service</th><th class="num">Packets</th><th class="num">Bytes</th></tr></thead>
             <tbody id="flows-body-dash"></tbody>
           </table>
         </div>
