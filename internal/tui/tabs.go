@@ -14,6 +14,7 @@ import (
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/engine"
+	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/integrations/guacamole"
 	sentryx "github.com/noahzmr/testudo/internal/integrations/sentry"
@@ -905,7 +906,8 @@ type firewallTab struct {
 	eng     *engine.Engine
 	app     *App
 	rules   []netops.RuleInfo
-	managed []netops.FilterRule
+	managed []firewall.RuleStatus // policy rules (baseline included) joined with live counters
+	status  firewall.Status
 	err     error
 	cursor  int
 }
@@ -917,10 +919,12 @@ func newFirewallTab(eng *engine.Engine, app *App) *firewallTab {
 func (t *firewallTab) HelpHints() []KeyHint {
 	return []KeyHint{
 		{Key: "↑/↓ · j/k", Desc: "select rule"},
-		{Key: "a", Desc: "add filter rule (chain / action / proto / port / in / out / src / dst)"},
-		{Key: "e", Desc: "edit: open a pre-filled add modal from the selected managed rule"},
-		{Key: "x", Desc: "delete the selected managed rule (full tuple match)"},
-		{Key: "R", Desc: "reset the selected rule's counter (needs netops writes)"},
+		{Key: "a", Desc: "add policy rule (chain / action / proto / ports / ifaces / src / dst / ct state / rate / log)"},
+		{Key: "e", Desc: "edit: open a pre-filled add modal from the selected rule"},
+		{Key: "x", Desc: "delete the selected policy rule (baseline rules are read-only)"},
+		{Key: "E", Desc: "toggle default-deny (enforce) - enabling is commit-confirm, press C to keep it"},
+		{Key: "C", Desc: "confirm a pending default-deny change"},
+		{Key: "R", Desc: "reset the selected kernel rule's counter (needs netops writes)"},
 		{Key: "r", Desc: "refresh"},
 	}
 }
@@ -933,9 +937,21 @@ func (t *firewallTab) refresh() {
 		return
 	}
 	t.rules, t.err = t.eng.Netops().ListFirewallRules()
-	if t.err == nil {
-		t.managed, _ = t.eng.Netops().ListFilterRules()
+	if fw := t.eng.Firewall(); fw != nil {
+		t.managed, _ = fw.Rules()
+		t.status = fw.Status()
+	} else if ferr := t.eng.FirewallError(); ferr != nil && t.err == nil {
+		t.err = fmt.Errorf("firewall policy unavailable: %w", ferr)
 	}
+}
+
+// selectedManaged returns the policy rule under the cursor, if any.
+func (t *firewallTab) selectedManaged() (firewall.RuleStatus, bool) {
+	rows := t.rows()
+	if t.cursor < 0 || t.cursor >= len(rows) || rows[t.cursor].kind != firewallRowManaged {
+		return firewall.RuleStatus{}, false
+	}
+	return t.managed[rows[t.cursor].managedIdx], true
 }
 
 // firewallRowKind classifies one row in the unified firewall list.
@@ -995,24 +1011,29 @@ func (t *firewallTab) Update(msg tea.Msg) tea.Cmd {
 		case "r":
 			t.refresh()
 		case "a":
-			return t.openAddModal()
+			return t.openRuleModal("Add Policy Rule", netops.FilterRule{Chain: "input", Action: "drop", Proto: "tcp"})
 		case "e":
-			// Edit = open the add modal pre-filled from the selected managed
+			// Edit = open the add modal pre-filled from the selected policy
 			// rule. Decoded kernel rules aren't Testudo-managed, so editing
 			// them isn't offered.
-			if t.cursor >= 0 && t.cursor < len(rows) && rows[t.cursor].kind == firewallRowManaged {
-				return t.openEditModal(t.managed[rows[t.cursor].managedIdx])
-			}
-			return statusCmd("select a Testudo-managed rule to edit")
-		case "x":
-			// Only managed rules can be deleted from here; tell the user
-			// when they try to delete a decoded kernel rule.
-			if t.cursor >= 0 && t.cursor < len(rows) {
-				if rows[t.cursor].kind == firewallRowRule {
-					return statusCmd("kernel rule is read-only here - delete managed rules only")
+			if rs, ok := t.selectedManaged(); ok {
+				if rs.Baseline {
+					return statusCmd("baseline rules are rendered from the policy baseline - not editable per rule")
 				}
+				return t.openRuleModal("Edit Policy Rule (adds a new rule)", rs.FilterRule)
+			}
+			return statusCmd("select a policy rule to edit")
+		case "x":
+			// Only policy rules can be deleted from here; tell the user when
+			// they try to delete a decoded kernel rule or a baseline row.
+			if t.cursor >= 0 && t.cursor < len(rows) && rows[t.cursor].kind == firewallRowRule {
+				return statusCmd("kernel rule is read-only here - delete policy rules only")
 			}
 			return t.openDelModal()
+		case "E":
+			return t.openEnforceModal()
+		case "C":
+			return t.confirmEnforce()
 		case "R":
 			return t.resetSelectedCounter()
 		}
@@ -1020,84 +1041,170 @@ func (t *firewallTab) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (t *firewallTab) openAddModal() tea.Cmd {
-	modal := NewFormModal("Add Filter Rule (testudo_filter)",
+// firewallManager returns the policy manager or a status toast explaining why
+// firewall management is unavailable.
+func (t *firewallTab) firewallManager() (*firewall.Manager, tea.Cmd) {
+	if fw := t.eng.Firewall(); fw != nil {
+		return fw, nil
+	}
+	if err := t.eng.FirewallError(); err != nil {
+		return nil, statusCmd("firewall policy unavailable: " + err.Error())
+	}
+	return nil, statusCmd("netops not initialized - firewall management is off")
+}
+
+// openRuleModal opens the add-rule form pre-filled from src. Rules are never
+// mutated in place; "edit" means "add the corrected rule" (the operator
+// removes the stale one with x), which keeps the workflow identical to add.
+func (t *firewallTab) openRuleModal(title string, src netops.FilterRule) tea.Cmd {
+	fw, cmd := t.firewallManager()
+	if fw == nil {
+		return cmd
+	}
+	yesNo := func(b bool) string {
+		if b {
+			return "yes"
+		}
+		return "no"
+	}
+	modal := NewFormModal(title,
 		[]FormField{
-			{Label: "chain", Value: "input", Hint: "input / output / forward"},
-			{Label: "action", Value: "drop", Hint: "accept or drop"},
-			{Label: "proto", Value: "tcp", Hint: "tcp / udp / blank=any"},
-			{Label: "port", Value: "", Hint: "destination port 1-65535; blank=any (needs proto)"},
-			{Label: "in_iface", Value: "", Hint: "incoming interface (input/forward); blank=any"},
-			{Label: "out_iface", Value: "", Hint: "outgoing interface (output/forward); blank=any"},
-			{Label: "src", Value: "", Hint: "source IPv4 or CIDR (10.0.0.0/24); blank=any"},
-			{Label: "dst", Value: "", Hint: "destination IPv4 or CIDR; blank=any"},
+			{Label: "chain", Value: src.Chain, Hint: "input / output / forward"},
+			{Label: "action", Value: src.Action, Hint: "accept / drop / reject / log"},
+			{Label: "proto", Value: src.Proto, Hint: "tcp / udp / icmp / icmpv6 / blank=any"},
+			{Label: "port", Value: portOrBlank(src.Port), Hint: "destination port 1-65535; blank=any (needs tcp/udp)"},
+			{Label: "port_end", Value: portOrBlank(src.PortEnd), Hint: "inclusive range end; blank=single port"},
+			{Label: "in_iface", Value: src.InIface, Hint: "incoming interface (input/forward); blank=any"},
+			{Label: "out_iface", Value: src.OutIface, Hint: "outgoing interface (output/forward); blank=any"},
+			{Label: "src", Value: src.SrcCIDR, Hint: "source IP or CIDR, v4 or v6; blank=any"},
+			{Label: "dst", Value: src.DstCIDR, Hint: "destination IP or CIDR, v4 or v6; blank=any"},
+			{Label: "ct_state", Value: src.CtState, Hint: "new / established,related / invalid; blank=any"},
+			{Label: "rate_limit", Value: src.RateLimit, Hint: "N/second|minute|hour|day; blank=none"},
+			{Label: "rate_over", Value: yesNo(src.RateOver), Hint: "yes = match packets OVER the rate (brute-force style)"},
+			{Label: "log", Value: yesNo(src.Log), Hint: "yes = log matches before the verdict"},
+			{Label: "comment", Value: src.Comment, Hint: "optional"},
 		},
 		func(values map[string]string) error {
-			port := uint16(0)
-			if v := strings.TrimSpace(values["port"]); v != "" {
-				p, err := parseUint16(v)
-				if err != nil {
-					return fmt.Errorf("port: %v", err)
-				}
-				port = p
+			port, err := parseOptionalPort(values["port"])
+			if err != nil {
+				return fmt.Errorf("port: %v", err)
 			}
-			return t.eng.Netops().AddFilterRule(netops.FilterRule{
-				Chain:    strings.TrimSpace(values["chain"]),
-				Action:   strings.TrimSpace(values["action"]),
-				Proto:    strings.TrimSpace(values["proto"]),
-				Port:     port,
-				InIface:  strings.TrimSpace(values["in_iface"]),
-				OutIface: strings.TrimSpace(values["out_iface"]),
-				SrcCIDR:  strings.TrimSpace(values["src"]),
-				DstCIDR:  strings.TrimSpace(values["dst"]),
-			})
+			portEnd, err := parseOptionalPort(values["port_end"])
+			if err != nil {
+				return fmt.Errorf("port_end: %v", err)
+			}
+			rule := netops.FilterRule{
+				Chain:     strings.TrimSpace(values["chain"]),
+				Action:    strings.TrimSpace(values["action"]),
+				Proto:     strings.TrimSpace(values["proto"]),
+				Port:      port,
+				PortEnd:   portEnd,
+				InIface:   strings.TrimSpace(values["in_iface"]),
+				OutIface:  strings.TrimSpace(values["out_iface"]),
+				SrcCIDR:   strings.TrimSpace(values["src"]),
+				DstCIDR:   strings.TrimSpace(values["dst"]),
+				CtState:   strings.TrimSpace(values["ct_state"]),
+				RateLimit: strings.TrimSpace(values["rate_limit"]),
+				RateOver:  isYes(values["rate_over"]),
+				Log:       isYes(values["log"]),
+				Comment:   strings.TrimSpace(values["comment"]),
+			}
+			err = fw.AddRule(rule)
+			t.eng.AuditFirewall(tuiActor(), "rule_add", rule.String(), err)
+			return err
 		},
 	)
 	return t.app.SetModal(modal)
 }
 
-// openEditModal opens an add-rule modal pre-filled from an existing managed
-// rule. nftables filter rules aren't mutated in place; "edit" here means
-// "add the corrected rule" (the operator removes the stale one with x), which
-// keeps the modal workflow identical to add.
-func (t *firewallTab) openEditModal(src netops.FilterRule) tea.Cmd {
-	portStr := ""
-	if src.Port != 0 {
-		portStr = fmt.Sprintf("%d", src.Port)
+// openEnforceModal toggles default-deny. Enabling is commit-confirm: the
+// change applies at once and reverts after the window unless C is pressed -
+// the standard guard against locking yourself out of a remote box.
+func (t *firewallTab) openEnforceModal() tea.Cmd {
+	fw, cmd := t.firewallManager()
+	if fw == nil {
+		return cmd
 	}
-	modal := NewFormModal("Edit Filter Rule (adds a new rule)",
+	if t.status.Enforce {
+		modal := NewFormModal("Disable default-deny",
+			[]FormField{{Label: "confirm", Value: "", Hint: "type yes - input/forward chains go back to default-accept"}},
+			func(values map[string]string) error {
+				if !isYes(values["confirm"]) {
+					return fmt.Errorf("type yes to confirm")
+				}
+				err := fw.SetEnforce(false, 0)
+				t.eng.AuditFirewall(tuiActor(), "enforce", `{"enforce":false}`, err)
+				if err == nil {
+					t.refresh()
+				}
+				return err
+			})
+		return t.app.SetModal(modal)
+	}
+	modal := NewFormModal("Enable default-deny (policy DROP on input + forward)",
 		[]FormField{
-			{Label: "chain", Value: src.Chain, Hint: "input / output / forward"},
-			{Label: "action", Value: src.Action, Hint: "accept or drop"},
-			{Label: "proto", Value: src.Proto, Hint: "tcp / udp / blank=any"},
-			{Label: "port", Value: portStr, Hint: "destination port 1-65535; blank=any (needs proto)"},
-			{Label: "in_iface", Value: src.InIface, Hint: "incoming interface (input/forward); blank=any"},
-			{Label: "out_iface", Value: src.OutIface, Hint: "outgoing interface (output/forward); blank=any"},
-			{Label: "src", Value: src.SrcCIDR, Hint: "source IPv4 or CIDR; blank=any"},
-			{Label: "dst", Value: src.DstCIDR, Hint: "destination IPv4 or CIDR; blank=any"},
+			{Label: "confirm_sec", Value: "60", Hint: "auto-revert window; press C in the firewall tab within it to keep enforce on"},
+			{Label: "confirm", Value: "", Hint: "type yes - baseline keeps established/related, lo, ICMP, SSH and the Web UI port open"},
 		},
 		func(values map[string]string) error {
-			port := uint16(0)
-			if v := strings.TrimSpace(values["port"]); v != "" {
-				p, err := parseUint16(v)
-				if err != nil {
-					return fmt.Errorf("port: %v", err)
-				}
-				port = p
+			if !isYes(values["confirm"]) {
+				return fmt.Errorf("type yes to confirm")
 			}
-			return t.eng.Netops().AddFilterRule(netops.FilterRule{
-				Chain:    strings.TrimSpace(values["chain"]),
-				Action:   strings.TrimSpace(values["action"]),
-				Proto:    strings.TrimSpace(values["proto"]),
-				Port:     port,
-				InIface:  strings.TrimSpace(values["in_iface"]),
-				OutIface: strings.TrimSpace(values["out_iface"]),
-				SrcCIDR:  strings.TrimSpace(values["src"]),
-				DstCIDR:  strings.TrimSpace(values["dst"]),
-			})
-		},
-	)
+			secs := 60
+			if v := strings.TrimSpace(values["confirm_sec"]); v != "" {
+				if _, err := fmt.Sscanf(v, "%d", &secs); err != nil || secs < 0 {
+					return fmt.Errorf("confirm_sec: whole seconds, 0 = no safety net")
+				}
+			}
+			err := fw.SetEnforce(true, time.Duration(secs)*time.Second)
+			t.eng.AuditFirewall(tuiActor(), "enforce", fmt.Sprintf(`{"enforce":true,"confirm_sec":%d}`, secs), err)
+			if err == nil {
+				t.refresh()
+			}
+			return err
+		})
 	return t.app.SetModal(modal)
+}
+
+// confirmEnforce keeps a pending default-deny change.
+func (t *firewallTab) confirmEnforce() tea.Cmd {
+	fw, cmd := t.firewallManager()
+	if fw == nil {
+		return cmd
+	}
+	if !t.status.PendingConfirm {
+		return statusCmd("no default-deny change is pending confirmation")
+	}
+	err := fw.ConfirmEnforce()
+	t.eng.AuditFirewall(tuiActor(), "enforce_confirm", "{}", err)
+	if err != nil {
+		return statusCmd("confirm: " + err.Error())
+	}
+	t.refresh()
+	return statusCmd("default-deny confirmed")
+}
+
+func portOrBlank(p uint16) string {
+	if p == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", p)
+}
+
+func parseOptionalPort(s string) (uint16, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	return parseUint16(s)
+}
+
+func isYes(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "y", "yes", "true", "1", "on":
+		return true
+	}
+	return false
 }
 
 // resetSelectedCounter zeroes the per-rule counter on the highlighted decoded
@@ -1119,62 +1226,80 @@ func (t *firewallTab) resetSelectedCounter() tea.Cmd {
 	return statusCmd(fmt.Sprintf("counter reset on %s/%s/%s handle %d", r.Family, r.Table, r.Chain, r.Handle))
 }
 
+// openDelModal deletes the selected policy rule by its id after a yes/no
+// confirmation. Baseline rows are rendered from the policy baseline and are
+// not deletable one by one.
 func (t *firewallTab) openDelModal() tea.Cmd {
-	target := netops.FilterRule{Chain: "input"}
-	all := t.rows()
-	if t.cursor >= 0 && t.cursor < len(all) && all[t.cursor].kind == firewallRowManaged {
-		target = t.managed[all[t.cursor].managedIdx]
+	fw, cmd := t.firewallManager()
+	if fw == nil {
+		return cmd
 	}
-	portStr := ""
-	if target.Port != 0 {
-		portStr = fmt.Sprintf("%d", target.Port)
+	rs, ok := t.selectedManaged()
+	if !ok {
+		return statusCmd("select a policy rule to delete")
 	}
-	modal := NewFormModal("Delete Filter Rule",
-		[]FormField{
-			{Label: "chain", Value: target.Chain, Hint: "input / output / forward"},
-			{Label: "action", Value: target.Action, Hint: "accept / drop / blank=any"},
-			{Label: "proto", Value: target.Proto, Hint: "tcp / udp / blank=any"},
-			{Label: "port", Value: portStr, Hint: "destination port; blank=any"},
-			{Label: "in_iface", Value: target.InIface, Hint: "incoming iface; blank=any"},
-			{Label: "out_iface", Value: target.OutIface, Hint: "outgoing iface; blank=any"},
-			{Label: "src", Value: target.SrcCIDR, Hint: "source IPv4/CIDR; blank=any"},
-			{Label: "dst", Value: target.DstCIDR, Hint: "destination IPv4/CIDR; blank=any"},
-		},
+	if rs.Baseline {
+		return statusCmd("baseline rules are read-only - disable default-deny or edit the baseline to change them")
+	}
+	modal := NewFormModal("Delete rule: "+rs.FilterRule.String(),
+		[]FormField{{Label: "confirm", Value: "", Hint: "type yes to delete rule " + rs.ID}},
 		func(values map[string]string) error {
-			port := uint16(0)
-			if v := strings.TrimSpace(values["port"]); v != "" {
-				p, err := parseUint16(v)
-				if err != nil {
-					return fmt.Errorf("port: %v", err)
-				}
-				port = p
+			if !isYes(values["confirm"]) {
+				return fmt.Errorf("type yes to confirm")
 			}
-			return t.eng.Netops().DelFilterRule(netops.FilterRule{
-				Chain:    strings.TrimSpace(values["chain"]),
-				Action:   strings.TrimSpace(values["action"]),
-				Proto:    strings.TrimSpace(values["proto"]),
-				Port:     port,
-				InIface:  strings.TrimSpace(values["in_iface"]),
-				OutIface: strings.TrimSpace(values["out_iface"]),
-				SrcCIDR:  strings.TrimSpace(values["src"]),
-				DstCIDR:  strings.TrimSpace(values["dst"]),
-			})
+			err := fw.DelRule(rs.ID)
+			t.eng.AuditFirewall(tuiActor(), "rule_del", rs.FilterRule.String(), err)
+			if err == nil {
+				t.refresh()
+			}
+			return err
 		},
 	)
 	return t.app.SetModal(modal)
 }
 
+// policyHeader summarises the firewall policy state for the tab header: mode,
+// sync, pending commit-confirm.
+func (t *firewallTab) policyHeader() string {
+	st := t.status
+	mode := "default-accept"
+	if st.Enforce {
+		mode = "DEFAULT-DENY"
+	}
+	parts := []string{mode}
+	switch {
+	case st.PendingConfirm:
+		left := time.Until(st.PendingUntil).Round(time.Second)
+		parts = append(parts, fmt.Sprintf("UNCONFIRMED - press C within %s or it reverts", left))
+	case st.DriftError != "":
+		parts = append(parts, "kernel unreadable: "+st.DriftError)
+	case st.Inert && !st.TableExists:
+		parts = append(parts, "inert - nothing installed until the first rule or default-deny")
+	case !st.InSync && !st.LastChecked.IsZero():
+		parts = append(parts, "DRIFT: "+strings.Join(st.DriftDetail, "; "))
+	case st.LastError != "":
+		parts = append(parts, "error: "+st.LastError)
+	default:
+		parts = append(parts, "kernel in sync")
+	}
+	if !st.WritesAllowed {
+		parts = append(parts, "writes disabled")
+	}
+	return strings.Join(parts, " · ")
+}
+
 func (t *firewallTab) View(w, h int) string {
 	all := t.rows()
 	out := []string{headerStyle.Render(fmt.Sprintf(
-		"Firewall - %d managed · %d kernel rules · ↑/↓ select · a=add · e=edit · x=del · R=reset · r=refresh",
-		len(t.managed), len(t.rules)))}
+		"Firewall - %s · %d policy rules · %d kernel rules",
+		t.policyHeader(), t.status.RuleCount, len(t.rules)))}
+	out = append(out, dimStyle.Render("  ↑/↓ select · a=add · e=edit · x=del · E=toggle default-deny · C=confirm · R=reset counter · r=refresh"))
 	if t.err != nil {
 		out = append(out, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(out, "\n"))
 	}
 	if len(all) == 0 {
-		out = append(out, subtitleStyle.Render("  no rules visible - press 'a' to add the first managed rule"))
+		out = append(out, subtitleStyle.Render("  no rules visible - press 'a' to add the first policy rule"))
 		return boxStyle.Render(strings.Join(out, "\n"))
 	}
 
@@ -1182,12 +1307,12 @@ func (t *firewallTab) View(w, h int) string {
 	// marker / indent, the actual table width is w - 6.
 	innerW := w - 6
 
-	// Managed section first. Cursor index 0..len(managed)-1 falls here.
-	mw := []int{8, 7, 6, 6, 8, 8, 18, 18}
+	// Policy section first. Cursor index 0..len(managed)-1 falls here.
+	mw := []int{8, 8, 44, 16, 8, 8}
 	if len(t.managed) > 0 {
-		out = append(out, headerStyle.Render("Testudo-managed rules (editable)"))
+		out = append(out, headerStyle.Render("Policy rules (install order; baseline rows dimmed, read-only)"))
 		out = append(out, "  "+renderTableRow(innerW, mw,
-			"CHAIN", "ACTION", "PROTO", "PORT", "IN", "OUT", "SRC", "DST"))
+			"CHAIN", "ACTION", "MATCH", "OWNER", "PKTS", "BYTES"))
 	}
 	// Decoded per-rule section. Rules arrive already top-sorted per chain
 	// (highest-hit DROP/REJECT first); we print a sub-header whenever the
@@ -1199,17 +1324,25 @@ func (t *firewallTab) View(w, h int) string {
 		var rendered string
 		switch r.kind {
 		case firewallRowManaged:
-			fr := t.managed[r.managedIdx]
+			rs := t.managed[r.managedIdx]
+			action := strings.ToUpper(rs.Action)
+			if rs.Log && rs.Action != "log" {
+				action += "+LOG"
+			}
+			owner := rs.Owner
+			if owner == netops.OwnerUser {
+				owner = "-"
+			}
+			if !rs.Live {
+				owner = "NOT LIVE " + owner
+			}
+			pkts, bytes := "-", "-"
+			if rs.HasCounter {
+				pkts = fmt.Sprintf("%d", rs.Packets)
+				bytes = fmtBytes(rs.Bytes)
+			}
 			rendered = renderTableRow(innerW, mw,
-				fr.Chain,
-				strings.ToUpper(fr.Action),
-				orDash(strings.ToUpper(fr.Proto)),
-				orDash(portOrAny(fr.Port)),
-				orDash(fr.InIface),
-				orDash(fr.OutIface),
-				orDash(fr.SrcCIDR),
-				orDash(fr.DstCIDR),
-			)
+				rs.Chain, action, ruleMatchText(rs.FilterRule), owner, pkts, bytes)
 		case firewallRowRule:
 			ru := t.rules[r.ruleIdx]
 			if !ruleHeaderShown {
@@ -1242,6 +1375,8 @@ func (t *firewallTab) View(w, h int) string {
 		switch {
 		case i == t.cursor:
 			out = append(out, selectedRowStyle.Render(marker+rendered))
+		case r.kind == firewallRowManaged && t.managed[r.managedIdx].Baseline:
+			out = append(out, dimStyle.Render(marker+rendered))
 		case r.kind == firewallRowRule && t.rules[r.ruleIdx].IsBlocking() && t.rules[r.ruleIdx].Packets > 0:
 			// Active blocking rules are the "what's blocking me" signal -
 			// keep them at full intensity so they stand out.
@@ -1255,12 +1390,26 @@ func (t *firewallTab) View(w, h int) string {
 	return boxStyle.Render(strings.Join(out, "\n"))
 }
 
+// ruleMatchText is the nft-style one-liner without the leading chain and the
+// trailing action, i.e. just the match part for the table.
+func ruleMatchText(fr netops.FilterRule) string {
+	n := fr.Normalize()
+	s := strings.TrimPrefix(n.String(), n.Chain+" ")
+	s = strings.TrimSuffix(s, " "+n.Action)
+	s = strings.TrimSuffix(s, " log")
+	if s == "" || s == n.Action {
+		return "any"
+	}
+	return s
+}
+
 // ---- NAT ----
 
 type natTab struct {
 	eng      *engine.Engine
 	app      *App
-	forwards []netops.PortForward
+	forwards []firewall.ForwardStatus
+	masqs    []firewall.MasqStatus
 	err      error
 	cursor   int
 
@@ -1286,11 +1435,16 @@ func (t *natTab) Title() string    { return "NAT" }
 func (t *natTab) ShortKey() string { return "7" }
 func (t *natTab) Init() tea.Cmd    { return nil }
 func (t *natTab) refresh() {
-	if t.eng.Netops() == nil {
-		t.err = fmt.Errorf("netops not initialized")
+	fw := t.eng.Firewall()
+	if fw == nil {
+		if err := t.eng.FirewallError(); err != nil {
+			t.err = fmt.Errorf("firewall policy unavailable: %w", err)
+		} else {
+			t.err = fmt.Errorf("netops not initialized")
+		}
 		return
 	}
-	t.forwards, t.err = t.eng.Netops().ListPortForwards()
+	t.forwards, t.masqs, t.err = fw.NAT()
 	if t.cursor >= len(t.forwards) {
 		t.cursor = len(t.forwards) - 1
 	}
@@ -1393,15 +1547,20 @@ func (t *natTab) openAddModal() tea.Cmd {
 			{Label: "lan_port", Value: "", Hint: "internal port; blank = same as wan_port"},
 		},
 		func(values map[string]string) error {
+			fw := t.eng.Firewall()
+			if fw == nil {
+				return fmt.Errorf("firewall policy unavailable")
+			}
 			proto := values["proto"]
 			wanP, err := parseUint16(values["wan_port"])
 			if err != nil {
 				return fmt.Errorf("wan_port: %v", err)
 			}
 			lanP, _ := parseUint16(values["lan_port"])
-			return t.eng.Netops().AddPortForward(netops.PortForward{
-				Proto: proto, WANPort: wanP, LANIP: values["lan_ip"], LANPort: lanP,
-			})
+			pf := netops.PortForward{Proto: proto, WANPort: wanP, LANIP: values["lan_ip"], LANPort: lanP}
+			err = fw.AddForward(pf)
+			t.eng.AuditFirewall(tuiActor(), "forward_add", pf.String(), err)
+			return err
 		},
 	)
 	return t.app.SetModal(modal)
@@ -1423,11 +1582,20 @@ func (t *natTab) openDelModal() tea.Cmd {
 			{Label: "wan_port", Value: wanPort, Hint: "external port to remove"},
 		},
 		func(values map[string]string) error {
+			fw := t.eng.Firewall()
+			if fw == nil {
+				return fmt.Errorf("firewall policy unavailable")
+			}
 			wanP, err := parseUint16(values["wan_port"])
 			if err != nil {
 				return fmt.Errorf("wan_port: %v", err)
 			}
-			return t.eng.Netops().DelPortForward(values["proto"], wanP)
+			n, err := fw.DelForwardsMatching(values["proto"], wanP)
+			t.eng.AuditFirewall(tuiActor(), "forward_del", fmt.Sprintf(`{"proto":%q,"wan_port":%d}`, values["proto"], wanP), err)
+			if err == nil && n == 0 {
+				return fmt.Errorf("no forward for %s/%d", values["proto"], wanP)
+			}
+			return err
 		},
 	)
 	return t.app.SetModal(modal)
@@ -1455,20 +1623,51 @@ func (t *natTab) View(w, h int) string {
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
 	if len(t.forwards) == 0 {
-		rows = append(rows, subtitleStyle.Render("  no port forwards configured by Testudo"))
+		rows = append(rows, subtitleStyle.Render("  no port forwards in the firewall policy"))
 		rows = append(rows, dimStyle.Render("  press 'a' to add · or CLI: testudo nat add tcp 8080 192.168.1.10:80"))
 	} else {
-		widths := []int{6, 8, 8, 18, 8}
-		rows = append(rows, renderTableRow(innerW, widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT"))
+		widths := []int{6, 8, 8, 18, 8, 10, 14}
+		rows = append(rows, renderTableRow(innerW, widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT", "PKTS", "OWNER"))
 		for i, pf := range t.forwards {
+			pkts := "-"
+			if pf.HasCounter {
+				pkts = fmt.Sprintf("%d", pf.Packets)
+			}
+			owner := pf.Owner
+			if owner == netops.OwnerUser {
+				owner = "-"
+			}
+			if !pf.Live {
+				owner = "NOT LIVE"
+			}
 			row := renderTableRow(innerW, widths,
 				strings.ToUpper(pf.Proto), fmt.Sprintf("%d", pf.WANPort), "=>",
-				pf.LANIP, fmt.Sprintf("%d", pf.LANPort))
+				pf.LANIP, fmt.Sprintf("%d", pf.LANPort), pkts, owner)
 			if i == t.cursor && !t.focusCT {
 				rows = append(rows, selectedRowStyle.Render(row))
 			} else {
 				rows = append(rows, rowStyle.Render(row))
 			}
+		}
+	}
+	if len(t.masqs) > 0 {
+		rows = append(rows, "")
+		rows = append(rows, headerStyle.Render("Masquerades (source NAT; WireGuard full-tunnel peers appear here)"))
+		widths := []int{20, 12, 10, 24}
+		rows = append(rows, renderTableRow(innerW, widths, "SOURCE", "OUT IFACE", "PKTS", "OWNER"))
+		for _, ms := range t.masqs {
+			pkts := "-"
+			if ms.HasCounter {
+				pkts = fmt.Sprintf("%d", ms.Packets)
+			}
+			owner := ms.Owner
+			if owner == netops.OwnerUser {
+				owner = "-"
+			}
+			if !ms.Live {
+				owner = "NOT LIVE"
+			}
+			rows = append(rows, dimStyle.Render(renderTableRow(innerW, widths, ms.SrcCIDR, ms.OutIface, pkts, owner)))
 		}
 	}
 	rows = append(rows, "")

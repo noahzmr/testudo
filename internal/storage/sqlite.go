@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS wg_peer_meta (
     pubkey     TEXT PRIMARY KEY,
     name       TEXT NOT NULL DEFAULT '',
     notes      TEXT NOT NULL DEFAULT '',
+    user       TEXT NOT NULL DEFAULT '', -- owning user (PAM); '' = unbound
     created_at INTEGER NOT NULL
 );
 
@@ -231,6 +232,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     op        TEXT NOT NULL,    -- op kind, e.g. "route_add"
     args      TEXT NOT NULL,    -- JSON-encoded arguments
     peer_uid  INTEGER NOT NULL, -- SO_PEERCRED uid of the requesting process
+    actor     TEXT NOT NULL DEFAULT '', -- human behind the request (web user, tui/cli login); '' = unknown
     result    TEXT NOT NULL     -- "ok" or the error string
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
@@ -271,6 +273,10 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	if _, err := db.Exec(pamSchema); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("apply pam schema: %w", err)
 	}
 	return &Store{db: db}, nil
 }
@@ -321,6 +327,41 @@ func migrate(db *sql.DB) error {
 				if _, err := db.Exec(ddl); err != nil {
 					return fmt.Errorf("add flow_snapshots tcp columns: %w", err)
 				}
+			}
+		}
+	}
+
+	// Identity (PAM P3): audit rows gained the human actor next to the
+	// process uid. Older rows keep ''.
+	hasAudit, err := tableExists(db, "audit_log")
+	if err != nil {
+		return err
+	}
+	if hasAudit {
+		hasActor, err := columnExists(db, "audit_log", "actor")
+		if err != nil {
+			return err
+		}
+		if !hasActor {
+			if _, err := db.Exec("ALTER TABLE audit_log ADD COLUMN actor TEXT NOT NULL DEFAULT ''"); err != nil {
+				return fmt.Errorf("add audit_log actor column: %w", err)
+			}
+		}
+	}
+
+	// PAM (P4): WireGuard peers bind to users so grants compile to peer IPs.
+	hasPeerMeta, err := tableExists(db, "wg_peer_meta")
+	if err != nil {
+		return err
+	}
+	if hasPeerMeta {
+		hasUser, err := columnExists(db, "wg_peer_meta", "user")
+		if err != nil {
+			return err
+		}
+		if !hasUser {
+			if _, err := db.Exec("ALTER TABLE wg_peer_meta ADD COLUMN user TEXT NOT NULL DEFAULT ''"); err != nil {
+				return fmt.Errorf("add wg_peer_meta user column: %w", err)
 			}
 		}
 	}
@@ -698,16 +739,21 @@ func (s *Store) AnomaliesBySession(ctx context.Context, sessionID string) ([]Ano
 }
 
 // AuditEntry is one row in the audit_log: a privileged mutation, who requested
-// it, and how it turned out.
+// it, and how it turned out. PeerUID is the *process* identity the helper saw
+// (SO_PEERCRED); Actor is the *human* behind it - the Web UI session user, the
+// TUI/CLI login - threaded through from the request. Both matter: one tells
+// you which process asked, the other who was at the keyboard.
 type AuditEntry struct {
 	TS      time.Time
 	Op      string
 	Args    string // JSON-encoded
 	PeerUID uint32
+	Actor   string // "" when unknown (engine-internal reconcile, legacy rows)
 	Result  string // "ok" or the error message
 }
 
-// InsertAudit appends one privileged-mutation record. Called by the helper.
+// InsertAudit appends one privileged-mutation record. Called by the helper for
+// kernel ops and by the engine for policy-level ops.
 func (s *Store) InsertAudit(ctx context.Context, e AuditEntry) error {
 	ts := e.TS
 	if ts.IsZero() {
@@ -718,8 +764,8 @@ func (s *Store) InsertAudit(ctx context.Context, e AuditEntry) error {
 		result = "ok"
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO audit_log (ts, op, args, peer_uid, result) VALUES (?, ?, ?, ?, ?)`,
-		ts.UnixMilli(), e.Op, e.Args, int64(e.PeerUID), result,
+		`INSERT INTO audit_log (ts, op, args, peer_uid, actor, result) VALUES (?, ?, ?, ?, ?, ?)`,
+		ts.UnixMilli(), e.Op, e.Args, int64(e.PeerUID), e.Actor, result,
 	)
 	return err
 }
@@ -730,7 +776,7 @@ func (s *Store) RecentAudit(ctx context.Context, limit int) ([]AuditEntry, error
 		limit = 200
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT ts, op, args, peer_uid, result FROM audit_log ORDER BY ts DESC LIMIT ?`, limit)
+		`SELECT ts, op, args, peer_uid, actor, result FROM audit_log ORDER BY ts DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -740,7 +786,7 @@ func (s *Store) RecentAudit(ctx context.Context, limit int) ([]AuditEntry, error
 		var e AuditEntry
 		var ms int64
 		var uid int64
-		if err := rows.Scan(&ms, &e.Op, &e.Args, &uid, &e.Result); err != nil {
+		if err := rows.Scan(&ms, &e.Op, &e.Args, &uid, &e.Actor, &e.Result); err != nil {
 			return nil, err
 		}
 		e.TS = time.UnixMilli(ms)

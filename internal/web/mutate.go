@@ -106,7 +106,7 @@ func (s *Server) handleIfaceUp(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().SetIfaceUp(b.Name); err != nil {
+	if err := s.netops(r).SetIfaceUp(b.Name); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -120,7 +120,7 @@ func (s *Server) handleIfaceDown(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().SetIfaceDown(b.Name); err != nil {
+	if err := s.netops(r).SetIfaceDown(b.Name); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -135,7 +135,7 @@ func (s *Server) handleIfaceAddAddr(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().AddAddr(b.Name, b.CIDR); err != nil {
+	if err := s.netops(r).AddAddr(b.Name, b.CIDR); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -150,7 +150,7 @@ func (s *Server) handleIfaceDelAddr(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().DelAddr(b.Name, b.CIDR); err != nil {
+	if err := s.netops(r).DelAddr(b.Name, b.CIDR); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -165,7 +165,7 @@ func (s *Server) handleIfaceMTU(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().SetMTU(b.Name, b.MTU); err != nil {
+	if err := s.netops(r).SetMTU(b.Name, b.MTU); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -179,7 +179,7 @@ func (s *Server) handleIfaceDHCP(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().SetIfaceDHCP(b.Name); err != nil {
+	if err := s.netops(r).SetIfaceDHCP(b.Name); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -194,7 +194,7 @@ func (s *Server) handleIfaceStatic(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().SetIfaceStatic(b.Name, b.CIDR); err != nil {
+	if err := s.netops(r).SetIfaceStatic(b.Name, b.CIDR); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -212,7 +212,7 @@ func (s *Server) handleRouteAdd(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().AddRoute(b.CIDR, b.Gateway, b.Iface); err != nil {
+	if err := s.netops(r).AddRoute(b.CIDR, b.Gateway, b.Iface); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -226,7 +226,7 @@ func (s *Server) handleRouteDel(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().DelRoute(b.CIDR); err != nil {
+	if err := s.netops(r).DelRoute(b.CIDR); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -234,30 +234,9 @@ func (s *Server) handleRouteDel(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- Firewall controls -----------------------------------------------
-
-func (s *Server) handleFirewallAdd(w http.ResponseWriter, r *http.Request) {
-	var b netops.FilterRule
-	if !readJSON(w, r, &b) {
-		return
-	}
-	if err := s.Engine.Netops().AddFilterRule(b); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-func (s *Server) handleFirewallDel(w http.ResponseWriter, r *http.Request) {
-	var b netops.FilterRule
-	if !readJSON(w, r, &b) {
-		return
-	}
-	if err := s.Engine.Netops().DelFilterRule(b); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeOK(w)
-}
+// Rule / NAT mutations live in firewall.go (policy manager). Only the
+// counter reset - a kernel-side tweak that is not part of the desired state -
+// stays here.
 
 // handleFirewallResetCounter zeroes a single rule's counter, identified by
 // its (family, table, chain, handle) tuple. Reuses the same netops-write
@@ -273,36 +252,7 @@ func (s *Server) handleFirewallResetCounter(w http.ResponseWriter, r *http.Reque
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().ResetRuleCounter(b.Family, b.Table, b.Chain, b.Handle); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-// ---- NAT controls ----------------------------------------------------
-
-func (s *Server) handleNATAdd(w http.ResponseWriter, r *http.Request) {
-	var b netops.PortForward
-	if !readJSON(w, r, &b) {
-		return
-	}
-	if err := s.Engine.Netops().AddPortForward(b); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-func (s *Server) handleNATDel(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		Proto   string `json:"proto"`
-		WANPort uint16 `json:"wan_port"`
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	if err := s.Engine.Netops().DelPortForward(b.Proto, b.WANPort); err != nil {
+	if err := s.netops(r).ResetRuleCounter(b.Family, b.Table, b.Chain, b.Handle); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -324,7 +274,7 @@ func (s *Server) handleConntrackFlush(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.Netops().FlushConntrack(netops.ConntrackFlow{
+	if err := s.netops(r).FlushConntrack(netops.ConntrackFlow{
 		Proto:     b.Proto,
 		OrigSrc:   b.OrigSrc,
 		OrigDst:   b.OrigDst,

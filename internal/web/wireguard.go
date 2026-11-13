@@ -31,7 +31,7 @@ func (s *Server) handleWireGuardProvision(w http.ResponseWriter, r *http.Request
 		writeErr(w, errInvalidPreset)
 		return
 	}
-	res, err := s.Engine.ProvisionWireGuardPeer(
+	res, err := s.Engine.ProvisionWireGuardPeer(actorFrom(r),
 		strings.TrimSpace(b.Name), preset, b.ServerKeygen,
 		strings.TrimSpace(b.PeerPublicKey), strings.TrimSpace(b.FixedIP))
 	if err != nil {
@@ -72,7 +72,7 @@ func (s *Server) handleWireGuardUpdate(w http.ResponseWriter, r *http.Request) {
 	if b.Keepalive != nil {
 		keepalive = *b.Keepalive
 	}
-	if err := s.Engine.UpdateWireGuardPeer(
+	if err := s.Engine.UpdateWireGuardPeer(actorFrom(r),
 		strings.TrimSpace(b.PeerPublicKey), strings.TrimSpace(b.Endpoint), b.AllowedIPs, keepalive, preset); err != nil {
 		writeErr(w, err)
 		return
@@ -111,7 +111,7 @@ func (s *Server) handleWireGuardInterfaceCreate(w http.ResponseWriter, r *http.R
 	if !readJSON(w, r, &b) {
 		return
 	}
-	pub, err := s.Engine.CreateWireGuardInterface(
+	pub, err := s.Engine.CreateWireGuardInterface(actorFrom(r),
 		strings.TrimSpace(b.Device), strings.TrimSpace(b.Address), b.ListenPort, strings.TrimSpace(b.PrivateKey))
 	if err != nil {
 		writeErr(w, err)
@@ -129,7 +129,7 @@ func (s *Server) handleWireGuardInterfaceDelete(w http.ResponseWriter, r *http.R
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.DeleteWireGuardInterface(strings.TrimSpace(b.Device)); err != nil {
+	if err := s.Engine.DeleteWireGuardInterface(actorFrom(r), strings.TrimSpace(b.Device)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -158,7 +158,7 @@ func (s *Server) handleWireGuardInterfaceTune(w http.ResponseWriter, r *http.Req
 	if b.Recommended {
 		p = engine.RecommendedTune()
 	}
-	if err := s.Engine.TuneWireGuardInterface(strings.TrimSpace(b.Device), p); err != nil {
+	if err := s.Engine.TuneWireGuardInterface(actorFrom(r), strings.TrimSpace(b.Device), p); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -178,7 +178,7 @@ func (s *Server) handleWireGuardInterfaceName(w http.ResponseWriter, r *http.Req
 		writeErr(w, wireguardError("device required"))
 		return
 	}
-	if err := s.Engine.SetWireGuardInterfaceName(strings.TrimSpace(b.Device), strings.TrimSpace(b.Name)); err != nil {
+	if err := s.Engine.SetWireGuardInterfaceName(actorFrom(r), strings.TrimSpace(b.Device), strings.TrimSpace(b.Name)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -197,7 +197,7 @@ func (s *Server) handleWireGuardInterfaceRestart(w http.ResponseWriter, r *http.
 		writeErr(w, wireguardError("device required"))
 		return
 	}
-	if err := s.Engine.RestartWireGuardInterface(strings.TrimSpace(b.Device)); err != nil {
+	if err := s.Engine.RestartWireGuardInterface(actorFrom(r), strings.TrimSpace(b.Device)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -227,7 +227,7 @@ func (s *Server) handleWireGuardNetplanSave(w http.ResponseWriter, r *http.Reque
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.SaveNetplan(strings.TrimSpace(b.Path), b.Content); err != nil {
+	if err := s.Engine.SaveNetplan(actorFrom(r), strings.TrimSpace(b.Path), b.Content); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -240,7 +240,7 @@ func (s *Server) handleWireGuardNetplanApply(w http.ResponseWriter, r *http.Requ
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.ApplyNetplan(); err != nil {
+	if err := s.Engine.ApplyNetplan(actorFrom(r)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -257,7 +257,7 @@ func (s *Server) handleWireGuardNetplanSaveApply(w http.ResponseWriter, r *http.
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.SafeApplyNetplan(strings.TrimSpace(b.Path), b.Content); err != nil {
+	if err := s.Engine.SafeApplyNetplan(actorFrom(r), strings.TrimSpace(b.Path), b.Content); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -273,7 +273,7 @@ func (s *Server) handleWireGuardNetplanWrite(w http.ResponseWriter, r *http.Requ
 	if !readJSON(w, r, &b) {
 		return
 	}
-	path, err := s.Engine.WriteWireGuardNetplan(strings.TrimSpace(b.PrivateKey))
+	path, err := s.Engine.WriteWireGuardNetplan(actorFrom(r), strings.TrimSpace(b.PrivateKey))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -294,7 +294,7 @@ func (s *Server) handleWireGuardDeprovision(w http.ResponseWriter, r *http.Reque
 	if !readJSON(w, r, &b) {
 		return
 	}
-	if err := s.Engine.DeprovisionWireGuardPeer(strings.TrimSpace(b.PeerPublicKey)); err != nil {
+	if err := s.Engine.DeprovisionWireGuardPeer(actorFrom(r), strings.TrimSpace(b.PeerPublicKey)); err != nil {
 		writeErr(w, err)
 		return
 	}

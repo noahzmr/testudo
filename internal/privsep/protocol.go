@@ -35,25 +35,55 @@ const (
 
 	// OpQuery performs a privileged READ and returns its result in the response
 	// body. Unlike OpMutate (error only), the body carries JSON. Used for reads
-	// that need capabilities/root, e.g. listing /etc/netplan (0600 files).
+	// that need capabilities/root: nftables tables and rules, conntrack,
+	// WireGuard devices, /etc/netplan (0600 files).
 	OpQuery byte = 0x07 // body = encoded netops query descriptor; resp = JSON
+
+	// OpContinue is a request continuation frame: its body is one chunk of a
+	// message that did not fit a single datagram. The final chunk is sent with
+	// the real opcode; the server concatenates in order (see Server.Serve).
+	OpContinue byte = 0x7F
 )
 
 // Response status bytes.
 const (
-	StatusOK  byte = 0x00
-	StatusErr byte = 0x01 // body is a UTF-8 error message
+	StatusOK   byte = 0x00
+	StatusErr  byte = 0x01 // body is a UTF-8 error message
+	StatusMore byte = 0x02 // body is one chunk; more frames follow, the last with StatusOK/StatusErr
 )
 
 // MaxFrame bounds a single datagram so a malformed length can't make either
-// side allocate without limit. SEQPACKET messages are small (a JSON mutation
-// descriptor or an error string), so 64 KiB is generous.
+// side allocate without limit. SEQPACKET datagrams are also bounded by the
+// socket buffer, so larger messages are split into MaxFrame-sized chunks
+// (OpContinue / StatusMore) and reassembled - a full nftables rule dump or a
+// conntrack table easily exceeds one frame.
 const MaxFrame = 64 << 10
 
+// MaxMessage bounds a reassembled multi-frame message on either side.
+const MaxMessage = 64 << 20
+
+// chunkSize is the payload per datagram once the one-byte header is taken.
+const chunkSize = MaxFrame - 1
+
 var (
-	errEmptyFrame  = errors.New("privsep: empty frame")
-	errFrameTooBig = errors.New("privsep: frame exceeds MaxFrame")
+	errEmptyFrame    = errors.New("privsep: empty frame")
+	errFrameTooBig   = errors.New("privsep: frame exceeds MaxFrame")
+	errMessageTooBig = errors.New("privsep: message exceeds MaxMessage")
 )
+
+// chunks splits a body into datagram-sized pieces. An empty body yields one
+// empty chunk so a header-only frame is still sent.
+func chunks(body []byte) [][]byte {
+	if len(body) == 0 {
+		return [][]byte{nil}
+	}
+	var out [][]byte
+	for len(body) > chunkSize {
+		out = append(out, body[:chunkSize])
+		body = body[chunkSize:]
+	}
+	return append(out, body)
+}
 
 // EncodeRequest frames an opcode + body into a single datagram payload.
 func EncodeRequest(op byte, body []byte) []byte {

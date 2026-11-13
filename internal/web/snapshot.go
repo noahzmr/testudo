@@ -17,41 +17,43 @@ import (
 // snapshot is the JSON shape consumed by the SPA. Keep field names stable;
 // the JS reads them by name.
 type snapshot struct {
-	Session       string               `json:"session"`
-	Uptime        string               `json:"uptime"`
-	Grade         gradeView            `json:"grade"`
-	Capture       captureView          `json:"capture"`
-	Targets       []targetView         `json:"targets"`
-	DNS           []dnsView            `json:"dns"`
-	Flows         []flowView           `json:"flows"`
-	Devices       []deviceView         `json:"devices"`
-	Ifaces        []ifaceView          `json:"ifaces"`
-	Routes        []routeView          `json:"routes"`
-	Watcher       watcherView          `json:"watcher"`
-	Firewall      []firewallTable      `json:"firewall"`
-	FirewallRules []firewallRuleView   `json:"firewall_rules"`
-	FilterRules   []filterRuleView     `json:"filter_rules"`
-	NAT           []natView            `json:"nat"`
-	WireGuard     []wgDeviceView       `json:"wireguard"`
-	Neighbours    []neighbourView      `json:"neighbours"`
-	Conflicts     []ipConflictView     `json:"ip_conflicts"`
-	Conntrack     conntrackView        `json:"conntrack"`
-	Anomalies     []anomalyView        `json:"anomalies"`
-	Thresholds    thresholdsView       `json:"thresholds"`
-	TCPDump       []tcpdumpView        `json:"tcpdump"`
-	IPFIX         ipfixView            `json:"ipfix"`
-	LatencySeries map[string][]float64 `json:"latency_series"`
-	DNSSeries     map[string][]float64 `json:"dns_series"`
-	Bandwidth     []bandwidthView      `json:"bandwidth"`
-	TopHosts      []hostRollupView     `json:"top_hosts"`
-	TopProcesses  []procRollupView     `json:"top_processes"`
-	TopServices   []serviceRollupView  `json:"top_services"`
-	Telemetry     telemetryView        `json:"telemetry"`
-	Clock         clockView            `json:"clock"`
-	WiFi          []wifiView           `json:"wifi"`
-	Subsystems    []subsystemView      `json:"subsystems"`
-	Audit         []auditView          `json:"audit"`
-	Privsep       string               `json:"privsep"`
+	Session        string               `json:"session"`
+	Uptime         string               `json:"uptime"`
+	Grade          gradeView            `json:"grade"`
+	Capture        captureView          `json:"capture"`
+	Targets        []targetView         `json:"targets"`
+	DNS            []dnsView            `json:"dns"`
+	Flows          []flowView           `json:"flows"`
+	Devices        []deviceView         `json:"devices"`
+	Ifaces         []ifaceView          `json:"ifaces"`
+	Routes         []routeView          `json:"routes"`
+	Watcher        watcherView          `json:"watcher"`
+	Firewall       []firewallTable      `json:"firewall"`
+	FirewallRules  []firewallRuleView   `json:"firewall_rules"`
+	FilterRules    []filterRuleView     `json:"filter_rules"`
+	FirewallPolicy *firewallStatusView  `json:"firewall_policy,omitempty"`
+	NAT            []natView            `json:"nat"`
+	Masquerades    []masqueradeView     `json:"masquerades"`
+	WireGuard      []wgDeviceView       `json:"wireguard"`
+	Neighbours     []neighbourView      `json:"neighbours"`
+	Conflicts      []ipConflictView     `json:"ip_conflicts"`
+	Conntrack      conntrackView        `json:"conntrack"`
+	Anomalies      []anomalyView        `json:"anomalies"`
+	Thresholds     thresholdsView       `json:"thresholds"`
+	TCPDump        []tcpdumpView        `json:"tcpdump"`
+	IPFIX          ipfixView            `json:"ipfix"`
+	LatencySeries  map[string][]float64 `json:"latency_series"`
+	DNSSeries      map[string][]float64 `json:"dns_series"`
+	Bandwidth      []bandwidthView      `json:"bandwidth"`
+	TopHosts       []hostRollupView     `json:"top_hosts"`
+	TopProcesses   []procRollupView     `json:"top_processes"`
+	TopServices    []serviceRollupView  `json:"top_services"`
+	Telemetry      telemetryView        `json:"telemetry"`
+	Clock          clockView            `json:"clock"`
+	WiFi           []wifiView           `json:"wifi"`
+	Subsystems     []subsystemView      `json:"subsystems"`
+	Audit          []auditView          `json:"audit"`
+	Privsep        string               `json:"privsep"`
 }
 
 // wifiView is the per-interface wireless snapshot the dashboard
@@ -103,6 +105,7 @@ type auditView struct {
 	Op      string `json:"op"`
 	Args    string `json:"args"`
 	PeerUID uint32 `json:"peer_uid"`
+	Actor   string `json:"actor"` // human behind the request; "" = engine / unknown
 	Result  string `json:"result"`
 }
 
@@ -388,22 +391,83 @@ type firewallRuleView struct {
 	Blocking   bool   `json:"blocking"`
 }
 
+// filterRuleView is one rule of the firewall policy as the manager renders it
+// (baseline rules included), joined with its live kernel counters. ID is the
+// handle the UI uses for delete / reorder; Baseline rows are read-only.
 type filterRuleView struct {
-	Chain    string `json:"chain"`
-	Action   string `json:"action"`
-	Proto    string `json:"proto"`
-	Port     uint16 `json:"port"`
-	InIface  string `json:"in_iface"`
-	OutIface string `json:"out_iface"`
-	SrcCIDR  string `json:"src"`
-	DstCIDR  string `json:"dst"`
+	ID         string `json:"id"`
+	Index      int    `json:"index"`
+	Baseline   bool   `json:"baseline"`
+	Live       bool   `json:"live"`
+	Chain      string `json:"chain"`
+	Action     string `json:"action"`
+	Proto      string `json:"proto"`
+	Port       uint16 `json:"port"`
+	PortEnd    uint16 `json:"port_end"`
+	InIface    string `json:"in_iface"`
+	OutIface   string `json:"out_iface"`
+	SrcCIDR    string `json:"src"`
+	DstCIDR    string `json:"dst"`
+	CtState    string `json:"ct_state"`
+	Log        bool   `json:"log"`
+	RateLimit  string `json:"rate_limit"`
+	RateOver   bool   `json:"rate_over"`
+	Comment    string `json:"comment"`
+	Owner      string `json:"owner"`
+	Packets    uint64 `json:"packets"`
+	Bytes      uint64 `json:"bytes"`
+	HasCounter bool   `json:"has_counter"`
+	Text       string `json:"text"` // nft-style one-liner
+}
+
+// firewallStatusView is the policy-level status: enforce mode, drift, pending
+// commit-confirm, where the policy file lives.
+type firewallStatusView struct {
+	Available      bool     `json:"available"`
+	Error          string   `json:"error,omitempty"`
+	Enforce        bool     `json:"enforce"`
+	WritesAllowed  bool     `json:"writes_allowed"`
+	InSync         bool     `json:"in_sync"`
+	DriftDetail    []string `json:"drift_detail,omitempty"`
+	DriftError     string   `json:"drift_error,omitempty"` // kernel state unreadable (e.g. no CAP_NET_ADMIN)
+	Inert          bool     `json:"inert"`                 // nothing to enforce; no table expected
+	TableExists    bool     `json:"table_exists"`
+	LastChecked    string   `json:"last_checked,omitempty"`
+	LastApply      string   `json:"last_apply,omitempty"`
+	LastError      string   `json:"last_error,omitempty"`
+	PendingConfirm bool     `json:"pending_confirm"`
+	PendingUntil   string   `json:"pending_until,omitempty"`
+	PendingSecs    int      `json:"pending_secs"`
+	RuleCount      int      `json:"rule_count"`
+	Path           string   `json:"path"`
+	Imported       int      `json:"imported,omitempty"`
 }
 
 type natView struct {
-	Proto   string `json:"proto"`
-	WANPort uint16 `json:"wan_port"`
-	LANIP   string `json:"lan_ip"`
-	LANPort uint16 `json:"lan_port"`
+	ID         string `json:"id"`
+	Proto      string `json:"proto"`
+	WANPort    uint16 `json:"wan_port"`
+	LANIP      string `json:"lan_ip"`
+	LANPort    uint16 `json:"lan_port"`
+	InIface    string `json:"in_iface"`
+	Comment    string `json:"comment"`
+	Owner      string `json:"owner"`
+	Live       bool   `json:"live"`
+	Packets    uint64 `json:"packets"`
+	Bytes      uint64 `json:"bytes"`
+	HasCounter bool   `json:"has_counter"`
+}
+
+type masqueradeView struct {
+	ID         string `json:"id"`
+	OutIface   string `json:"out_iface"`
+	SrcCIDR    string `json:"src"`
+	Comment    string `json:"comment"`
+	Owner      string `json:"owner"`
+	Live       bool   `json:"live"`
+	Packets    uint64 `json:"packets"`
+	Bytes      uint64 `json:"bytes"`
+	HasCounter bool   `json:"has_counter"`
 }
 
 // wgDeviceView / wgPeerView mirror the WireGuard snapshot for the dashboard.
@@ -522,6 +586,9 @@ type thresholdsView struct {
 	GuacamoleURL        string  `json:"guacamole_url"`
 	GuacamoleConnID     string  `json:"guacamole_conn_id"`
 	GuacamoleTemplate   string  `json:"guacamole_template"`
+	GuacamoleAPIUser    string  `json:"guacamole_api_user"` // the password is never sent to the page
+	GuacamoleRecording  string  `json:"guacamole_recording_path"`
+	GuacamoleTypescript string  `json:"guacamole_typescript_path"`
 	IPFIXEnabled        bool    `json:"ipfix_enabled"`
 	IPFIXEndpoint       string  `json:"ipfix_endpoint"`
 	IPFIXIntervalSec    int     `json:"ipfix_interval_sec"`
@@ -718,7 +785,7 @@ func (s *Server) buildSnapshot() snapshot {
 		for _, e := range auditEntries {
 			snap.Audit = append(snap.Audit, auditView{
 				TS: e.TS.Format(time.RFC3339), Op: e.Op, Args: e.Args,
-				PeerUID: e.PeerUID, Result: e.Result,
+				PeerUID: e.PeerUID, Actor: e.Actor, Result: e.Result,
 			})
 		}
 	}
@@ -947,24 +1014,65 @@ func (s *Server) buildSnapshot() snapshot {
 				})
 			}
 		}
-		if rules, err := nw.ListFilterRules(); err == nil {
-			for _, fr := range rules {
+	}
+
+	// Firewall policy: desired rules (baseline included) joined with live
+	// counters, NAT entries, and the manager status (enforce / drift / pending
+	// confirm). Absent block = netops unavailable; Available=false with Error =
+	// the policy file could not be loaded.
+	if fw := eng.Firewall(); fw != nil {
+		st := fw.Status()
+		view := &firewallStatusView{
+			Available: true, Enforce: st.Enforce, WritesAllowed: st.WritesAllowed,
+			InSync: st.InSync, DriftDetail: st.DriftDetail, DriftError: st.DriftError, LastError: st.LastError,
+			Inert: st.Inert, TableExists: st.TableExists,
+			PendingConfirm: st.PendingConfirm, RuleCount: st.RuleCount, Path: st.Path,
+			Imported: st.Imported,
+		}
+		if !st.LastChecked.IsZero() {
+			view.LastChecked = st.LastChecked.Format(time.RFC3339)
+		}
+		if !st.LastApply.IsZero() {
+			view.LastApply = st.LastApply.Format(time.RFC3339)
+		}
+		if st.PendingConfirm {
+			view.PendingUntil = st.PendingUntil.Format(time.RFC3339)
+			if secs := int(time.Until(st.PendingUntil).Seconds()); secs > 0 {
+				view.PendingSecs = secs
+			}
+		}
+		snap.FirewallPolicy = view
+		if rules, err := fw.Rules(); err == nil || rules != nil {
+			for _, r := range rules {
 				snap.FilterRules = append(snap.FilterRules, filterRuleView{
-					Chain: fr.Chain, Action: fr.Action,
-					Proto: fr.Proto, Port: fr.Port,
-					InIface: fr.InIface, OutIface: fr.OutIface,
-					SrcCIDR: fr.SrcCIDR, DstCIDR: fr.DstCIDR,
+					ID: r.ID, Index: r.Index, Baseline: r.Baseline, Live: r.Live,
+					Chain: r.Chain, Action: r.Action, Proto: r.Proto,
+					Port: r.Port, PortEnd: r.PortEnd,
+					InIface: r.InIface, OutIface: r.OutIface,
+					SrcCIDR: r.SrcCIDR, DstCIDR: r.DstCIDR,
+					CtState: r.CtState, Log: r.Log, RateLimit: r.RateLimit, RateOver: r.RateOver,
+					Comment: r.Comment, Owner: r.Owner,
+					Packets: r.Packets, Bytes: r.Bytes, HasCounter: r.HasCounter,
+					Text: r.FilterRule.String(),
 				})
 			}
 		}
-		if pfs, err := nw.ListPortForwards(); err == nil {
-			for _, p := range pfs {
-				snap.NAT = append(snap.NAT, natView{
-					Proto: p.Proto, WANPort: p.WANPort,
-					LANIP: p.LANIP, LANPort: p.LANPort,
-				})
-			}
+		fwds, masqs, _ := fw.NAT()
+		for _, p := range fwds {
+			snap.NAT = append(snap.NAT, natView{
+				ID: p.ID, Proto: p.Proto, WANPort: p.WANPort, LANIP: p.LANIP, LANPort: p.LANPort,
+				InIface: p.InIface, Comment: p.Comment, Owner: p.Owner,
+				Live: p.Live, Packets: p.Packets, Bytes: p.Bytes, HasCounter: p.HasCounter,
+			})
 		}
+		for _, m := range masqs {
+			snap.Masquerades = append(snap.Masquerades, masqueradeView{
+				ID: m.ID, OutIface: m.OutIface, SrcCIDR: m.SrcCIDR, Comment: m.Comment, Owner: m.Owner,
+				Live: m.Live, Packets: m.Packets, Bytes: m.Bytes, HasCounter: m.HasCounter,
+			})
+		}
+	} else if err := eng.FirewallError(); err != nil {
+		snap.FirewallPolicy = &firewallStatusView{Available: false, Error: err.Error()}
 	}
 
 	// WireGuard devices/peers from the collector's enriched snapshot (public
@@ -1087,6 +1195,9 @@ func (s *Server) buildSnapshot() snapshot {
 		GuacamoleURL:        th.GuacamoleURL,
 		GuacamoleConnID:     th.GuacamoleConnID,
 		GuacamoleTemplate:   th.GuacamoleTemplate,
+		GuacamoleAPIUser:    th.GuacamoleAPIUser,
+		GuacamoleRecording:  th.GuacamoleRecordingPath,
+		GuacamoleTypescript: th.GuacamoleTypescriptPath,
 		IPFIXEnabled:        th.IPFIXEnabled,
 		IPFIXEndpoint:       th.IPFIXEndpoint,
 		IPFIXIntervalSec:    th.IPFIXIntervalSec,

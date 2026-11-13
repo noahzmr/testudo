@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 )
 
@@ -38,9 +39,17 @@ type ChainInfo struct {
 
 // ListFirewall enumerates nftables tables and chains, tallying rules and
 // summed counter packets/bytes per chain. Returns an empty summary on
-// systems without nftables loaded.
+// systems without nftables loaded. A privileged read (nf_tables dumps need
+// CAP_NET_ADMIN), routed through the query seam so it works from the
+// unprivileged engine via the helper.
 func (w *Writer) ListFirewall() (FirewallSummary, error) {
-	conn, err := nftables.New()
+	var out FirewallSummary
+	err := w.queryInto(Op{Kind: OpQueryFirewallSummary}, &out)
+	return out, err
+}
+
+func (w *Writer) listFirewallDirect() (FirewallSummary, error) {
+	conn, err := nftConn()
 	if err != nil {
 		return FirewallSummary{}, fmt.Errorf("nftables new: %w", err)
 	}
@@ -115,9 +124,16 @@ func (r RuleInfo) IsBlocking() bool {
 // RuleInfo with per-rule packet/byte counters. Rules within a chain are
 // ordered diagnostically: the highest-hit DROP/REJECT rules float to the
 // top (see sortChainRules). Returns an empty slice on systems without
-// nftables loaded; soft-fails per-table like ListFirewall.
+// nftables loaded; soft-fails per-table like ListFirewall. Privileged read via
+// the query seam (see ListFirewall).
 func (w *Writer) ListFirewallRules() ([]RuleInfo, error) {
-	conn, err := nftables.New()
+	var out []RuleInfo
+	err := w.queryInto(Op{Kind: OpQueryFirewallRules}, &out)
+	return out, err
+}
+
+func (w *Writer) listFirewallRulesDirect() ([]RuleInfo, error) {
+	conn, err := nftConn()
 	if err != nil {
 		return nil, fmt.Errorf("nftables new: %w", err)
 	}
@@ -174,7 +190,7 @@ func (w *Writer) ResetRuleCounter(family, table, chain string, handle uint64) er
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpResetRuleCounter, Family: family, Table: table, Chain: chain, Handle: handle})
+	return w.mutate(Op{Kind: OpResetRuleCounter, Family: family, Table: table, Chain: chain, Handle: handle})
 }
 
 func (w *Writer) resetRuleCounterDirect(family, table, chain string, handle uint64) error {
@@ -183,7 +199,7 @@ func (w *Writer) resetRuleCounterDirect(family, table, chain string, handle uint
 		return fmt.Errorf("unknown family %q", family)
 	}
 
-	conn, err := nftables.New()
+	conn, err := nftConn()
 	if err != nil {
 		return fmt.Errorf("nftables new: %w", err)
 	}
@@ -309,20 +325,40 @@ func decodeRule(exprs []expr.Any) (match, verdict string) {
 		haveMeta    bool
 		payload     *expr.Payload
 		havePayload bool
-		mask        []byte // pending CIDR mask from a Bitwise before the Cmp
+		haveCtState bool
+		mask        []byte // pending CIDR / ct-state mask from a Bitwise before the Cmp
 	)
 	for _, e := range exprs {
 		switch v := e.(type) {
 		case *expr.Meta:
 			metaKey, haveMeta = v.Key, true
-			havePayload, mask = false, nil
+			havePayload, haveCtState, mask = false, false, nil
 		case *expr.Payload:
 			payload, havePayload = v, true
-			haveMeta, mask = false, nil
+			haveMeta, haveCtState, mask = false, false, nil
+		case *expr.Ct:
+			haveCtState = v.Key == expr.CtKeySTATE
+			haveMeta, havePayload, mask = false, false, nil
 		case *expr.Bitwise:
 			mask = v.Mask
+		case *expr.Range:
+			if havePayload && payload.Base == expr.PayloadBaseTransportHeader && payload.Len == 2 {
+				name := "dport"
+				if payload.Offset == 0 {
+					name = "sport"
+				}
+				tokens = append(tokens, fmt.Sprintf("%s %d-%d", name, beUint16(v.FromData), beUint16(v.ToData)))
+			}
+			havePayload, mask = false, nil
+		case *expr.Limit:
+			tokens = append(tokens, limitString(v))
 		case *expr.Cmp:
 			switch {
+			case haveCtState:
+				if tok := ctStateString(mask); tok != "" {
+					tokens = append(tokens, tok)
+				}
+				haveCtState, mask = false, nil
 			case haveMeta:
 				if tok := decodeMetaCmp(metaKey, v.Data); tok != "" {
 					tokens = append(tokens, tok)
@@ -347,6 +383,58 @@ func decodeRule(exprs []expr.Any) (match, verdict string) {
 		}
 	}
 	return strings.Join(tokens, " "), verdict
+}
+
+// ctStateString renders a ct-state bitmask (native byte order, as the kernel
+// stores it) into "ct state established,related".
+func ctStateString(mask []byte) string {
+	if len(mask) != 4 {
+		return ""
+	}
+	bits := binaryutil.NativeEndian.Uint32(mask)
+	var names []string
+	for _, s := range []struct {
+		bit  uint32
+		name string
+	}{
+		{expr.CtStateBitINVALID, "invalid"},
+		{expr.CtStateBitESTABLISHED, "established"},
+		{expr.CtStateBitRELATED, "related"},
+		{expr.CtStateBitNEW, "new"},
+		{expr.CtStateBitUNTRACKED, "untracked"},
+	} {
+		if bits&s.bit != 0 {
+			names = append(names, s.name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return "ct state " + strings.Join(names, ",")
+}
+
+// limitString renders a limit expression nft-style.
+func limitString(l *expr.Limit) string {
+	unit := "second"
+	switch l.Unit {
+	case expr.LimitTimeMinute:
+		unit = "minute"
+	case expr.LimitTimeHour:
+		unit = "hour"
+	case expr.LimitTimeDay:
+		unit = "day"
+	case expr.LimitTimeWeek:
+		unit = "week"
+	}
+	over := ""
+	if l.Over {
+		over = "over "
+	}
+	what := ""
+	if l.Type == expr.LimitTypePktBytes {
+		what = " bytes"
+	}
+	return fmt.Sprintf("limit rate %s%d%s/%s", over, l.Rate, what, unit)
 }
 
 // decodeMetaCmp turns a meta-key comparison into a match token. The NFPROTO

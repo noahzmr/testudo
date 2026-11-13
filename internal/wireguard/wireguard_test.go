@@ -94,6 +94,10 @@ type fakeBackend struct {
 	calls   []string
 	failOn  string // method name to fail on ("" = never)
 	failErr error
+
+	rules        []netops.FilterRule // every rule handed to AddFilterRule
+	masqs        []netops.Masquerade // every masquerade handed to AddMasquerade
+	ownerDeletes []string            // owners passed to the by-owner deletes
 }
 
 func (f *fakeBackend) ListWGDevices() ([]netops.WGDeviceInfo, error) {
@@ -112,14 +116,32 @@ func (f *fakeBackend) rec(name string) error {
 func (f *fakeBackend) ConfigureWGPeer(dev, pub string, aips []string, endpoint string, keepalive int) error {
 	return f.rec("ConfigureWGPeer")
 }
-func (f *fakeBackend) RemoveWGPeer(dev, pub string) error       { return f.rec("RemoveWGPeer") }
-func (f *fakeBackend) AddRoute(cidr, gw, iface string) error    { return f.rec("AddRoute") }
-func (f *fakeBackend) DelRoute(cidr string) error               { return f.rec("DelRoute") }
-func (f *fakeBackend) AddFilterRule(fr netops.FilterRule) error { return f.rec("AddFilterRule") }
-func (f *fakeBackend) DelFilterRule(fr netops.FilterRule) error { return f.rec("DelFilterRule") }
-func (f *fakeBackend) AddMasquerade(out, src string) error      { return f.rec("AddMasquerade") }
-func (f *fakeBackend) DelMasquerade(out, src string) error      { return f.rec("DelMasquerade") }
-func (f *fakeBackend) WriteNetplan(path, content string) error  { return f.rec("WriteNetplan") }
+func (f *fakeBackend) RemoveWGPeer(dev, pub string) error    { return f.rec("RemoveWGPeer") }
+func (f *fakeBackend) AddRoute(cidr, gw, iface string) error { return f.rec("AddRoute") }
+func (f *fakeBackend) DelRoute(cidr string) error            { return f.rec("DelRoute") }
+func (f *fakeBackend) AddFilterRule(fr netops.FilterRule) error {
+	f.rules = append(f.rules, fr)
+	return f.rec("AddFilterRule")
+}
+func (f *fakeBackend) DelFilterRulesMatching(fr netops.FilterRule) error {
+	return f.rec("DelFilterRulesMatching")
+}
+func (f *fakeBackend) DelFilterRulesByOwner(owner string) error {
+	f.ownerDeletes = append(f.ownerDeletes, owner)
+	return f.rec("DelFilterRulesByOwner")
+}
+func (f *fakeBackend) AddMasquerade(ms netops.Masquerade) error {
+	f.masqs = append(f.masqs, ms)
+	return f.rec("AddMasquerade")
+}
+func (f *fakeBackend) DelMasqueradesMatching(out, src string) error {
+	return f.rec("DelMasqueradesMatching")
+}
+func (f *fakeBackend) DelMasqueradesByOwner(owner string) error {
+	f.ownerDeletes = append(f.ownerDeletes, owner)
+	return f.rec("DelMasqueradesByOwner")
+}
+func (f *fakeBackend) WriteNetplan(path, content string) error { return f.rec("WriteNetplan") }
 
 func baseReq() ProvisionRequest {
 	return ProvisionRequest{
@@ -142,9 +164,20 @@ func TestProvisionSuccessFullTunnel(t *testing.T) {
 	if res.ClientConfig == "" {
 		t.Fatal("expected one-shot client config in server-keygen mode")
 	}
-	// Full tunnel applies: peer config, route, two forward accepts, masquerade.
-	want := []string{"ConfigureWGPeer", "AddRoute", "AddFilterRule", "AddFilterRule", "AddMasquerade"}
+	// Full tunnel applies: peer config, route, one scoped forward accept (the
+	// return path is the baseline's ct-state rule), masquerade.
+	want := []string{"ConfigureWGPeer", "AddRoute", "AddFilterRule", "AddMasquerade"}
 	assertCalls(t, be.calls, want)
+	// Every entry is tagged with the peer's owner so teardown is exact.
+	owner := OwnerForPeer(res.PeerPublicKey)
+	for _, r := range be.rules {
+		if r.Owner != owner || r.InIface != "wg0" || r.SrcCIDR != "10.8.0.2/32" || r.Chain != "forward" {
+			t.Fatalf("preset rule not scoped/tagged: %+v", r)
+		}
+	}
+	if len(be.masqs) != 1 || be.masqs[0].Owner != owner || be.masqs[0].OutIface != "eth0" || be.masqs[0].SrcCIDR != "10.8.0.2/32" {
+		t.Fatalf("masquerade not tagged: %+v", be.masqs)
+	}
 }
 
 func TestProvisionRollbackOnFirewallFailure(t *testing.T) {
@@ -153,11 +186,11 @@ func TestProvisionRollbackOnFirewallFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	// Applied: peer, route, 2 accepts, masq(fail) -> rollback in reverse:
-	// del the two filter rules, del route, remove peer.
+	// Applied: peer, route, accept, masq(fail) -> rollback in reverse: drop
+	// every rule tagged for the peer in one call, del route, remove peer.
 	want := []string{
-		"ConfigureWGPeer", "AddRoute", "AddFilterRule", "AddFilterRule", "AddMasquerade",
-		"DelFilterRule", "DelFilterRule", "DelRoute", "RemoveWGPeer",
+		"ConfigureWGPeer", "AddRoute", "AddFilterRule", "AddMasquerade",
+		"DelMasqueradesByOwner", "DelFilterRulesByOwner", "DelRoute", "RemoveWGPeer",
 	}
 	assertCalls(t, be.calls, want)
 }
@@ -173,26 +206,44 @@ func TestProvisionDuplicatePeerRejected(t *testing.T) {
 }
 
 func TestPresetRulesOrdering(t *testing.T) {
-	// Split preset: accept-subnet(s) then return then catch-all DROP last.
-	rules, masq := presetRules(PresetSplit, "wg0", "10.8.0.5", "", []string{"192.168.1.0/24"})
+	// Split preset: accept-subnet(s) then catch-all DROP last. No return rule -
+	// the baseline's ct-state rule covers replies.
+	rules, masq := presetRules(PresetSplit, "wg0", "10.8.0.5", "", []string{"192.168.1.0/24"}, "wg-peer:p")
 	if masq != nil {
 		t.Fatal("split preset must not masquerade")
 	}
-	if len(rules) != 3 {
-		t.Fatalf("split rules = %d want 3", len(rules))
+	if len(rules) != 2 {
+		t.Fatalf("split rules = %d want 2", len(rules))
 	}
-	if rules[len(rules)-1].Action != "drop" {
-		t.Fatal("catch-all DROP must be last")
+	if rules[0].Action != "accept" || rules[0].DstCIDR != "192.168.1.0/24" || rules[len(rules)-1].Action != "drop" {
+		t.Fatalf("split ordering: %v", rules)
+	}
+	for _, r := range rules {
+		if r.OutIface != "" {
+			t.Fatalf("no rule may match on the outgoing interface any more: %+v", r)
+		}
+		if r.Owner != "wg-peer:p" {
+			t.Fatalf("rule not tagged: %+v", r)
+		}
 	}
 	// Isolated: single forward drop, no masq.
-	rules, masq = presetRules(PresetIsolated, "wg0", "10.8.0.5", "eth0", nil)
+	rules, masq = presetRules(PresetIsolated, "wg0", "10.8.0.5", "eth0", nil, "wg-peer:p")
 	if masq != nil || len(rules) != 1 || rules[0].Action != "drop" {
 		t.Fatalf("isolated preset unexpected: rules=%v masq=%v", rules, masq)
 	}
-	// Full: masquerade present.
-	_, masq = presetRules(PresetFullTunnel, "wg0", "10.8.0.5", "eth0", nil)
-	if masq == nil || masq.outIface != "eth0" || masq.srcCIDR != "10.8.0.5/32" {
+	// Full: masquerade present and tagged.
+	_, masq = presetRules(PresetFullTunnel, "wg0", "10.8.0.5", "eth0", nil, "wg-peer:p")
+	if masq == nil || masq.OutIface != "eth0" || masq.SrcCIDR != "10.8.0.5/32" || masq.Owner != "wg-peer:p" {
 		t.Fatalf("full preset masq unexpected: %v", masq)
+	}
+	// Every preset's rules validate against the netops rule model.
+	for _, p := range []FirewallPreset{PresetFullTunnel, PresetSplit, PresetIsolated} {
+		rs, _ := presetRules(p, "wg0", "10.8.0.5", "eth0", []string{"192.168.1.0/24"}, "wg-peer:p")
+		for _, r := range rs {
+			if err := r.Validate(); err != nil {
+				t.Fatalf("%s rule invalid: %v (%+v)", p, err, r)
+			}
+		}
 	}
 }
 
@@ -205,9 +256,12 @@ func TestDeprovision(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Must end by removing the peer.
+	// Must end by removing the peer, after an owner-scoped teardown.
 	if be.calls[len(be.calls)-1] != "RemoveWGPeer" {
 		t.Fatalf("deprovision must remove the peer last; calls=%v", be.calls)
+	}
+	if len(be.ownerDeletes) != 2 || be.ownerDeletes[0] != OwnerForPeer("p1") {
+		t.Fatalf("deprovision must delete by owner: %v", be.ownerDeletes)
 	}
 }
 
@@ -234,6 +288,13 @@ func TestUpdatePeerPresetOnly(t *testing.T) {
 		if c == "AddMasquerade" {
 			t.Fatalf("isolated preset must not add masquerade; calls=%v", be.calls)
 		}
+	}
+	// The old preset's entries are removed by owner before the new ones land.
+	if len(be.ownerDeletes) == 0 || be.ownerDeletes[0] != OwnerForPeer("p1") {
+		t.Fatalf("update must tear down by owner: %v", be.ownerDeletes)
+	}
+	if len(be.rules) != 1 || be.rules[0].Owner != OwnerForPeer("p1") {
+		t.Fatalf("new preset rules must be tagged: %+v", be.rules)
 	}
 }
 

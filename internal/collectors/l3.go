@@ -195,12 +195,12 @@ func (c *NeighConntrackCollector) publishConflict(bus *events.Bus, cf netops.IPC
 }
 
 func (c *NeighConntrackCollector) pollConntrack() {
-	flows, err := c.Netops.ListConntrack()
+	// Truncate on the privileged side: the dump may be huge and crosses the
+	// privsep socket as JSON when the engine runs unprivileged.
+	res, err := c.Netops.ListConntrackQuery(netops.ConntrackQuery{Limit: c.ConntrackMaxRows})
+	flows := res.Flows
 	if err != nil {
 		flows = nil // soft-fail
-	}
-	if c.ConntrackMaxRows > 0 && len(flows) > c.ConntrackMaxRows {
-		flows = flows[:c.ConntrackMaxRows]
 	}
 	count := readProcUint64("/proc/sys/net/netfilter/nf_conntrack_count")
 	max := readProcUint64("/proc/sys/net/netfilter/nf_conntrack_max")

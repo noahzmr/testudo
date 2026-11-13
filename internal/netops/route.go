@@ -45,7 +45,7 @@ func (w *Writer) AddDefaultRoute(iface, gateway string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpAddDefaultRoute, Iface: iface, Gateway: gateway})
+	return w.mutate(Op{Kind: OpAddDefaultRoute, Iface: iface, Gateway: gateway})
 }
 
 func (w *Writer) addDefaultRouteDirect(iface, gateway string) error {
@@ -73,7 +73,7 @@ func (w *Writer) AddRoute(cidr, gateway, iface string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpAddRoute, CIDR: cidr, Gateway: gateway, Iface: iface})
+	return w.mutate(Op{Kind: OpAddRoute, CIDR: cidr, Gateway: gateway, Iface: iface})
 }
 
 func (w *Writer) addRouteDirect(cidr, gateway, iface string) error {
@@ -104,7 +104,7 @@ func (w *Writer) DelRoute(cidr string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpDelRoute, CIDR: cidr})
+	return w.mutate(Op{Kind: OpDelRoute, CIDR: cidr})
 }
 
 func (w *Writer) delRouteDirect(cidr string) error {

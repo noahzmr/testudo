@@ -52,7 +52,7 @@ func (s *SettingsStore) Save() error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil { // 0600: may hold integration credentials
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -77,32 +77,36 @@ func (s *SettingsStore) Update(fn func(*Thresholds)) error {
 
 // persistedThresholds is the on-disk form - durations stored as seconds.
 type persistedThresholds struct {
-	PacketLossPct       float64 `json:"packet_loss_pct"`
-	DNSLatencyMs        float64 `json:"dns_latency_ms"`
-	JitterMs            float64 `json:"jitter_ms"`
-	RTTMs               float64 `json:"rtt_ms"`
-	RetransmissionsPct  float64 `json:"retransmissions_pct"`
-	IncidentCooldownSec float64 `json:"incident_cooldown_sec"`
-	AllowNetopsWrite    bool    `json:"allow_netops_write"`
-	SentryDSN           string  `json:"sentry_dsn"`
-	GuacamoleURL        string  `json:"guacamole_url"`
-	GuacamoleConnID     string  `json:"guacamole_conn_id"`
-	GuacamoleTemplate   string  `json:"guacamole_template"`
-	IPFIXEnabled        bool    `json:"ipfix_enabled"`
-	IPFIXEndpoint       string  `json:"ipfix_endpoint"`
-	IPFIXIntervalSec    int     `json:"ipfix_interval_sec"`
-	IPFIXDomainID       uint32  `json:"ipfix_domain_id"`
-	EBPFEnabled         bool    `json:"ebpf_enabled"`
-	FlowRetransPct      float64 `json:"flow_retrans_pct"`
-	ExpectedDownMbps    float64 `json:"expected_down_mbps"`
-	ExpectedUpMbps      float64 `json:"expected_up_mbps"`
-	MaxMindEnabled      bool    `json:"maxmind_enabled"`
-	MaxMindDBDir        string  `json:"maxmind_db_dir"`
-	MaxMindAccountID    string  `json:"maxmind_account_id"`
-	MaxMindLicenseKey   string  `json:"maxmind_license_key"`
-	MaxMindEditions     string  `json:"maxmind_editions"`
-	MaxMindAutoUpdate   bool    `json:"maxmind_auto_update"`
-	MaxMindRefreshHours int     `json:"maxmind_refresh_hours"`
+	PacketLossPct           float64 `json:"packet_loss_pct"`
+	DNSLatencyMs            float64 `json:"dns_latency_ms"`
+	JitterMs                float64 `json:"jitter_ms"`
+	RTTMs                   float64 `json:"rtt_ms"`
+	RetransmissionsPct      float64 `json:"retransmissions_pct"`
+	IncidentCooldownSec     float64 `json:"incident_cooldown_sec"`
+	AllowNetopsWrite        bool    `json:"allow_netops_write"`
+	SentryDSN               string  `json:"sentry_dsn"`
+	GuacamoleURL            string  `json:"guacamole_url"`
+	GuacamoleConnID         string  `json:"guacamole_conn_id"`
+	GuacamoleTemplate       string  `json:"guacamole_template"`
+	GuacamoleAPIUser        string  `json:"guacamole_api_user"`
+	GuacamoleAPIPassword    string  `json:"guacamole_api_password"`
+	GuacamoleRecordingPath  string  `json:"guacamole_recording_path"`
+	GuacamoleTypescriptPath string  `json:"guacamole_typescript_path"`
+	IPFIXEnabled            bool    `json:"ipfix_enabled"`
+	IPFIXEndpoint           string  `json:"ipfix_endpoint"`
+	IPFIXIntervalSec        int     `json:"ipfix_interval_sec"`
+	IPFIXDomainID           uint32  `json:"ipfix_domain_id"`
+	EBPFEnabled             bool    `json:"ebpf_enabled"`
+	FlowRetransPct          float64 `json:"flow_retrans_pct"`
+	ExpectedDownMbps        float64 `json:"expected_down_mbps"`
+	ExpectedUpMbps          float64 `json:"expected_up_mbps"`
+	MaxMindEnabled          bool    `json:"maxmind_enabled"`
+	MaxMindDBDir            string  `json:"maxmind_db_dir"`
+	MaxMindAccountID        string  `json:"maxmind_account_id"`
+	MaxMindLicenseKey       string  `json:"maxmind_license_key"`
+	MaxMindEditions         string  `json:"maxmind_editions"`
+	MaxMindAutoUpdate       bool    `json:"maxmind_auto_update"`
+	MaxMindRefreshHours     int     `json:"maxmind_refresh_hours"`
 
 	WireGuardDevice          string `json:"wireguard_device"`
 	WireGuardTunnelSubnet    string `json:"wireguard_tunnel_subnet"`
@@ -118,32 +122,36 @@ type persistedThresholds struct {
 
 func (p persistedThresholds) toThresholds() Thresholds {
 	return Thresholds{
-		PacketLossPct:       p.PacketLossPct,
-		DNSLatencyMs:        p.DNSLatencyMs,
-		JitterMs:            p.JitterMs,
-		RTTMs:               p.RTTMs,
-		RetransmissionsPct:  p.RetransmissionsPct,
-		IncidentCooldown:    time.Duration(p.IncidentCooldownSec * float64(time.Second)),
-		AllowNetopsWrite:    p.AllowNetopsWrite,
-		SentryDSN:           p.SentryDSN,
-		GuacamoleURL:        p.GuacamoleURL,
-		GuacamoleConnID:     p.GuacamoleConnID,
-		GuacamoleTemplate:   p.GuacamoleTemplate,
-		IPFIXEnabled:        p.IPFIXEnabled,
-		IPFIXEndpoint:       p.IPFIXEndpoint,
-		IPFIXIntervalSec:    p.IPFIXIntervalSec,
-		IPFIXDomainID:       p.IPFIXDomainID,
-		EBPFEnabled:         p.EBPFEnabled,
-		FlowRetransPct:      p.FlowRetransPct,
-		ExpectedDownMbps:    p.ExpectedDownMbps,
-		ExpectedUpMbps:      p.ExpectedUpMbps,
-		MaxMindEnabled:      p.MaxMindEnabled,
-		MaxMindDBDir:        p.MaxMindDBDir,
-		MaxMindAccountID:    p.MaxMindAccountID,
-		MaxMindLicenseKey:   p.MaxMindLicenseKey,
-		MaxMindEditions:     p.MaxMindEditions,
-		MaxMindAutoUpdate:   p.MaxMindAutoUpdate,
-		MaxMindRefreshHours: p.MaxMindRefreshHours,
+		PacketLossPct:           p.PacketLossPct,
+		DNSLatencyMs:            p.DNSLatencyMs,
+		JitterMs:                p.JitterMs,
+		RTTMs:                   p.RTTMs,
+		RetransmissionsPct:      p.RetransmissionsPct,
+		IncidentCooldown:        time.Duration(p.IncidentCooldownSec * float64(time.Second)),
+		AllowNetopsWrite:        p.AllowNetopsWrite,
+		SentryDSN:               p.SentryDSN,
+		GuacamoleURL:            p.GuacamoleURL,
+		GuacamoleConnID:         p.GuacamoleConnID,
+		GuacamoleTemplate:       p.GuacamoleTemplate,
+		GuacamoleAPIUser:        p.GuacamoleAPIUser,
+		GuacamoleAPIPassword:    p.GuacamoleAPIPassword,
+		GuacamoleRecordingPath:  p.GuacamoleRecordingPath,
+		GuacamoleTypescriptPath: p.GuacamoleTypescriptPath,
+		IPFIXEnabled:            p.IPFIXEnabled,
+		IPFIXEndpoint:           p.IPFIXEndpoint,
+		IPFIXIntervalSec:        p.IPFIXIntervalSec,
+		IPFIXDomainID:           p.IPFIXDomainID,
+		EBPFEnabled:             p.EBPFEnabled,
+		FlowRetransPct:          p.FlowRetransPct,
+		ExpectedDownMbps:        p.ExpectedDownMbps,
+		ExpectedUpMbps:          p.ExpectedUpMbps,
+		MaxMindEnabled:          p.MaxMindEnabled,
+		MaxMindDBDir:            p.MaxMindDBDir,
+		MaxMindAccountID:        p.MaxMindAccountID,
+		MaxMindLicenseKey:       p.MaxMindLicenseKey,
+		MaxMindEditions:         p.MaxMindEditions,
+		MaxMindAutoUpdate:       p.MaxMindAutoUpdate,
+		MaxMindRefreshHours:     p.MaxMindRefreshHours,
 
 		WireGuardDevice:          p.WireGuardDevice,
 		WireGuardTunnelSubnet:    p.WireGuardTunnelSubnet,
@@ -160,32 +168,36 @@ func (p persistedThresholds) toThresholds() Thresholds {
 
 func persistedFromThresholds(t Thresholds) persistedThresholds {
 	return persistedThresholds{
-		PacketLossPct:       t.PacketLossPct,
-		DNSLatencyMs:        t.DNSLatencyMs,
-		JitterMs:            t.JitterMs,
-		RTTMs:               t.RTTMs,
-		RetransmissionsPct:  t.RetransmissionsPct,
-		IncidentCooldownSec: t.IncidentCooldown.Seconds(),
-		AllowNetopsWrite:    t.AllowNetopsWrite,
-		SentryDSN:           t.SentryDSN,
-		GuacamoleURL:        t.GuacamoleURL,
-		GuacamoleConnID:     t.GuacamoleConnID,
-		GuacamoleTemplate:   t.GuacamoleTemplate,
-		IPFIXEnabled:        t.IPFIXEnabled,
-		IPFIXEndpoint:       t.IPFIXEndpoint,
-		IPFIXIntervalSec:    t.IPFIXIntervalSec,
-		IPFIXDomainID:       t.IPFIXDomainID,
-		EBPFEnabled:         t.EBPFEnabled,
-		FlowRetransPct:      t.FlowRetransPct,
-		ExpectedDownMbps:    t.ExpectedDownMbps,
-		ExpectedUpMbps:      t.ExpectedUpMbps,
-		MaxMindEnabled:      t.MaxMindEnabled,
-		MaxMindDBDir:        t.MaxMindDBDir,
-		MaxMindAccountID:    t.MaxMindAccountID,
-		MaxMindLicenseKey:   t.MaxMindLicenseKey,
-		MaxMindEditions:     t.MaxMindEditions,
-		MaxMindAutoUpdate:   t.MaxMindAutoUpdate,
-		MaxMindRefreshHours: t.MaxMindRefreshHours,
+		PacketLossPct:           t.PacketLossPct,
+		DNSLatencyMs:            t.DNSLatencyMs,
+		JitterMs:                t.JitterMs,
+		RTTMs:                   t.RTTMs,
+		RetransmissionsPct:      t.RetransmissionsPct,
+		IncidentCooldownSec:     t.IncidentCooldown.Seconds(),
+		AllowNetopsWrite:        t.AllowNetopsWrite,
+		SentryDSN:               t.SentryDSN,
+		GuacamoleURL:            t.GuacamoleURL,
+		GuacamoleConnID:         t.GuacamoleConnID,
+		GuacamoleTemplate:       t.GuacamoleTemplate,
+		GuacamoleAPIUser:        t.GuacamoleAPIUser,
+		GuacamoleAPIPassword:    t.GuacamoleAPIPassword,
+		GuacamoleRecordingPath:  t.GuacamoleRecordingPath,
+		GuacamoleTypescriptPath: t.GuacamoleTypescriptPath,
+		IPFIXEnabled:            t.IPFIXEnabled,
+		IPFIXEndpoint:           t.IPFIXEndpoint,
+		IPFIXIntervalSec:        t.IPFIXIntervalSec,
+		IPFIXDomainID:           t.IPFIXDomainID,
+		EBPFEnabled:             t.EBPFEnabled,
+		FlowRetransPct:          t.FlowRetransPct,
+		ExpectedDownMbps:        t.ExpectedDownMbps,
+		ExpectedUpMbps:          t.ExpectedUpMbps,
+		MaxMindEnabled:          t.MaxMindEnabled,
+		MaxMindDBDir:            t.MaxMindDBDir,
+		MaxMindAccountID:        t.MaxMindAccountID,
+		MaxMindLicenseKey:       t.MaxMindLicenseKey,
+		MaxMindEditions:         t.MaxMindEditions,
+		MaxMindAutoUpdate:       t.MaxMindAutoUpdate,
+		MaxMindRefreshHours:     t.MaxMindRefreshHours,
 
 		WireGuardDevice:          t.WireGuardDevice,
 		WireGuardTunnelSubnet:    t.WireGuardTunnelSubnet,

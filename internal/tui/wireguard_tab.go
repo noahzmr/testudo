@@ -149,7 +149,7 @@ func (t *wireguardTab) openAddModal() tea.Cmd {
 			if !serverKeygen && pub == "" {
 				return fmt.Errorf("client keygen needs the peer's public key")
 			}
-			res, err := t.eng.ProvisionWireGuardPeer(
+			res, err := t.eng.ProvisionWireGuardPeer(tuiActor(),
 				strings.TrimSpace(values["name"]), preset, serverKeygen, pub,
 				strings.TrimSpace(values["fixed_ip"]))
 			if err != nil {
@@ -199,7 +199,7 @@ func (t *wireguardTab) openEditModal(r peerRow) tea.Cmd {
 				}
 				keepalive = n
 			}
-			if err := t.eng.UpdateWireGuardPeer(r.peer.PublicKey, strings.TrimSpace(values["endpoint"]), allowed, keepalive, preset); err != nil {
+			if err := t.eng.UpdateWireGuardPeer(tuiActor(), r.peer.PublicKey, strings.TrimSpace(values["endpoint"]), allowed, keepalive, preset); err != nil {
 				return err
 			}
 			t.refresh()
@@ -235,7 +235,7 @@ func (t *wireguardTab) openRenameModal(device string) tea.Cmd {
 		fmt.Sprintf("Name interface %s", device),
 		[]FormField{{Label: "name", Value: cur, Hint: "human label for this wg interface"}},
 		func(values map[string]string) error {
-			if err := t.eng.SetWireGuardInterfaceName(device, strings.TrimSpace(values["name"])); err != nil {
+			if err := t.eng.SetWireGuardInterfaceName(tuiActor(), device, strings.TrimSpace(values["name"])); err != nil {
 				return err
 			}
 			t.refresh()
@@ -260,7 +260,7 @@ func (t *wireguardTab) openTuneModal(device string) tea.Cmd {
 			mtu, _ := strconv.Atoi(strings.TrimSpace(values["mtu"]))
 			txq, _ := strconv.Atoi(strings.TrimSpace(values["txqueuelen"]))
 			bufs := strings.EqualFold(strings.TrimSpace(values["socket_buffers"]), "yes")
-			if err := t.eng.TuneWireGuardInterface(device, engine.TuneParams{
+			if err := t.eng.TuneWireGuardInterface(tuiActor(), device, engine.TuneParams{
 				MTU: mtu, TxQueueLen: txq, SocketBuffers: bufs,
 			}); err != nil {
 				return err
@@ -283,7 +283,7 @@ func (t *wireguardTab) restartInterface(device string) tea.Cmd {
 			if strings.TrimSpace(values["confirm"]) != "yes" {
 				return fmt.Errorf("cancelled")
 			}
-			if err := t.eng.RestartWireGuardInterface(device); err != nil {
+			if err := t.eng.RestartWireGuardInterface(tuiActor(), device); err != nil {
 				return err
 			}
 			t.refresh()
@@ -301,7 +301,7 @@ func (t *wireguardTab) deprovision(r peerRow) tea.Cmd {
 			if strings.TrimSpace(values["confirm"]) != "yes" {
 				return fmt.Errorf("cancelled")
 			}
-			if err := t.eng.DeprovisionWireGuardPeer(r.peer.PublicKey); err != nil {
+			if err := t.eng.DeprovisionWireGuardPeer(tuiActor(), r.peer.PublicKey); err != nil {
 				return err
 			}
 			t.refresh()

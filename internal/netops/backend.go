@@ -43,20 +43,19 @@ const (
 	OpDelRoute         OpKind = "route_del"
 	OpFlushConntrack   OpKind = "ct_flush"
 	OpResetRuleCounter OpKind = "fw_reset_counter"
-	OpAddFilterRule    OpKind = "filter_add"
-	OpDelFilterRule    OpKind = "filter_del"
-	OpAddPortForward   OpKind = "nat_add"
-	OpDelPortForward   OpKind = "nat_del"
+
+	// OpApplyFilterTable / OpApplyNATTable replace the whole testudo_filter /
+	// testudo_nat table with the carried spec in one atomic netlink batch. They
+	// are the only firewall/NAT mutations: the policy manager (internal/firewall)
+	// owns the desired state and re-applies it, so rules are never added or
+	// removed one at a time behind its back.
+	OpApplyFilterTable OpKind = "filter_apply"
+	OpApplyNATTable    OpKind = "nat_apply"
 
 	// WireGuard peer mutations. Only public keys travel on the wire - private
 	// and preshared keys never reach the helper protocol (secrets rule).
 	OpWGConfigurePeer OpKind = "wg_peer_config"
 	OpWGRemovePeer    OpKind = "wg_peer_remove"
-
-	// Masquerade (source NAT) for a WireGuard tunnel pool egressing a WAN
-	// interface. Used by the "Full tunnel" firewall preset.
-	OpAddMasquerade OpKind = "masq_add"
-	OpDelMasquerade OpKind = "masq_del"
 
 	// OpWriteNetplan writes a netplan YAML file for a WireGuard interface. The
 	// path is validated to live under /etc/netplan and end in .yaml, and the
@@ -95,13 +94,29 @@ const (
 	// /etc/netplan and returns them. Routed through Backend.Query / OpQuery so it
 	// works from the unprivileged engine via the helper.
 	OpListNetplan OpKind = "netplan_list"
+
+	// Privileged READS. nf_tables, conntrack and WireGuard netlink dumps all
+	// need CAP_NET_ADMIN, which the engine drops after spawning the helper, so
+	// every one of these is routed through Backend.Query like netplan_list.
+	// Results are JSON; large ones (rule dumps, conntrack tables) span several
+	// privsep frames.
+	OpQueryFirewallSummary OpKind = "fw_summary"   // -> FirewallSummary
+	OpQueryFirewallRules   OpKind = "fw_rules"     // -> []RuleInfo
+	OpQueryFilterState     OpKind = "filter_state" // -> FilterTableState
+	OpQueryNATState        OpKind = "nat_state"    // -> NATTableState
+	OpQueryWGDevices       OpKind = "wg_devices"   // -> []WGDeviceInfo
+	OpQueryConntrack       OpKind = "ct_list"      // CtQuery -> ConntrackResult
 )
 
 // Op is a serializable description of one privileged mutation. It is the unit
 // the helper protocol carries; the union of fields is small enough to keep in
 // one flat struct rather than per-op message types.
 type Op struct {
-	Kind    OpKind `json:"kind"`
+	Kind OpKind `json:"kind"`
+	// Actor is the human behind the request (Web UI session user, TUI/CLI
+	// login), stamped by Writer.WithActor so the helper's audit row names a
+	// person next to the process uid. Never secret material.
+	Actor   string `json:"actor,omitempty"`
 	Name    string `json:"name,omitempty"`    // interface name
 	CIDR    string `json:"cidr,omitempty"`    // address / route destination
 	Gateway string `json:"gateway,omitempty"` // route gateway
@@ -119,10 +134,12 @@ type Op struct {
 	Chain  string `json:"chain,omitempty"`
 	Handle uint64 `json:"handle,omitempty"`
 
-	// Struct-carrying ops.
-	Filter    *FilterRule    `json:"filter,omitempty"`
-	PortFwd   *PortForward   `json:"port_forward,omitempty"`
-	Conntrack *ConntrackFlow `json:"conntrack,omitempty"`
+	// Struct-carrying ops. The table specs carry the complete desired table;
+	// a policy that does not fit privsep.MaxFrame is rejected by the manager.
+	FilterSpec *FilterTableSpec `json:"filter_spec,omitempty"`
+	NATSpec    *NATSpec         `json:"nat_spec,omitempty"`
+	Conntrack  *ConntrackFlow   `json:"conntrack,omitempty"`
+	CtQuery    *ConntrackQuery  `json:"ct_query,omitempty"` // filter for OpQueryConntrack
 
 	// WireGuard peer mutation (public key only).
 	WGDevice     string   `json:"wg_device,omitempty"`
@@ -132,10 +149,6 @@ type Op struct {
 	// WGKeepalive is the persistent-keepalive in seconds: -1 leaves it unchanged,
 	// 0 clears it, >0 sets it. Not omitempty so 0 (clear) survives the wire.
 	WGKeepalive int `json:"wg_keepalive"`
-
-	// Masquerade source-NAT rule.
-	MasqOutIface string `json:"masq_out_iface,omitempty"`
-	MasqSrcCIDR  string `json:"masq_src_cidr,omitempty"`
 
 	// Netplan file write (WireGuard interface config). NetplanContent may hold a
 	// private key, so it is written 0600 and never echoed to the audit args.
@@ -201,6 +214,28 @@ func (w *Writer) be() Backend {
 	return directBackend{w}
 }
 
+// mutate stamps the writer's actor onto op and dispatches it. Every Writer
+// mutation goes through here so the audit trail is uniform.
+func (w *Writer) mutate(op Op) error {
+	op.Actor = w.actor
+	return w.be().Mutate(op)
+}
+
+// WithActor returns a per-request copy of the writer whose mutations carry the
+// given human actor into the helper's audit log. The copy shares the backend
+// and the current write gate; it is cheap and meant to be made per request.
+func (w *Writer) WithActor(actor string) *Writer {
+	if w == nil {
+		return nil
+	}
+	c := *w
+	c.actor = actor
+	return &c
+}
+
+// Actor returns the actor this writer stamps onto mutations ("" = none).
+func (w *Writer) Actor() string { return w.actor }
+
 // NewHelperWriter builds a Writer whose mutations are forwarded to the
 // privileged helper via client. Reads still run in-process (they need no
 // capabilities). allowWrites mirrors the --allow-netops-write gate.
@@ -216,14 +251,52 @@ func (w *Writer) ApplyOp(op Op) error { return w.applyDirect(op) }
 // helper calls this for each OpQuery request it receives.
 func (w *Writer) QueryOp(op Op) ([]byte, error) { return w.queryDirect(op) }
 
-// queryDirect dispatches a read Op to the matching in-process implementation.
+// queryDirect dispatches a read Op to the matching in-process implementation
+// and returns its JSON encoding.
 func (w *Writer) queryDirect(op Op) ([]byte, error) {
 	switch op.Kind {
 	case OpListNetplan:
 		return w.listNetplanDirect()
+	case OpQueryFirewallSummary:
+		return marshalResult(w.listFirewallDirect())
+	case OpQueryFirewallRules:
+		return marshalResult(w.listFirewallRulesDirect())
+	case OpQueryFilterState:
+		return marshalResult(w.filterTableStateDirect())
+	case OpQueryNATState:
+		return marshalResult(w.natTableStateDirect())
+	case OpQueryWGDevices:
+		return marshalResult(w.listWGDevicesDirect())
+	case OpQueryConntrack:
+		var q ConntrackQuery
+		if op.CtQuery != nil {
+			q = *op.CtQuery
+		}
+		return marshalResult(w.listConntrackDirect(q))
 	default:
 		return nil, fmt.Errorf("unknown query kind %q", op.Kind)
 	}
+}
+
+// marshalResult JSON-encodes a direct read's result unless it failed.
+func marshalResult(v any, err error) ([]byte, error) {
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(v)
+}
+
+// queryInto runs a privileged read through the query seam (helper when the
+// engine is unprivileged, in-process otherwise) and decodes the result.
+func (w *Writer) queryInto(op Op, out any) error {
+	body, err := w.be().Query(op)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("decode %s result: %w", op.Kind, err)
+	}
+	return nil
 }
 
 // applyDirect dispatches an Op to the matching in-process implementation.
@@ -254,23 +327,16 @@ func (w *Writer) applyDirect(op Op) error {
 		return w.flushConntrackDirect(*op.Conntrack)
 	case OpResetRuleCounter:
 		return w.resetRuleCounterDirect(op.Family, op.Table, op.Chain, op.Handle)
-	case OpAddFilterRule:
-		if op.Filter == nil {
-			return fmt.Errorf("filter op missing rule")
+	case OpApplyFilterTable:
+		if op.FilterSpec == nil {
+			return fmt.Errorf("filter apply missing spec")
 		}
-		return w.addFilterRuleDirect(*op.Filter)
-	case OpDelFilterRule:
-		if op.Filter == nil {
-			return fmt.Errorf("filter op missing rule")
+		return w.applyFilterTableDirect(*op.FilterSpec)
+	case OpApplyNATTable:
+		if op.NATSpec == nil {
+			return fmt.Errorf("nat apply missing spec")
 		}
-		return w.delFilterRuleDirect(*op.Filter)
-	case OpAddPortForward:
-		if op.PortFwd == nil {
-			return fmt.Errorf("nat op missing port forward")
-		}
-		return w.addPortForwardDirect(*op.PortFwd)
-	case OpDelPortForward:
-		return w.delPortForwardDirect(op.Proto(), op.WANPort())
+		return w.applyNATTableDirect(*op.NATSpec)
 	case OpWGConfigurePeer:
 		return w.wgConfigurePeerDirect(op.WGDevice, op.WGPeerKey, op.WGAllowedIPs, op.WGEndpoint, op.WGKeepalive)
 	case OpWriteNetplan:
@@ -289,27 +355,7 @@ func (w *Writer) applyDirect(op Op) error {
 		return w.setSysctlDirect(op.SysctlKey, op.SysctlVal)
 	case OpWGRemovePeer:
 		return w.wgRemovePeerDirect(op.WGDevice, op.WGPeerKey)
-	case OpAddMasquerade:
-		return w.addMasqueradeDirect(op.MasqOutIface, op.MasqSrcCIDR)
-	case OpDelMasquerade:
-		return w.delMasqueradeDirect(op.MasqOutIface, op.MasqSrcCIDR)
 	default:
 		return fmt.Errorf("unknown op kind %q", op.Kind)
 	}
-}
-
-// Proto / WANPort decode the DelPortForward arguments carried in PortFwd to
-// avoid widening the flat Op struct with two more single-use fields.
-func (op Op) Proto() string {
-	if op.PortFwd != nil {
-		return op.PortFwd.Proto
-	}
-	return ""
-}
-
-func (op Op) WANPort() uint16 {
-	if op.PortFwd != nil {
-		return op.PortFwd.WANPort
-	}
-	return 0
 }

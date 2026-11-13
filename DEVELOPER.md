@@ -134,17 +134,38 @@ what replay and the metrics layer serialise. See
 
 ---
 
-## 6. Firewall Backends
+## 6. Firewall
 
-Two backends are present:
+The firewall is a **policy file applied atomically to nftables and reconciled
+back when the kernel drifts** - see [docs/firewall.md](docs/firewall.md).
 
-* **nftables** - default, via `github.com/google/nftables`. See
-  [internal/netops/firewall.go](internal/netops/firewall.go).
-* **iptables** - read-only fallback that shells out to the `iptables` binary
-  and parses `-L -v -n -x` output. See
-  [internal/netops/firewall_iptables.go](internal/netops/firewall_iptables.go).
+* **policy** - `internal/firewall`: desired state in `~/.testudo/firewall.json`,
+  validation, candidate → apply → persist, 30 s drift reconcile, commit-confirm
+  for default-deny. The engine exposes it as `Engine.Firewall()`; TUI, Web UI,
+  CLI and the WireGuard provisioner all mutate rules through it - never through
+  `netops` directly.
+* **mechanism** - `internal/netops/filter.go` + `nat.go`: the rule model
+  (`FilterRule`, `PortForward`, `Masquerade`), the expression compiler and the
+  one-batch table rebuild (`ApplyFilterTable` / `ApplyNATTable`), plus the live
+  read-back (`FilterTableState` / `NATTableState`) used for drift and hit counts.
+* **views** - `internal/netops/firewall.go` decodes *any* nftables ruleset for the
+  diagnostic per-rule counter view; `firewall_iptables.go` is a read-only legacy
+  fallback that shells out to `iptables -L -v -n -x`.
 
-`firewalld` is on the roadmap but not implemented.
+Integration tests run against a real kernel inside `unshare -Urn` (no root
+needed); see `internal/netops/nft_integration_test.go`.
+
+Privilege separation: the engine drops all capabilities after spawning the helper,
+so every nf_tables / conntrack / WireGuard **read** (not just writes) is routed
+through the helper's query seam (`netops.Writer` → `Backend.Query`); the privsep
+transport chunks large messages across datagrams. New privileged reads must follow
+the same pattern - add an `OpQuery*` kind in `netops/backend.go`, a `*Direct`
+implementation, and a wrapper that calls `queryInto`.
+
+Identity (users, roles, MFA, TLS) and the actor-bound audit trail are described
+in [docs/identity.md](docs/identity.md).
+Privileged access (resources, policies, JIT grants, brokers, access log) is
+described in [docs/pam.md](docs/pam.md).
 
 ---
 

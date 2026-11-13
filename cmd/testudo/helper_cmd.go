@@ -156,6 +156,7 @@ func runHelper() error {
 				Op:      string(o.Kind),
 				Args:    string(body),
 				PeerUID: peerUID,
+				Actor:   o.Actor, // the human the engine stamped on the request, if any
 				Result:  result,
 			})
 		case privsep.OpCaptureStart:

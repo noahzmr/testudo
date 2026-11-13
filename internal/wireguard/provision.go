@@ -7,10 +7,12 @@ import (
 	"github.com/noahzmr/testudo/internal/netops"
 )
 
-// NetopsBackend is the privileged surface the provisioner drives. Every method
-// is already write-gated and audit-logged inside netops and, when the engine is
-// helper-backed, executes in the privileged helper. *netops.Writer satisfies it;
-// tests substitute a fake to assert the transaction + rollback ordering.
+// NetopsBackend is the privileged surface the provisioner drives. Peer, route
+// and netplan ops are write-gated and audit-logged inside netops and, when the
+// engine is helper-backed, execute in the privileged helper. Firewall and NAT
+// ops go through the firewall policy manager (the engine adapts it) so preset
+// rules are persisted and survive a reboot. Tests substitute a fake to assert
+// the transaction + rollback ordering.
 type NetopsBackend interface {
 	ListWGDevices() ([]netops.WGDeviceInfo, error)
 	ConfigureWGPeer(device, peerPubKey string, allowedIPs []string, endpoint string, keepalive int) error
@@ -18,11 +20,24 @@ type NetopsBackend interface {
 	AddRoute(cidr, gateway, iface string) error
 	DelRoute(cidr string) error
 	AddFilterRule(fr netops.FilterRule) error
-	DelFilterRule(fr netops.FilterRule) error
-	AddMasquerade(outIface, srcCIDR string) error
-	DelMasquerade(outIface, srcCIDR string) error
+	// DelFilterRulesMatching removes rules whose non-empty fields match target
+	// (used to tear down pre-ownership rules imported from older builds).
+	DelFilterRulesMatching(target netops.FilterRule) error
+	// DelFilterRulesByOwner removes every rule tagged with owner (OwnerForPeer).
+	DelFilterRulesByOwner(owner string) error
+	AddMasquerade(ms netops.Masquerade) error
+	DelMasqueradesMatching(outIface, srcCIDR string) error
+	DelMasqueradesByOwner(owner string) error
 	WriteNetplan(path, content string) error
 }
+
+// ownerPrefix tags every firewall/NAT entry provisioned for a peer.
+const ownerPrefix = "wg-peer:"
+
+// OwnerForPeer is the firewall ownership tag for everything Testudo provisions
+// for a peer, so deprovisioning removes exactly those entries - no matter how
+// the preset inputs (LAN subnets, WAN interface) changed in the meantime.
+func OwnerForPeer(peerPublicKey string) string { return ownerPrefix + peerPublicKey }
 
 // ProvisionRequest fully describes a peer to provision. The IPAM + preset inputs
 // (TunnelSubnet, ServerAddr, WANIface, LANSubnets) come from settings, not the
@@ -163,20 +178,23 @@ func Provision(be NetopsBackend, req ProvisionRequest) (ProvisionResult, error) 
 	}
 	undo = append(undo, func() { _ = be.DelRoute(assignedIP) })
 
-	// Step 5: apply the firewall preset.
-	rules, masq := presetRules(req.Preset, req.Device, assignedIP, req.WANIface, req.LANSubnets)
+	// Step 5: apply the firewall preset. Every entry carries the peer's owner
+	// tag; one owner-scoped delete undoes all of them.
+	owner := OwnerForPeer(peerPub)
+	rules, masq := presetRules(req.Preset, req.Device, assignedIP, req.WANIface, req.LANSubnets, owner)
+	if len(rules) > 0 {
+		undo = append(undo, func() { _ = be.DelFilterRulesByOwner(owner) })
+	}
 	for _, fr := range rules {
 		if err := be.AddFilterRule(fr); err != nil {
 			return fail(fmt.Errorf("apply firewall rule: %w", err))
 		}
-		undo = append(undo, func() { _ = be.DelFilterRule(fr) })
 	}
 	if masq != nil {
-		if err := be.AddMasquerade(masq.outIface, masq.srcCIDR); err != nil {
+		undo = append(undo, func() { _ = be.DelMasqueradesByOwner(owner) })
+		if err := be.AddMasquerade(*masq); err != nil {
 			return fail(fmt.Errorf("apply masquerade: %w", err))
 		}
-		m := *masq
-		undo = append(undo, func() { _ = be.DelMasquerade(m.outIface, m.srcCIDR) })
 	}
 
 	res := ProvisionResult{
@@ -195,11 +213,10 @@ func Provision(be NetopsBackend, req ProvisionRequest) (ProvisionResult, error) 
 	return res, nil
 }
 
-// DeprovisionRequest reverses a Provision. It reconstructs the deterministic set
-// of routes/firewall rules for the peer and removes them, then removes the peer.
-// The preset inputs are supplied again (from settings) so every candidate rule
-// can be torn down; DelFilterRule/DelMasquerade are no-ops for rules that don't
-// exist, so passing the union across presets is safe.
+// DeprovisionRequest reverses a Provision: routes for the peer's addresses, every
+// firewall/NAT entry tagged with the peer's owner, and the peer itself. The
+// preset inputs are still accepted so rules provisioned by older builds (before
+// ownership tags) can be torn down by reconstructing them.
 type DeprovisionRequest struct {
 	Device        string
 	PeerPublicKey string
@@ -240,24 +257,36 @@ func Deprovision(be NetopsBackend, req DeprovisionRequest) error {
 		}
 	}
 
-	// Remove every route + firewall rule for each address routed to the peer.
+	// Routes for every address routed to the peer, plus legacy (pre-ownership)
+	// preset rules reconstructed from the current inputs.
 	for _, aip := range peer.AllowedIPs {
 		peerIP := hostCIDR(strings.TrimSpace(aip))
 		note(be.DelRoute(peerIP))
-		// Remove candidate rules across every preset (idempotent).
-		for _, preset := range []FirewallPreset{PresetFullTunnel, PresetSplit, PresetIsolated} {
-			rules, masq := presetRules(preset, req.Device, peerIP, req.WANIface, req.LANSubnets)
-			for _, fr := range rules {
-				note(be.DelFilterRule(fr))
-			}
-			if masq != nil {
-				note(be.DelMasquerade(masq.outIface, masq.srcCIDR))
-			}
-		}
+		teardownLegacyPresetRules(be, req.Device, peerIP, req.WANIface, req.LANSubnets, note)
 	}
+	// Everything tagged for this peer, whatever the inputs were at the time.
+	owner := OwnerForPeer(req.PeerPublicKey)
+	note(be.DelFilterRulesByOwner(owner))
+	note(be.DelMasqueradesByOwner(owner))
 	// Finally remove the peer.
 	note(be.RemoveWGPeer(req.Device, req.PeerPublicKey))
 	return firstErr
+}
+
+// teardownLegacyPresetRules removes preset rules written by builds that did
+// not tag ownership, by reconstructing every preset's candidate rules for the
+// peer IP and deleting whatever matches. Idempotent; a no-op on fresh hosts.
+func teardownLegacyPresetRules(be NetopsBackend, device, peerIP, wanIface string, lanSubnets []string, note func(error)) {
+	for _, preset := range []FirewallPreset{PresetFullTunnel, PresetSplit, PresetIsolated} {
+		rules, masq := presetRules(preset, device, peerIP, wanIface, lanSubnets, "")
+		for _, fr := range rules {
+			fr.Owner, fr.Comment = "", ""
+			note(be.DelFilterRulesMatching(fr))
+		}
+		if masq != nil {
+			note(be.DelMasqueradesMatching(masq.OutIface, masq.SrcCIDR))
+		}
+	}
 }
 
 // UpdateRequest is a full edit of an existing peer: its endpoint, its
@@ -337,28 +366,24 @@ func UpdatePeer(be NetopsBackend, req UpdateRequest) error {
 		}
 	}
 
-	// Firewall: tear down every candidate rule for the OLD IPs across all
-	// presets, then apply the new preset for the CURRENT IPs.
+	// Firewall: tear down everything tagged for the peer (plus legacy untagged
+	// rules for the OLD IPs), then apply the new preset for the CURRENT IPs.
+	owner := OwnerForPeer(req.PeerPublicKey)
+	ignore := func(error) {}
 	for _, ip := range oldIPs {
-		for _, preset := range []FirewallPreset{PresetFullTunnel, PresetSplit, PresetIsolated} {
-			rules, masq := presetRules(preset, req.Device, ip, req.WANIface, req.LANSubnets)
-			for _, fr := range rules {
-				_ = be.DelFilterRule(fr)
-			}
-			if masq != nil {
-				_ = be.DelMasquerade(masq.outIface, masq.srcCIDR)
-			}
-		}
+		teardownLegacyPresetRules(be, req.Device, ip, req.WANIface, req.LANSubnets, ignore)
 	}
+	_ = be.DelFilterRulesByOwner(owner)
+	_ = be.DelMasqueradesByOwner(owner)
 	for _, ip := range newIPs {
-		rules, masq := presetRules(req.Preset, req.Device, ip, req.WANIface, req.LANSubnets)
+		rules, masq := presetRules(req.Preset, req.Device, ip, req.WANIface, req.LANSubnets, owner)
 		for _, fr := range rules {
 			if err := be.AddFilterRule(fr); err != nil {
 				return fmt.Errorf("apply firewall rule: %w", err)
 			}
 		}
 		if masq != nil {
-			if err := be.AddMasquerade(masq.outIface, masq.srcCIDR); err != nil {
+			if err := be.AddMasquerade(*masq); err != nil {
 				return fmt.Errorf("apply masquerade: %w", err)
 			}
 		}
@@ -394,30 +419,26 @@ func containsIP(list []string, ip string) bool {
 	return false
 }
 
-// masqSpec is an internal description of a masquerade rule for a preset.
-type masqSpec struct {
-	outIface string
-	srcCIDR  string
-}
-
 // presetRules builds the deterministic firewall rule set (and optional
-// masquerade) for a peer under a preset. Rules are ordered so that ACCEPTs
-// precede any catch-all DROP - nftables evaluates in insertion order and
-// AddFilterRule appends. Forwarding is always scoped to the wg device and
-// direction (never a blanket FORWARD ACCEPT), per WireGuard best practice.
-func presetRules(preset FirewallPreset, device, peerIP, wanIface string, lanSubnets []string) ([]netops.FilterRule, *masqSpec) {
+// masquerade) for a peer under a preset, every entry tagged with owner. Rules
+// are ordered so that ACCEPTs precede the catch-all DROP - the policy manager
+// installs them in order. Forwarding is always scoped to the wg device and the
+// peer's address (never a blanket FORWARD ACCEPT), per WireGuard best practice.
+//
+// Return traffic needs no rule here: the firewall baseline's
+// `ct state established,related accept` covers replies to the peer. The old
+// per-peer return rule (`oif wg0 daddr peer accept`) let any LAN host *initiate*
+// connections to the peer and is gone.
+func presetRules(preset FirewallPreset, device, peerIP, wanIface string, lanSubnets []string, owner string) ([]netops.FilterRule, *netops.Masquerade) {
 	peerCIDR := hostCIDR(peerIP)
-	// Return path is identical for every preset that allows any forwarding:
-	// let replies flow back out the tunnel to the peer.
-	returnRule := netops.FilterRule{Chain: "forward", Action: "accept", OutIface: device, DstCIDR: peerCIDR}
+	comment := "wg " + string(preset) + " preset"
 
 	switch preset {
 	case PresetFullTunnel:
 		rules := []netops.FilterRule{
-			{Chain: "forward", Action: "accept", InIface: device, SrcCIDR: peerCIDR},
-			returnRule,
+			{Chain: "forward", Action: "accept", InIface: device, SrcCIDR: peerCIDR, Owner: owner, Comment: comment},
 		}
-		return rules, &masqSpec{outIface: wanIface, srcCIDR: peerCIDR}
+		return rules, &netops.Masquerade{OutIface: wanIface, SrcCIDR: peerCIDR, Owner: owner, Comment: comment}
 
 	case PresetSplit:
 		var rules []netops.FilterRule
@@ -428,14 +449,13 @@ func presetRules(preset FirewallPreset, device, peerIP, wanIface string, lanSubn
 			}
 			rules = append(rules, netops.FilterRule{
 				Chain: "forward", Action: "accept", InIface: device,
-				SrcCIDR: peerCIDR, DstCIDR: sub,
+				SrcCIDR: peerCIDR, DstCIDR: sub, Owner: owner, Comment: comment,
 			})
 		}
-		rules = append(rules, returnRule)
 		// Catch-all DROP for anything else the peer tries to forward. MUST be
 		// last so the accepts above win.
 		rules = append(rules, netops.FilterRule{
-			Chain: "forward", Action: "drop", InIface: device, SrcCIDR: peerCIDR,
+			Chain: "forward", Action: "drop", InIface: device, SrcCIDR: peerCIDR, Owner: owner, Comment: comment,
 		})
 		return rules, nil
 
@@ -444,7 +464,7 @@ func presetRules(preset FirewallPreset, device, peerIP, wanIface string, lanSubn
 		// INPUT (not FORWARD) and stays reachable; peer-to-peer and LAN/internet
 		// are dropped.
 		return []netops.FilterRule{
-			{Chain: "forward", Action: "drop", InIface: device, SrcCIDR: peerCIDR},
+			{Chain: "forward", Action: "drop", InIface: device, SrcCIDR: peerCIDR, Owner: owner, Comment: comment},
 		}, nil
 	}
 	return nil, nil

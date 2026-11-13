@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/events"
+	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/incidents"
@@ -24,7 +26,9 @@ import (
 	"github.com/noahzmr/testudo/internal/ipfix"
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/pam"
 	"github.com/noahzmr/testudo/internal/quality"
+	"github.com/noahzmr/testudo/internal/sshca"
 	"github.com/noahzmr/testudo/internal/storage"
 	"github.com/noahzmr/testudo/internal/wireguard"
 )
@@ -45,6 +49,18 @@ type Engine struct {
 	ipfixMgr  *ipfix.Manager
 	settings  *config.SettingsStore
 	netops    *netops.Writer
+	// fw owns the firewall/NAT desired state (policy file) and keeps the kernel
+	// in sync with it; nil when netops is unavailable or the policy file is
+	// unreadable (fwErr says why). All firewall/NAT mutations go through it.
+	fw    *firewall.Manager
+	fwErr error
+	// pam is the privileged-access manager (JIT grants compiled into firewall
+	// rules for the requester's WireGuard peers); nil when disabled.
+	pam *pam.Manager
+	// sshca signs short-lived user certificates for brokered ssh grants;
+	// opened lazily (see SSHCA).
+	sshcaMu   sync.Mutex
+	sshca     *sshca.CA
 	incidents *incidents.Engine
 	inventory *discovery.Inventory
 	store     *storage.Store
@@ -98,7 +114,13 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 	bus := events.NewBus(2048)
 	dnsCache := flows.NewDNSCache()
 	dnsCache.SetReverseEnabled(cfg.ReverseDNSEnabled)
+	fw, fwErr := openFirewall(cfg, nw)
+	if fwErr != nil {
+		log.Printf("firewall: policy unavailable, firewall/NAT management disabled: %v", fwErr)
+	}
 	return &Engine{
+		fw:        fw,
+		fwErr:     fwErr,
 		cfg:       cfg,
 		bus:       bus,
 		sup:       newSupervisor(bus),
@@ -248,6 +270,8 @@ func (e *Engine) Start(parent context.Context) error {
 		e.startDiscovery(ctx)
 	}
 	e.startSnapshotter(ctx)
+	e.startFirewallReconciler(ctx)
+	e.startPAM(ctx)
 	e.startWireGuardPersister(ctx)
 	e.startDownsampler(ctx)
 	e.startRollupAggregator(ctx)

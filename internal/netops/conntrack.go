@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"sort"
 	"strings"
 
@@ -84,16 +85,50 @@ const (
 // state attribute is present (e.g. UDP/ICMP flows).
 const tcpStateUnknown = 0xff
 
-// ListConntrack dumps the live nf_conntrack table for all families via a
-// CTNETLINK IPCTNL_MSG_CT_GET dump. Flows are returned sorted by total bytes
-// descending so the heaviest (and the NAT'd) entries surface first; callers
-// rendering the table should still cap the row count - it can be enormous on
-// a busy router. Returns an empty slice (not an error) when conntrack isn't
-// loaded.
+// ConntrackQuery narrows a conntrack dump before it leaves the privileged
+// side: a busy router holds hundreds of thousands of entries, and the
+// unprivileged engine usually wants either the top talkers (Limit) or the
+// flows of one peer towards one target (SrcIPs + DstCIDR, the PAM session
+// kill). Zero value = everything.
+type ConntrackQuery struct {
+	SrcIPs  []string `json:"src_ips,omitempty"`  // original-source addresses (bare or CIDR) to keep
+	DstCIDR string   `json:"dst_cidr,omitempty"` // original-destination address/CIDR to keep
+	Limit   int      `json:"limit,omitempty"`    // keep at most this many (sorted by bytes desc); 0 = all
+}
+
+// ConntrackResult is a (possibly truncated) dump plus the matching total.
+type ConntrackResult struct {
+	Flows []ConntrackFlow `json:"flows"`
+	Total int             `json:"total"` // matching entries before Limit
+}
+
+// ListConntrack dumps the whole live nf_conntrack table for all families,
+// sorted by total bytes descending so the heaviest (and the NAT'd) entries
+// surface first. Prefer ListConntrackQuery with a Limit or a filter - the
+// table can be enormous on a busy router. Returns an empty slice (not an
+// error) when conntrack isn't loaded.
 func (w *Writer) ListConntrack() ([]ConntrackFlow, error) {
+	res, err := w.ListConntrackQuery(ConntrackQuery{})
+	return res.Flows, err
+}
+
+// ListConntrackQuery dumps conntrack with server-side filtering and
+// truncation. A privileged read (CTNETLINK dumps need CAP_NET_ADMIN) routed
+// through the query seam so it works from the unprivileged engine.
+func (w *Writer) ListConntrackQuery(q ConntrackQuery) (ConntrackResult, error) {
+	var out ConntrackResult
+	err := w.queryInto(Op{Kind: OpQueryConntrack, CtQuery: &q}, &out)
+	return out, err
+}
+
+func (w *Writer) listConntrackDirect(q ConntrackQuery) (ConntrackResult, error) {
+	match, err := q.matcher()
+	if err != nil {
+		return ConntrackResult{}, err
+	}
 	c, err := netlink.Dial(unix.NETLINK_NETFILTER, nil)
 	if err != nil {
-		return nil, fmt.Errorf("netlink dial: %w", err)
+		return ConntrackResult{}, fmt.Errorf("netlink dial: %w", err)
 	}
 	defer c.Close()
 
@@ -105,7 +140,7 @@ func (w *Writer) ListConntrack() ([]ConntrackFlow, error) {
 		Data: nfgenmsg(unix.AF_UNSPEC),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("ct dump: %w", err)
+		return ConntrackResult{}, fmt.Errorf("ct dump: %w", err)
 	}
 
 	out := make([]ConntrackFlow, 0, len(resp))
@@ -114,13 +149,80 @@ func (w *Writer) ListConntrack() ([]ConntrackFlow, error) {
 			continue
 		}
 		f, ok := parseCtAttrs(m.Data[nfgenmsgLen:])
-		if !ok {
+		if !ok || !match(f) {
 			continue
 		}
 		out = append(out, f)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Bytes > out[j].Bytes })
-	return out, nil
+	res := ConntrackResult{Flows: out, Total: len(out)}
+	if q.Limit > 0 && len(out) > q.Limit {
+		res.Flows = out[:q.Limit]
+	}
+	return res, nil
+}
+
+// matcher compiles the query into a predicate over flows (original tuple).
+func (q ConntrackQuery) matcher() (func(ConntrackFlow) bool, error) {
+	var srcs []netip.Prefix
+	for _, s := range q.SrcIPs {
+		p, err := parsePrefixOrAddr(s)
+		if err != nil {
+			return nil, fmt.Errorf("src %q: %w", s, err)
+		}
+		srcs = append(srcs, p)
+	}
+	var dst *netip.Prefix
+	if q.DstCIDR != "" {
+		p, err := parsePrefixOrAddr(q.DstCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("dst %q: %w", q.DstCIDR, err)
+		}
+		dst = &p
+	}
+	if len(srcs) == 0 && dst == nil {
+		return func(ConntrackFlow) bool { return true }, nil
+	}
+	return func(f ConntrackFlow) bool {
+		if len(srcs) > 0 {
+			a, err := netip.ParseAddr(f.OrigSrc)
+			if err != nil {
+				return false
+			}
+			a = a.Unmap()
+			hit := false
+			for _, p := range srcs {
+				if p.Contains(a) {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				return false
+			}
+		}
+		if dst != nil {
+			a, err := netip.ParseAddr(f.OrigDst)
+			if err != nil || !dst.Contains(a.Unmap()) {
+				return false
+			}
+		}
+		return true
+	}, nil
+}
+
+// parsePrefixOrAddr accepts "10.0.0.5", "10.0.0.0/24" or "2001:db8::1".
+func parsePrefixOrAddr(s string) (netip.Prefix, error) {
+	s = strings.TrimSpace(s)
+	if p, err := netip.ParsePrefix(s); err == nil {
+		return p.Masked(), nil
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	a = a.Unmap()
+	return netip.PrefixFrom(a, a.BitLen()), nil
 }
 
 // FlushConntrack deletes one conntrack entry, identified by its original
@@ -131,7 +233,7 @@ func (w *Writer) FlushConntrack(f ConntrackFlow) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpFlushConntrack, Conntrack: &f})
+	return w.mutate(Op{Kind: OpFlushConntrack, Conntrack: &f})
 }
 
 func (w *Writer) flushConntrackDirect(f ConntrackFlow) error {

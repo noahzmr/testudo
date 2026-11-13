@@ -20,13 +20,14 @@ import (
 	"github.com/noahzmr/testudo/internal/web"
 )
 
-// cmdUser handles `testudo user passwd` and `testudo user list`.
-// Password input is read from a terminal prompt (no echo support yet -
-// echo-suppress on TTYs requires golang.org/x/term, which we'd rather not
-// pull in for a one-shot. The user can pipe via stdin.)
+// cmdUser manages Web UI accounts: list, add, del, role, disable/enable,
+// passwd, totp enroll/disable. Password input is read from a terminal prompt
+// (no echo suppression - echo-suppress on TTYs requires golang.org/x/term,
+// which we'd rather not pull in for a one-shot; pipe via stdin instead).
 func cmdUser(args []string) error {
+	usage := "usage: testudo user <list|add|del|role|disable|enable|passwd|totp> ..."
 	if len(args) == 0 {
-		return fmt.Errorf("usage: testudo user <passwd|list>")
+		return fmt.Errorf("%s", usage)
 	}
 	cfg := config.Default()
 	if err := cfg.EnsureDirs(); err != nil {
@@ -39,32 +40,117 @@ func cmdUser(args []string) error {
 	}
 	switch args[0] {
 	case "list":
-		names := store.ListNames()
-		if len(names) == 0 {
+		users := store.List()
+		if len(users) == 0 {
 			fmt.Println("no users configured")
 			return nil
 		}
-		for _, n := range names {
-			fmt.Println("  " + n)
+		fmt.Printf("  %-20s %-10s %-5s %s\n", "NAME", "ROLE", "MFA", "STATE")
+		for _, u := range users {
+			mfa, state := "-", "enabled"
+			if u.MFAEnrolled() {
+				mfa = "totp"
+			}
+			if u.Disabled {
+				state = "DISABLED"
+			}
+			fmt.Printf("  %-20s %-10s %-5s %s\n", u.Name, u.Role, mfa, state)
 		}
+		return nil
+	case "add":
+		fs := flag.NewFlagSet("user add", flag.ExitOnError)
+		role := fs.String("role", string(auth.RoleViewer), "viewer / approver / operator / admin")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("usage: testudo user add <name> [--role viewer|approver|operator|admin]")
+		}
+		name := fs.Arg(0)
+		pw, err := promptPassword("Password for " + name)
+		if err != nil {
+			return err
+		}
+		if err := store.Add(name, pw, auth.Role(*role)); err != nil {
+			return err
+		}
+		fmt.Printf("user %q created with role %s\n", name, *role)
+		return nil
+	case "del":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: testudo user del <name>")
+		}
+		if err := store.Delete(args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("user %q deleted\n", args[1])
+		return nil
+	case "role":
+		if len(args) != 3 {
+			return fmt.Errorf("usage: testudo user role <name> <viewer|approver|operator|admin>")
+		}
+		if err := store.SetRole(args[1], auth.Role(args[2])); err != nil {
+			return err
+		}
+		fmt.Printf("user %q is now %s\n", args[1], args[2])
+		return nil
+	case "disable", "enable":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: testudo user %s <name>", args[0])
+		}
+		if err := store.SetDisabled(args[1], args[0] == "disable"); err != nil {
+			return err
+		}
+		fmt.Printf("user %q %sd\n", args[1], args[0])
 		return nil
 	case "passwd":
 		name := "testudo"
 		if len(args) >= 2 {
 			name = args[1]
 		}
-		fmt.Fprintf(os.Stderr, "New password for %s: ", name)
-		var pw string
-		if _, err := fmt.Fscanln(os.Stdin, &pw); err != nil {
-			return fmt.Errorf("read password: %w", err)
+		pw, err := promptPassword("New password for " + name)
+		if err != nil {
+			return err
 		}
 		if err := store.SetPassword(name, pw); err != nil {
 			return err
 		}
 		fmt.Printf("password updated for user %q\n", name)
 		return nil
+	case "totp":
+		if len(args) != 3 || (args[1] != "enroll" && args[1] != "disable") {
+			return fmt.Errorf("usage: testudo user totp <enroll|disable> <name>")
+		}
+		if args[1] == "disable" {
+			if err := store.DisableTOTP(args[2]); err != nil {
+				return err
+			}
+			fmt.Printf("MFA disabled for user %q\n", args[2])
+			return nil
+		}
+		uri, err := store.EnrollTOTP(args[2], "Testudo")
+		if err != nil {
+			return err
+		}
+		// Shown exactly once; the secret is not recoverable afterwards except by
+		// re-enrolling. Printed to stdout only, never logged.
+		fmt.Printf("MFA enrolled for user %q. Add this to an authenticator app (shown once):\n\n  %s\n\n", args[2], uri)
+		return nil
 	}
-	return fmt.Errorf("unknown user subcommand: %s", args[0])
+	return fmt.Errorf("unknown user subcommand %q\n%s", args[0], usage)
+}
+
+// promptPassword reads a password from stdin after a prompt on stderr.
+func promptPassword(prompt string) (string, error) {
+	fmt.Fprintf(os.Stderr, "%s: ", prompt)
+	var pw string
+	if _, err := fmt.Fscanln(os.Stdin, &pw); err != nil {
+		return "", fmt.Errorf("read password: %w", err)
+	}
+	if pw == "" {
+		return "", fmt.Errorf("empty password")
+	}
+	return pw, nil
 }
 
 // cmdWeb runs the live engine + the embedded HTTP UI (no TUI).
@@ -76,8 +162,14 @@ func cmdWeb(args []string) error {
 	storageDir := fs.String("storage", cfg.StorageDir, "storage directory")
 	allowWrites := fs.Bool("allow-netops-write", false, "permit netlink/nftables/netplan writes (firewall, routes, NAT, WireGuard management)")
 	usePrivsep := fs.Bool("privsep", true, "run privileged netops in a separate helper process and drop the engine's capabilities (set false for legacy single-process mode)")
+	tlsCert := fs.String("tls-cert", "", "serve HTTPS with this certificate chain (PEM); requires --tls-key")
+	tlsKey := fs.String("tls-key", "", "private key (PEM) for --tls-cert")
+	tlsAuto := fs.Bool("tls-auto", false, "serve HTTPS with a self-signed certificate generated into <storage>/tls on first use")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if (*tlsCert == "") != (*tlsKey == "") {
+		return fmt.Errorf("--tls-cert and --tls-key must be given together")
 	}
 	cfg.WebListen = *listen
 	cfg.SQLitePath = *dbPath
@@ -142,7 +234,18 @@ func cmdWeb(args []string) error {
 	}()
 
 	srv := web.New(eng, users, cfg.WebListen)
-	fmt.Fprintf(os.Stderr, "Testudo web UI listening on http://%s\n", cfg.WebListen)
+	srv.TLS = web.TLSConfig{
+		CertFile: *tlsCert, KeyFile: *tlsKey, Auto: *tlsAuto,
+		Dir:   filepath.Join(cfg.StorageDir, "tls"),
+		Hosts: []string{strings.Split(cfg.WebListen, ":")[0]},
+	}
+	scheme := "http"
+	if srv.TLS.Enabled() {
+		scheme = "https"
+	} else {
+		fmt.Fprintln(os.Stderr, "⚠ serving plain HTTP - use --tls-auto or --tls-cert/--tls-key before exposing this beyond a trusted LAN")
+	}
+	fmt.Fprintf(os.Stderr, "Testudo web UI listening on %s://%s\n", scheme, cfg.WebListen)
 	return srv.ListenAndServe(ctx)
 }
 

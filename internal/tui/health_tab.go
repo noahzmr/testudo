@@ -170,17 +170,21 @@ func renderAuditSection(b *strings.Builder, innerW int, entries []storage.AuditE
 		b.WriteString("\n")
 		return
 	}
-	widths := []int{12, 16, 8, 30}
+	widths := []int{12, 18, 14, 6, 30}
 	b.WriteString("  " + dimStyle.Render(renderTableRow(innerW, widths,
-		"WHEN", "OP", "UID", "RESULT")))
+		"WHEN", "OP", "ACTOR", "UID", "RESULT")))
 	b.WriteString("\n")
 	for _, e := range entries {
 		result := okStyle.Render("ok")
 		if e.Result != "ok" && e.Result != "" {
 			result = errStyle.Render(truncTarget(e.Result, 28))
 		}
+		actor := e.Actor
+		if actor == "" {
+			actor = "-"
+		}
 		b.WriteString("  " + renderTableRow(innerW, widths,
-			fmtAgo(e.TS), e.Op, fmt.Sprintf("%d", e.PeerUID), result))
+			fmtAgo(e.TS), e.Op, truncTarget(actor, 14), fmt.Sprintf("%d", e.PeerUID), result))
 		b.WriteString("\n")
 	}
 }

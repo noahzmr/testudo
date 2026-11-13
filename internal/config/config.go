@@ -40,6 +40,15 @@ type Thresholds struct {
 	// a Guacamole instance.
 	GuacamoleTemplate string
 
+	// Guacamole REST API credentials for brokered PAM sessions (a Guacamole
+	// account allowed to manage connections). Empty disables brokering; grants
+	// then open the L3 path only. The recording paths are directories inside
+	// guacd where per-grant session recordings / SSH typescripts are written.
+	GuacamoleAPIUser        string
+	GuacamoleAPIPassword    string
+	GuacamoleRecordingPath  string
+	GuacamoleTypescriptPath string
+
 	// IPFIX flow export. The exporter (internal/ipfix) reconciles its
 	// live state against these on a 5-second cadence - toggling Enabled
 	// or rewriting Endpoint mid-session re-dials transparently.

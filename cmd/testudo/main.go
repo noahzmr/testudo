@@ -68,6 +68,8 @@ func run() error {
 		return cmdIfaces()
 	case "nat":
 		return cmdNAT(args)
+	case "firewall":
+		return cmdFirewall(args)
 	case "routes":
 		return cmdRoutes(args)
 	case "user":
@@ -107,11 +109,18 @@ func usage() {
 	fmt.Println("  nat list          show Testudo-managed port forwards")
 	fmt.Println("  nat add <proto> <wan> <lan-ip>[:<lan-port>]   add port forward")
 	fmt.Println("  nat del <proto> <wan>                          remove port forward")
+	fmt.Println("  firewall status                                policy mode, counts, kernel drift")
+	fmt.Println("  firewall rules                                 render the policy nft-style")
+	fmt.Println("  firewall export | import [--file F]            policy JSON out / in (import applies immediately)")
+	fmt.Println("  firewall apply                                 re-apply the policy to the kernel")
+	fmt.Println("  firewall enforce <on|off> [--confirm-sec N]    default-deny with commit-confirm")
 	fmt.Println("  discover [--active] [--lldp] [--snmp-community] one-shot scan (ARP/ICMP/mDNS/LLDP/SNMP)")
 	fmt.Println("  probe <kind> <target> [port]                   one-shot probe (icmp/tcp/udp/dns/throughput/traceroute)")
 	fmt.Println("  doctor [--target-ip] [--json] [--no-captive]   layered connectivity diagnosis (first failing layer = root cause)")
-	fmt.Println("  user passwd [name]                             set/rotate user password (web UI auth)")
-	fmt.Println("  user list                                      list configured users")
+	fmt.Println("  user list | add <name> [--role R] | del <name>  Web UI accounts (roles: viewer, approver, operator, admin)")
+	fmt.Println("  user role <name> <role> | disable | enable      change role or block logins")
+	fmt.Println("  user passwd [name]                             set/rotate a password")
+	fmt.Println("  user totp <enroll|disable> <name>              MFA (TOTP) - enroll prints the otpauth URI once")
 	fmt.Println("  version           print version")
 	fmt.Println("  help              show this message")
 	fmt.Println()
@@ -296,19 +305,29 @@ func cmdNAT(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: testudo nat <list|add|del> ...")
 	}
-	nw := &netops.Writer{AllowWrites: true}
+	// Port forwards are part of the firewall policy: the manager persists the
+	// change to firewall.json and rebuilds the NAT table atomically, so a
+	// forward added here survives a reboot (and shows up in the TUI / Web UI).
 	switch args[0] {
 	case "list":
-		fws, err := nw.ListPortForwards()
+		m, err := openDirectFirewall(false)
 		if err != nil {
 			return err
 		}
-		if len(fws) == 0 {
-			fmt.Println("no Testudo-managed port forwards")
+		fws, masqs, _ := m.NAT()
+		if len(fws) == 0 && len(masqs) == 0 {
+			fmt.Println("no Testudo-managed port forwards or masquerades")
 			return nil
 		}
 		for _, pf := range fws {
-			fmt.Printf("  %s wan=%d -> %s:%d\n", strings.ToUpper(pf.Proto), pf.WANPort, pf.LANIP, pf.LANPort)
+			live := ""
+			if !pf.Live {
+				live = "  (not live - run `testudo firewall apply`)"
+			}
+			fmt.Printf("  %s wan=%d -> %s:%d%s\n", strings.ToUpper(pf.Proto), pf.WANPort, pf.LANIP, pf.LANPort, live)
+		}
+		for _, ms := range masqs {
+			fmt.Printf("  MASQ %s via %s (%s)\n", ms.SrcCIDR, ms.OutIface, ms.Owner)
 		}
 		return nil
 	case "add":
@@ -324,7 +343,11 @@ func cmdNAT(args []string) error {
 		if err != nil {
 			return fmt.Errorf("lan target: %w", err)
 		}
-		return nw.AddPortForward(netops.PortForward{
+		m, err := openDirectFirewall(true)
+		if err != nil {
+			return err
+		}
+		return m.AddForward(netops.PortForward{
 			Proto: proto, WANPort: wan, LANIP: lanIP, LANPort: lanPort,
 		})
 	case "del":
@@ -336,7 +359,18 @@ func cmdNAT(args []string) error {
 		if err != nil {
 			return fmt.Errorf("wan port: %w", err)
 		}
-		return nw.DelPortForward(proto, wan)
+		m, err := openDirectFirewall(true)
+		if err != nil {
+			return err
+		}
+		n, err := m.DelForwardsMatching(proto, wan)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("no forward for %s/%d", proto, wan)
+		}
+		return nil
 	}
 	return fmt.Errorf("unknown nat subcommand: %s", args[0])
 }

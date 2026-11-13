@@ -32,6 +32,7 @@ var ErrWritesDisabled = errors.New("netops writes are disabled - toggle in Setti
 type Writer struct {
 	AllowWrites bool
 	backend     Backend
+	actor       string // human behind this writer's mutations (audit); set per request via WithActor
 }
 
 // IfaceInfo is a denormalised view of one network interface.
@@ -128,7 +129,7 @@ func (w *Writer) SetIfaceUp(name string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpSetIfaceUp, Name: name})
+	return w.mutate(Op{Kind: OpSetIfaceUp, Name: name})
 }
 
 func (w *Writer) setIfaceUpDirect(name string) error {
@@ -144,7 +145,7 @@ func (w *Writer) SetIfaceDown(name string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpSetIfaceDown, Name: name})
+	return w.mutate(Op{Kind: OpSetIfaceDown, Name: name})
 }
 
 func (w *Writer) setIfaceDownDirect(name string) error {
@@ -160,7 +161,7 @@ func (w *Writer) AddAddr(iface, cidr string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpAddAddr, Iface: iface, CIDR: cidr})
+	return w.mutate(Op{Kind: OpAddAddr, Iface: iface, CIDR: cidr})
 }
 
 func (w *Writer) addAddrDirect(iface, cidr string) error {
@@ -180,7 +181,7 @@ func (w *Writer) DelAddr(iface, cidr string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpDelAddr, Iface: iface, CIDR: cidr})
+	return w.mutate(Op{Kind: OpDelAddr, Iface: iface, CIDR: cidr})
 }
 
 func (w *Writer) delAddrDirect(iface, cidr string) error {
@@ -201,7 +202,7 @@ func (w *Writer) FlushAddrs(iface string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpFlushAddrs, Iface: iface})
+	return w.mutate(Op{Kind: OpFlushAddrs, Iface: iface})
 }
 
 func (w *Writer) flushAddrsDirect(iface string) error {
@@ -224,7 +225,7 @@ func (w *Writer) SetMTU(iface string, mtu int) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpSetMTU, Iface: iface, MTU: mtu})
+	return w.mutate(Op{Kind: OpSetMTU, Iface: iface, MTU: mtu})
 }
 
 func (w *Writer) setMTUDirect(iface string, mtu int) error {

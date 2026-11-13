@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/nftables"
-	"github.com/google/nftables/expr"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -43,11 +41,18 @@ type WGPeerInfo struct {
 }
 
 // ListWGDevices returns every WireGuard device known to the kernel, sorted by
-// name, carrying public keys only. It runs in-process via wgctrl's
-// generic-netlink client. Reading device state needs CAP_NET_ADMIN, so an
-// unprivileged process gets a permission error here - callers treat that as a
-// soft "not available" rather than a hard failure.
+// name, carrying public keys only. Reading device state needs CAP_NET_ADMIN,
+// so the read is routed through the query seam: in-process when this process
+// holds the capability, via the privileged helper otherwise. A process with
+// neither gets a permission error, which callers treat as a soft "not
+// available" rather than a hard failure.
 func (w *Writer) ListWGDevices() ([]WGDeviceInfo, error) {
+	var out []WGDeviceInfo
+	err := w.queryInto(Op{Kind: OpQueryWGDevices}, &out)
+	return out, err
+}
+
+func (w *Writer) listWGDevicesDirect() ([]WGDeviceInfo, error) {
 	c, err := wgctrl.New()
 	if err != nil {
 		return nil, fmt.Errorf("wgctrl new: %w", err)
@@ -97,7 +102,7 @@ func (w *Writer) ConfigureWGPeer(device, peerPubKey string, allowedIPs []string,
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{
+	return w.mutate(Op{
 		Kind:         OpWGConfigurePeer,
 		WGDevice:     device,
 		WGPeerKey:    peerPubKey,
@@ -167,7 +172,7 @@ func (w *Writer) WriteNetplan(path, content string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpWriteNetplan, NetplanPath: path, NetplanContent: content})
+	return w.mutate(Op{Kind: OpWriteNetplan, NetplanPath: path, NetplanContent: content})
 }
 
 func (w *Writer) writeNetplanDirect(path, content string) error {
@@ -247,7 +252,7 @@ func (w *Writer) NetplanApply() error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpNetplanApply})
+	return w.mutate(Op{Kind: OpNetplanApply})
 }
 
 func (w *Writer) netplanApplyDirect() error {
@@ -270,7 +275,7 @@ func (w *Writer) SafeApplyNetplan(path, content string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpSafeApplyNetplan, NetplanPath: path, NetplanContent: content})
+	return w.mutate(Op{Kind: OpSafeApplyNetplan, NetplanPath: path, NetplanContent: content})
 }
 
 func (w *Writer) safeApplyNetplanDirect(path, content string) error {
@@ -342,7 +347,7 @@ func (w *Writer) RemoveNetplan(path string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpRemoveNetplan, NetplanPath: path})
+	return w.mutate(Op{Kind: OpRemoveNetplan, NetplanPath: path})
 }
 
 func (w *Writer) removeNetplanDirect(path string) error {
@@ -384,7 +389,7 @@ func (w *Writer) SyncNetplan(path string, peers []NetplanPeerWire) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpSyncNetplan, NetplanPath: path, NetplanPeers: peers})
+	return w.mutate(Op{Kind: OpSyncNetplan, NetplanPath: path, NetplanPeers: peers})
 }
 
 func (w *Writer) syncNetplanDirect(path string, peers []NetplanPeerWire) error {
@@ -459,7 +464,7 @@ func (w *Writer) RemoveWGPeer(device, peerPubKey string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpWGRemovePeer, WGDevice: device, WGPeerKey: peerPubKey})
+	return w.mutate(Op{Kind: OpWGRemovePeer, WGDevice: device, WGPeerKey: peerPubKey})
 }
 
 func (w *Writer) wgRemovePeerDirect(device, peerPubKey string) error {
@@ -523,133 +528,4 @@ func shortKey(k string) string {
 		return k
 	}
 	return k[:10] + "…"
-}
-
-// masqTableName is a dedicated nftables table for Testudo-managed masquerade
-// (source-NAT) rules, kept separate from testudo_nat (DNAT) so the two never
-// collide and either can be listed/torn down independently.
-const masqTableName = "testudo_masq"
-
-// masqKey is the UserData tag round-tripped on each masquerade rule so list and
-// delete can match without decoding the expression list.
-func masqKey(outIface, srcCIDR string) string {
-	return "masq|" + srcCIDR + "|" + outIface
-}
-
-// AddMasquerade installs a POSTROUTING masquerade for packets sourced from
-// srcCIDR leaving on outIface. This is the source-NAT half of the "Full tunnel"
-// WireGuard preset: tunnel peers reach the internet behind the server's WAN IP.
-func (w *Writer) AddMasquerade(outIface, srcCIDR string) error {
-	if !w.AllowWrites {
-		return ErrWritesDisabled
-	}
-	return w.be().Mutate(Op{Kind: OpAddMasquerade, MasqOutIface: outIface, MasqSrcCIDR: srcCIDR})
-}
-
-func (w *Writer) addMasqueradeDirect(outIface, srcCIDR string) error {
-	if outIface == "" {
-		return fmt.Errorf("masquerade out interface required")
-	}
-	ip, mask, err := parseCIDROrIP(srcCIDR)
-	if err != nil {
-		return fmt.Errorf("masquerade src: %w", err)
-	}
-	conn, err := nftables.New()
-	if err != nil {
-		return fmt.Errorf("nftables new: %w", err)
-	}
-	defer conn.CloseLasting()
-
-	table := conn.AddTable(&nftables.Table{
-		Family: nftables.TableFamilyIPv4,
-		Name:   masqTableName,
-	})
-	chain := conn.AddChain(&nftables.Chain{
-		Name:     "postrouting",
-		Table:    table,
-		Type:     nftables.ChainTypeNAT,
-		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityNATSource,
-	})
-
-	var exprs []expr.Any
-	// ip saddr {srcCIDR}
-	exprs = append(exprs, &expr.Payload{
-		DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4,
-	})
-	if mask != nil {
-		exprs = append(exprs, &expr.Bitwise{
-			SourceRegister: 1, DestRegister: 1, Len: 4,
-			Mask: mask, Xor: []byte{0, 0, 0, 0},
-		})
-	}
-	exprs = append(exprs, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ip})
-	// oifname == outIface
-	exprs = append(exprs, ifaceMatchExprs(expr.MetaKeyOIFNAME, outIface)...)
-	// masquerade
-	exprs = append(exprs, &expr.Masq{})
-
-	conn.AddRule(&nftables.Rule{
-		Table:    table,
-		Chain:    chain,
-		Exprs:    exprs,
-		UserData: []byte(masqKey(outIface, srcCIDR)),
-	})
-	if err := conn.Flush(); err != nil {
-		return fmt.Errorf("flush nft: %w", err)
-	}
-	log.Printf("netops audit: add masquerade src=%s out=%s", srcCIDR, outIface)
-	return nil
-}
-
-// DelMasquerade removes the masquerade rule matching (outIface, srcCIDR).
-func (w *Writer) DelMasquerade(outIface, srcCIDR string) error {
-	if !w.AllowWrites {
-		return ErrWritesDisabled
-	}
-	return w.be().Mutate(Op{Kind: OpDelMasquerade, MasqOutIface: outIface, MasqSrcCIDR: srcCIDR})
-}
-
-func (w *Writer) delMasqueradeDirect(outIface, srcCIDR string) error {
-	conn, err := nftables.New()
-	if err != nil {
-		return fmt.Errorf("nftables new: %w", err)
-	}
-	defer conn.CloseLasting()
-
-	tables, err := conn.ListTables()
-	if err != nil {
-		return err
-	}
-	var ours *nftables.Table
-	for _, t := range tables {
-		if t.Name == masqTableName && t.Family == nftables.TableFamilyIPv4 {
-			ours = t
-			break
-		}
-	}
-	if ours == nil {
-		return nil
-	}
-	chains, err := conn.ListChains()
-	if err != nil {
-		return err
-	}
-	want := masqKey(outIface, srcCIDR)
-	for _, c := range chains {
-		if c.Table.Name != ours.Name || c.Table.Family != ours.Family {
-			continue
-		}
-		rules, err := conn.GetRules(ours, c)
-		if err != nil {
-			continue
-		}
-		for _, r := range rules {
-			if string(r.UserData) == want {
-				_ = conn.DelRule(r)
-				log.Printf("netops audit: del masquerade src=%s out=%s", srcCIDR, outIface)
-			}
-		}
-	}
-	return conn.Flush()
 }

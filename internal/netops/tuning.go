@@ -17,7 +17,7 @@ func (w *Writer) SetTxQLen(iface string, qlen int) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpSetTxQLen, Iface: iface, TxQLen: qlen})
+	return w.mutate(Op{Kind: OpSetTxQLen, Iface: iface, TxQLen: qlen})
 }
 
 func (w *Writer) setTxQLenDirect(iface string, qlen int) error {
@@ -55,7 +55,7 @@ func (w *Writer) SetSysctl(key, val string) error {
 	if !w.AllowWrites {
 		return ErrWritesDisabled
 	}
-	return w.be().Mutate(Op{Kind: OpSetSysctl, SysctlKey: key, SysctlVal: val})
+	return w.mutate(Op{Kind: OpSetSysctl, SysctlKey: key, SysctlVal: val})
 }
 
 func (w *Writer) setSysctlDirect(key, val string) error {

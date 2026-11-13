@@ -3,11 +3,13 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/events"
+	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/storage"
@@ -91,9 +93,10 @@ func (e *Engine) persistWireGuardSnapshot(ctx context.Context, snap wireguard.Sn
 // The returned ClientConfig is non-empty only in server-side keygen mode and
 // must be shown once then dropped (secrets rule). A summary is written to the
 // audit log with public keys only.
-func (e *Engine) ProvisionWireGuardPeer(name string, preset wireguard.FirewallPreset, serverSideKeygen bool, peerPub, fixedIP string) (wireguard.ProvisionResult, error) {
-	if e.netops == nil {
-		return wireguard.ProvisionResult{}, errWireGuardNoNetops
+func (e *Engine) ProvisionWireGuardPeer(actor, name string, preset wireguard.FirewallPreset, serverSideKeygen bool, peerPub, fixedIP string) (wireguard.ProvisionResult, error) {
+	be, err := e.wgBackend(actor)
+	if err != nil {
+		return wireguard.ProvisionResult{}, err
 	}
 	th := e.settings.Snapshot()
 	req := wireguard.ProvisionRequest{
@@ -111,14 +114,14 @@ func (e *Engine) ProvisionWireGuardPeer(name string, preset wireguard.FirewallPr
 		Endpoint:         th.WireGuardEndpoint,
 		DNS:              th.WireGuardDNS,
 	}
-	res, err := wireguard.Provision(e.netops, req)
-	e.auditWireGuard(context.Background(), "wg_provision_peer", res.Device, res.PeerPublicKey, err)
+	res, err := wireguard.Provision(be, req)
+	e.auditWireGuard(context.Background(), actor, "wg_provision_peer", res.Device, res.PeerPublicKey, err)
 	if err == nil {
 		// Persist the peer name (SQLite) - neither netplan nor the kernel stores it.
 		if e.store != nil && res.PeerPublicKey != "" {
 			_ = e.store.UpsertWGPeerMeta(context.Background(), res.PeerPublicKey, name, "")
 		}
-		e.syncWireGuardNetplan(req.Device)
+		e.syncWireGuardNetplan(actor, req.Device)
 	}
 	return res, err
 }
@@ -127,24 +130,25 @@ func (e *Engine) ProvisionWireGuardPeer(name string, preset wireguard.FirewallPr
 // removes the peer, its route, all preset firewall rules, and the masquerade,
 // then frees the IP. Preset inputs come from settings so every candidate rule
 // is torn down.
-func (e *Engine) DeprovisionWireGuardPeer(peerPub string) error {
-	if e.netops == nil {
-		return errWireGuardNoNetops
+func (e *Engine) DeprovisionWireGuardPeer(actor, peerPub string) error {
+	be, err := e.wgBackend(actor)
+	if err != nil {
+		return err
 	}
 	th := e.settings.Snapshot()
 	device := firstNonEmpty(th.WireGuardDevice, "wg0")
-	err := wireguard.Deprovision(e.netops, wireguard.DeprovisionRequest{
+	err = wireguard.Deprovision(be, wireguard.DeprovisionRequest{
 		Device:        device,
 		PeerPublicKey: peerPub,
 		WANIface:      th.WireGuardWANIface,
 		LANSubnets:    splitCSVList(th.WireGuardLANSubnets),
 	})
-	e.auditWireGuard(context.Background(), "wg_deprovision_peer", device, peerPub, err)
+	e.auditWireGuard(context.Background(), actor, "wg_deprovision_peer", device, peerPub, err)
 	if err == nil {
 		if e.store != nil {
 			_ = e.store.DeleteWGPeerMeta(context.Background(), peerPub)
 		}
-		e.syncWireGuardNetplan(device)
+		e.syncWireGuardNetplan(actor, device)
 	}
 	return err
 }
@@ -153,13 +157,14 @@ func (e *Engine) DeprovisionWireGuardPeer(peerPub string) error {
 // server-side AllowedIPs, and firewall preset - keeping the keypair. Empty
 // allowedIPs keeps the current set; the WAN interface and LAN subnets come from
 // settings.
-func (e *Engine) UpdateWireGuardPeer(peerPub, endpoint string, allowedIPs []string, keepalive int, preset wireguard.FirewallPreset) error {
-	if e.netops == nil {
-		return errWireGuardNoNetops
+func (e *Engine) UpdateWireGuardPeer(actor, peerPub, endpoint string, allowedIPs []string, keepalive int, preset wireguard.FirewallPreset) error {
+	be, err := e.wgBackend(actor)
+	if err != nil {
+		return err
 	}
 	th := e.settings.Snapshot()
 	device := firstNonEmpty(th.WireGuardDevice, "wg0")
-	err := wireguard.UpdatePeer(e.netops, wireguard.UpdateRequest{
+	err = wireguard.UpdatePeer(be, wireguard.UpdateRequest{
 		Device:        device,
 		PeerPublicKey: peerPub,
 		Endpoint:      endpoint,
@@ -169,9 +174,9 @@ func (e *Engine) UpdateWireGuardPeer(peerPub, endpoint string, allowedIPs []stri
 		WANIface:      th.WireGuardWANIface,
 		LANSubnets:    splitCSVList(th.WireGuardLANSubnets),
 	})
-	e.auditWireGuard(context.Background(), "wg_update_peer", device, peerPub, err)
+	e.auditWireGuard(context.Background(), actor, "wg_update_peer", device, peerPub, err)
 	if err == nil {
-		e.syncWireGuardNetplan(device)
+		e.syncWireGuardNetplan(actor, device)
 	}
 	return err
 }
@@ -226,7 +231,7 @@ func (e *Engine) RenderWireGuardNetplan(privateKey string) (string, error) {
 // (write-gated). The operator then applies it with `sudo netplan apply` - the
 // privileged helper cannot exec (seccomp denies execve), so Testudo writes the
 // declarative config but does not run netplan itself. Returns the path written.
-func (e *Engine) WriteWireGuardNetplan(privateKey string) (string, error) {
+func (e *Engine) WriteWireGuardNetplan(actor, privateKey string) (string, error) {
 	if e.netops == nil {
 		return "", errWireGuardNoNetops
 	}
@@ -236,9 +241,9 @@ func (e *Engine) WriteWireGuardNetplan(privateKey string) (string, error) {
 	}
 	th := e.settings.Snapshot()
 	path := firstNonEmpty(th.WireGuardNetplanPath, "/etc/netplan/60-testudo-wg.yaml")
-	err = e.netops.WriteNetplan(path, content)
+	err = e.netops.WithActor(actor).WriteNetplan(path, content)
 	// Audit the path only - never the content (it may hold the private key).
-	e.auditWireGuard(context.Background(), "wg_write_netplan", firstNonEmpty(th.WireGuardDevice, "wg0"), path, err)
+	e.auditWireGuard(context.Background(), actor, "wg_write_netplan", firstNonEmpty(th.WireGuardDevice, "wg0"), path, err)
 	return path, err
 }
 
@@ -293,7 +298,7 @@ func interfaceNetplanPath(device string) string {
 // applies it (§2 safe-apply). When privateKey is empty a keypair is generated;
 // the private key lands only in the 0600 netplan file, never in SQLite/logs. The
 // returned public key lets the operator note the server key. Write-gated.
-func (e *Engine) CreateWireGuardInterface(device, address string, listenPort int, privateKey string) (string, error) {
+func (e *Engine) CreateWireGuardInterface(actor, device, address string, listenPort int, privateKey string) (string, error) {
 	if e.netops == nil {
 		return "", errWireGuardNoNetops
 	}
@@ -317,23 +322,23 @@ func (e *Engine) CreateWireGuardInterface(device, address string, listenPort int
 		return "", err
 	}
 	path := interfaceNetplanPath(device)
-	err = e.netops.SafeApplyNetplan(path, content)
+	err = e.netops.WithActor(actor).SafeApplyNetplan(path, content)
 	// Audit the public key only - never the private key that went into the file.
-	e.auditWireGuard(context.Background(), "wg_iface_create", device, pub, err)
+	e.auditWireGuard(context.Background(), actor, "wg_iface_create", device, pub, err)
 	return pub, err
 }
 
 // DeleteWireGuardInterface removes the Testudo-managed netplan file for the
 // device, applies, and cleans up SQLite metadata. Write-gated.
-func (e *Engine) DeleteWireGuardInterface(device string) error {
+func (e *Engine) DeleteWireGuardInterface(actor, device string) error {
 	if e.netops == nil {
 		return errWireGuardNoNetops
 	}
 	if device == "" {
 		return errors.New("device required")
 	}
-	err := e.netops.RemoveNetplan(interfaceNetplanPath(device))
-	e.auditWireGuard(context.Background(), "wg_iface_delete", device, "", err)
+	err := e.netops.WithActor(actor).RemoveNetplan(interfaceNetplanPath(device))
+	e.auditWireGuard(context.Background(), actor, "wg_iface_delete", device, "", err)
 	if err == nil && e.store != nil {
 		_ = e.store.UpsertWGIfaceMeta(context.Background(), device, "", "") // clear label row content
 	}
@@ -342,12 +347,12 @@ func (e *Engine) DeleteWireGuardInterface(device string) error {
 
 // SetWireGuardInterfaceName stores a human label for a wg device (SQLite only -
 // neither netplan nor the kernel keeps it). Not a privileged mutation.
-func (e *Engine) SetWireGuardInterfaceName(device, name string) error {
+func (e *Engine) SetWireGuardInterfaceName(actor, device, name string) error {
 	if e.store == nil {
 		return errWireGuardNoNetops
 	}
 	err := e.store.UpsertWGIfaceMeta(context.Background(), device, name, "")
-	e.auditWireGuard(context.Background(), "wg_iface_name", device, "", err)
+	e.auditWireGuard(context.Background(), actor, "wg_iface_name", device, "", err)
 	return err
 }
 
@@ -382,13 +387,14 @@ var wgPerfSysctls = [][2]string{
 // (MTU, tx queue length, and recommended socket-buffer sysctls). Write-gated;
 // audited. Best-effort per knob - it applies what it can and returns the first
 // error so a partial tune is still visible.
-func (e *Engine) TuneWireGuardInterface(device string, p TuneParams) error {
+func (e *Engine) TuneWireGuardInterface(actor, device string, p TuneParams) error {
 	if e.netops == nil {
 		return errWireGuardNoNetops
 	}
 	if device == "" {
 		return errors.New("device required")
 	}
+	nw := e.netops.WithActor(actor)
 	var firstErr error
 	note := func(err error) {
 		if err != nil && firstErr == nil {
@@ -396,33 +402,34 @@ func (e *Engine) TuneWireGuardInterface(device string, p TuneParams) error {
 		}
 	}
 	if p.MTU > 0 {
-		note(e.netops.SetMTU(device, p.MTU))
+		note(nw.SetMTU(device, p.MTU))
 	}
 	if p.TxQueueLen > 0 {
-		note(e.netops.SetTxQLen(device, p.TxQueueLen))
+		note(nw.SetTxQLen(device, p.TxQueueLen))
 	}
 	if p.SocketBuffers {
 		for _, kv := range wgPerfSysctls {
-			note(e.netops.SetSysctl(kv[0], kv[1]))
+			note(nw.SetSysctl(kv[0], kv[1]))
 		}
 	}
-	e.auditWireGuard(context.Background(), "wg_iface_tune", device, "", firstErr)
+	e.auditWireGuard(context.Background(), actor, "wg_iface_tune", device, "", firstErr)
 	return firstErr
 }
 
 // RestartWireGuardInterface bounces the wg link (down then up) via netlink -
 // a quick way to reset a wedged tunnel without a full netplan apply. Write-gated
 // (SetIface* enforce --allow-netops-write).
-func (e *Engine) RestartWireGuardInterface(device string) error {
+func (e *Engine) RestartWireGuardInterface(actor, device string) error {
 	if e.netops == nil {
 		return errWireGuardNoNetops
 	}
-	if err := e.netops.SetIfaceDown(device); err != nil {
-		e.auditWireGuard(context.Background(), "wg_iface_restart", device, "", err)
+	nw := e.netops.WithActor(actor)
+	if err := nw.SetIfaceDown(device); err != nil {
+		e.auditWireGuard(context.Background(), actor, "wg_iface_restart", device, "", err)
 		return err
 	}
-	err := e.netops.SetIfaceUp(device)
-	e.auditWireGuard(context.Background(), "wg_iface_restart", device, "", err)
+	err := nw.SetIfaceUp(device)
+	e.auditWireGuard(context.Background(), actor, "wg_iface_restart", device, "", err)
 	return err
 }
 
@@ -436,33 +443,33 @@ func (e *Engine) ListNetplan() ([]netops.NetplanFile, error) {
 
 // SaveNetplan writes edited content to a netplan file (write-gated, path
 // validated under /etc/netplan). Audited by path only - content may hold a key.
-func (e *Engine) SaveNetplan(path, content string) error {
+func (e *Engine) SaveNetplan(actor, path, content string) error {
 	if e.netops == nil {
 		return errWireGuardNoNetops
 	}
-	err := e.netops.WriteNetplan(path, content)
-	e.auditWireGuard(context.Background(), "netplan_save", "", path, err)
+	err := e.netops.WithActor(actor).WriteNetplan(path, content)
+	e.auditWireGuard(context.Background(), actor, "netplan_save", "", path, err)
 	return err
 }
 
 // ApplyNetplan runs `netplan apply` (write-gated; validates with generate first).
-func (e *Engine) ApplyNetplan() error {
+func (e *Engine) ApplyNetplan(actor string) error {
 	if e.netops == nil {
 		return errWireGuardNoNetops
 	}
-	err := e.netops.NetplanApply()
-	e.auditWireGuard(context.Background(), "netplan_apply", "", "", err)
+	err := e.netops.WithActor(actor).NetplanApply()
+	e.auditWireGuard(context.Background(), actor, "netplan_apply", "", "", err)
 	return err
 }
 
 // SafeApplyNetplan writes edited content and applies it as one transaction with
 // backup + validate + rollback (§2). Write-gated; audited by path only.
-func (e *Engine) SafeApplyNetplan(path, content string) error {
+func (e *Engine) SafeApplyNetplan(actor, path, content string) error {
 	if e.netops == nil {
 		return errWireGuardNoNetops
 	}
-	err := e.netops.SafeApplyNetplan(path, content)
-	e.auditWireGuard(context.Background(), "netplan_safe_apply", "", path, err)
+	err := e.netops.WithActor(actor).SafeApplyNetplan(path, content)
+	e.auditWireGuard(context.Background(), actor, "netplan_safe_apply", "", path, err)
 	return err
 }
 
@@ -471,7 +478,7 @@ func (e *Engine) SafeApplyNetplan(path, content string) error {
 // apply. Best-effort: a no-op when no netplan path is configured, and it does
 // nothing to a file Testudo didn't create (the netops layer marker-gates it).
 // Called after a successful provision / update / deprovision.
-func (e *Engine) syncWireGuardNetplan(device string) {
+func (e *Engine) syncWireGuardNetplan(actor, device string) {
 	if e.netops == nil {
 		return
 	}
@@ -481,7 +488,7 @@ func (e *Engine) syncWireGuardNetplan(device string) {
 		return
 	}
 	peers := e.wireguardNetplanPeers(device)
-	if err := e.netops.SyncNetplan(path, peers); err != nil {
+	if err := e.netops.WithActor(actor).SyncNetplan(path, peers); err != nil {
 		log.Printf("wireguard: netplan sync failed: %v", err)
 	}
 }
@@ -526,9 +533,57 @@ func (e *Engine) wireguardNetplanPeers(device string) []netops.NetplanPeerWire {
 	return nil
 }
 
+// wgBackend adapts the netops writer plus the firewall policy manager to the
+// wireguard.NetopsBackend surface: peer / route / netplan ops go straight to
+// netops, firewall and NAT ops go through the policy manager so preset rules
+// are persisted in firewall.json and reconciled after a reboot like every
+// other rule (they used to live only in the kernel and silently vanished).
+type wgBackend struct {
+	*netops.Writer
+	fw *firewall.Manager
+}
+
+func (b wgBackend) AddFilterRule(fr netops.FilterRule) error { return b.fw.AddRule(fr) }
+func (b wgBackend) DelFilterRulesMatching(target netops.FilterRule) error {
+	_, err := b.fw.DelRulesMatching(target)
+	return err
+}
+func (b wgBackend) DelFilterRulesByOwner(owner string) error {
+	_, err := b.fw.DelRulesByOwner(owner)
+	return err
+}
+func (b wgBackend) AddMasquerade(ms netops.Masquerade) error { return b.fw.AddMasquerade(ms) }
+func (b wgBackend) DelMasqueradesMatching(outIface, srcCIDR string) error {
+	_, err := b.fw.DelMasqueradesMatching(outIface, srcCIDR)
+	return err
+}
+func (b wgBackend) DelMasqueradesByOwner(owner string) error {
+	_, err := b.fw.DelNATByOwner(owner)
+	return err
+}
+
+// wgBackend returns the provisioning backend for a request by actor, or why
+// management is unavailable. The netops writer is stamped with the actor so
+// the helper's kernel-level audit rows name the human too.
+func (e *Engine) wgBackend(actor string) (wgBackend, error) {
+	if e.netops == nil {
+		return wgBackend{}, errWireGuardNoNetops
+	}
+	if e.fw == nil {
+		return wgBackend{}, fmt.Errorf("wireguard management unavailable: firewall policy not loaded: %v", e.fwErr)
+	}
+	return wgBackend{Writer: e.netops.WithActor(actor), fw: e.fw}, nil
+}
+
 // auditWireGuard records a provisioning op to the audit log. Public keys only -
 // never a private or preshared key.
-func (e *Engine) auditWireGuard(ctx context.Context, op, device, peerPub string, opErr error) {
+func (e *Engine) auditWireGuard(ctx context.Context, actor, op, device, peerPub string, opErr error) {
+	e.auditOp(ctx, actor, op, `{"device":"`+device+`","peer_public_key":"`+peerPub+`"}`, opErr)
+}
+
+// auditOp records an engine-level mutation to the audit log with the human
+// actor behind it. Args is a JSON summary and must never carry secret material.
+func (e *Engine) auditOp(ctx context.Context, actor, op, args string, opErr error) {
 	if e.store == nil {
 		return
 	}
@@ -536,10 +591,7 @@ func (e *Engine) auditWireGuard(ctx context.Context, op, device, peerPub string,
 	if opErr != nil {
 		result = opErr.Error()
 	}
-	args := `{"device":"` + device + `","peer_public_key":"` + peerPub + `"}`
-	_ = e.store.InsertAudit(ctx, storage.AuditEntry{
-		Op: op, Args: args, Result: result,
-	})
+	_ = e.store.InsertAudit(ctx, storage.AuditEntry{Op: op, Actor: actor, Args: args, Result: result})
 }
 
 func firstNonEmpty(vals ...string) string {
