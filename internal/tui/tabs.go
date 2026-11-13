@@ -169,8 +169,8 @@ func (t *dashboardTab) View(w, h int) string {
 
 	// --- Live charts ------------------------------------------------------
 	// Filter out synthetic latency entries that other collectors write into
-	// the aggregator (traceroute hops + end-to-end, wifi signal encoded as
-	// negative RTT, bufferbloat idle/loaded pairs). Those have their own
+	// the aggregator (traceroute hops + end-to-end, bufferbloat idle/loaded
+	// pairs). Those have their own
 	// Health-tab sections; rendering them here produced one near-identical
 	// sparkline per hop.
 	icmpTargets := filterICMPTargets(t.targets)

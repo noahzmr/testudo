@@ -36,6 +36,8 @@ import (
 type Engine struct {
 	// l3 dedupes neighbour/conntrack persistence (snapshot goroutine only).
 	l3 l3Persist
+	// wifiPersist thins WiFi metric samples (metrics consumer goroutine only).
+	wifiPersist seriesPersist
 
 	cfg       config.Config
 	bus       *events.Bus
@@ -1061,6 +1063,7 @@ func (e *Engine) startMetricsAndStorageConsumer(ctx context.Context) {
 	sub := e.bus.SubscribeKinds(
 		events.KindLatency, events.KindPacketLoss,
 		events.KindDNSResult, events.KindDNSFailure,
+		events.KindWiFiMetric,
 		events.KindAnomaly,
 		events.KindLinkStateChange, events.KindAddrChange, events.KindRouteChange,
 		events.KindSubsystemDegraded,
@@ -1096,6 +1099,18 @@ func (e *Engine) applyEvent(ctx context.Context, ev events.Event) {
 			Kind: "latency", Label: p.Target,
 			Value: float64(p.RTT.Microseconds()), TS: ev.Time,
 		})
+	case events.KindWiFiMetric:
+		p, ok := ev.Payload.(events.WiFiMetricPayload)
+		if !ok {
+			return
+		}
+		name := "wifi:" + p.Metric + ":" + p.Iface
+		e.agg.RecordSeries(name, p.Value)
+		if e.wifiPersist.due(name, p.Value, ev.Time) {
+			_ = e.store.InsertSample(ctx, e.sessionID, storage.Sample{
+				Kind: "wifi", Label: p.Metric + ":" + p.Iface, Value: p.Value, TS: ev.Time,
+			})
+		}
 	case events.KindPacketLoss:
 		p, ok := ev.Payload.(events.PacketLossPayload)
 		if !ok {

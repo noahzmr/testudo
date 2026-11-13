@@ -64,6 +64,13 @@ type Aggregator struct {
 	dns       map[string]*DNSStats
 	maxKeep   int // per-key sample cap, bounds memory
 	lastPrune time.Time
+	series    map[string]*seriesRing // non-latency scalar series (WiFi link metrics)
+}
+
+// seriesRing is a bounded history of a scalar series in its own unit.
+type seriesRing struct {
+	vals    []float64
+	updated time.Time
 }
 
 // Targets that stop reporting are evicted so the maps cannot grow without
@@ -82,7 +89,36 @@ func NewAggregator() *Aggregator {
 		targets: make(map[string]*TargetStats),
 		dns:     make(map[string]*DNSStats),
 		maxKeep: 256,
+		series:  make(map[string]*seriesRing),
 	}
+}
+
+// RecordSeries appends v to the named scalar series (e.g. "wifi:signal:wlan0"
+// in dBm). Series are kept apart from probe targets: they are not latencies
+// and never show up in SnapshotTargets.
+func (a *Aggregator) RecordSeries(name string, v float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	a.maybePrune(now)
+	r, ok := a.series[name]
+	if !ok {
+		r = &seriesRing{}
+		a.series[name] = r
+	}
+	r.vals = appendBounded(r.vals, v, a.maxKeep)
+	r.updated = now
+}
+
+// Series returns a copy of the named series, oldest first (nil if unknown).
+func (a *Aggregator) Series(name string) []float64 {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	r, ok := a.series[name]
+	if !ok {
+		return nil
+	}
+	return slices.Clone(r.vals)
 }
 
 // RecordLatency stores a successful RTT sample for target.
@@ -217,6 +253,11 @@ func (a *Aggregator) maybePrune(now time.Time) {
 	for k, d := range a.dns {
 		if now.Sub(d.UpdatedAt) > staleOtherEntry {
 			delete(a.dns, k)
+		}
+	}
+	for k, r := range a.series {
+		if now.Sub(r.updated) > staleOtherEntry {
+			delete(a.series, k)
 		}
 	}
 }

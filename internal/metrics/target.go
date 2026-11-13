@@ -9,12 +9,14 @@ import (
 // TargetKind says what an aggregator target name stands for.
 //
 // The aggregator is shared: besides real probe targets, collectors publish
-// encoded series through KindLatency events so they get rolling samples for
-// free - WiFi link metrics ("wifi:<metric>:<iface>", where the "RTT" is a
-// frequency, bitrate or dBm), traceroute hops and bufferbloat runs. Every
-// consumer that treats a target as a round-trip time to a host (alerting,
-// baselines, the grade, the dashboards) must ask ClassifyTarget instead of
-// guessing from the string.
+// encoded series through KindLatency events - traceroute path and hop RTTs
+// and bufferbloat idle/loaded medians. Every consumer that treats a target as
+// a round-trip time to a host (alerting, baselines, the grade, the dashboards)
+// must ask ClassifyTarget instead of guessing from the string.
+//
+// WiFi link metrics now travel as events.KindWiFiMetric into
+// Aggregator.RecordSeries; TargetWiFi remains so a "wifi:" name from an older
+// build (or older stored session) is still never mistaken for a host.
 type TargetKind uint8
 
 const (
@@ -24,7 +26,7 @@ const (
 	TargetTCP
 	// TargetHTTP is an http(s):// endpoint; its value is time to first byte.
 	TargetHTTP
-	// TargetWiFi is a "wifi:<metric>:<iface>" link metric - not a latency.
+	// TargetWiFi is a legacy "wifi:<metric>:<iface>" link metric - not a latency.
 	TargetWiFi
 	// TargetTrace is a "trace:<dest>" path RTT or "trace:<dest>:hopN" hop.
 	TargetTrace

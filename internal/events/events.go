@@ -53,6 +53,12 @@ const (
 	// never ride the bus. Both UIs, the anomaly analyzer, the WG sub-score, and
 	// the sample persister subscribe to it.
 	KindWireGuardSnapshot Kind = "wireguard_snapshot"
+
+	// KindWiFiMetric carries one scalar wireless link metric (signal, noise,
+	// bitrate, frequency, ...) in its real unit. These used to ride
+	// KindLatency as a fake "RTT" under a "wifi:" target name, which every
+	// latency consumer then had to recognise and skip.
+	KindWiFiMetric Kind = "wifi_metric"
 )
 
 // Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
@@ -93,6 +99,15 @@ type Event struct {
 type LatencyPayload struct {
 	Target string
 	RTT    time.Duration
+}
+
+// WiFiMetricPayload is one wireless link metric for one interface. Value is
+// in the metric's own unit: dBm for signal/noise/txpower (negative), Mbit/s
+// for tx-rate/rx-rate, MHz for freq, 0-100 for quality.
+type WiFiMetricPayload struct {
+	Iface  string
+	Metric string
+	Value  float64
 }
 
 // PacketLossPayload reports observed loss over a probe window.
@@ -430,6 +445,8 @@ func kindMask(k Kind) uint64 {
 		return 1 << 18
 	case KindWireGuardSnapshot:
 		return 1 << 19
+	case KindWiFiMetric:
+		return 1 << 20
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

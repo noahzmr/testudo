@@ -68,3 +68,27 @@ func TestL3PersistConntrackWritesNewAndChangedFlows(t *testing.T) {
 		t.Fatalf("keyframe: wrote %d, want 3", len(got))
 	}
 }
+
+func TestSeriesPersistWritesChangesAndHeartbeat(t *testing.T) {
+	var p seriesPersist
+	t0 := time.Unix(1_700_000_000, 0)
+	steps := []struct {
+		v    float64
+		at   time.Duration
+		want bool
+	}{
+		{5180, 0, true},                                // first value
+		{5180, 5 * time.Second, false},                 // repeat
+		{5180, 30 * time.Second, false},                // repeat
+		{5200, 35 * time.Second, true},                 // change
+		{5200, 35*time.Second + seriesHeartbeat, true}, // heartbeat
+	}
+	for i, s := range steps {
+		if got := p.due("wifi:freq:wlan0", s.v, t0.Add(s.at)); got != s.want {
+			t.Errorf("step %d: due=%v, want %v", i, got, s.want)
+		}
+	}
+	if !p.due("wifi:signal:wlan0", -60, t0) {
+		t.Error("series are tracked independently")
+	}
+}

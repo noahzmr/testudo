@@ -170,26 +170,19 @@ func (c *WiFiCollector) lookup(iface string) WiFiSnapshot {
 	return c.snap[iface]
 }
 
-// publishMetrics emits one KindLatency event per scalar wifi metric so
-// the existing metrics aggregator / history / grade machinery keeps
-// working without a dedicated WiFi event payload. Targets are namespaced
-// under "wifi:<metric>:<iface>" so renderers can route them.
+// publishMetrics emits one KindWiFiMetric event per scalar link metric, in
+// its real unit (dBm, Mbit/s, MHz). The engine keeps them as aggregator
+// series ("wifi:<metric>:<iface>") and persists them as kind "wifi" samples.
 func (c *WiFiCollector) publishMetrics(bus *events.Bus, iface string, s WiFiSnapshot) {
-	emit := func(metric string, valueMs float64) {
-		// negative signal levels encode as positive duration via -ms ;
-		// positive metrics (bitrate, freq) use ms directly. Renderers
-		// flip the sign back based on the metric prefix.
+	emit := func(metric string, v float64) {
 		bus.Publish(events.Event{
-			Kind: events.KindLatency, Source: c.Name(),
-			Payload: events.LatencyPayload{
-				Target: "wifi:" + metric + ":" + iface,
-				RTT:    time.Duration(valueMs * float64(time.Millisecond)),
-			},
+			Kind: events.KindWiFiMetric, Source: c.Name(),
+			Payload: events.WiFiMetricPayload{Iface: iface, Metric: metric, Value: v},
 		})
 	}
-	emit("signal", -s.Signal)
+	emit("signal", s.Signal)
 	if s.Noise != 0 {
-		emit("noise", -s.Noise)
+		emit("noise", s.Noise)
 	}
 	if s.TXBitrateM > 0 {
 		emit("tx-rate", s.TXBitrateM)
@@ -201,7 +194,7 @@ func (c *WiFiCollector) publishMetrics(bus *events.Bus, iface string, s WiFiSnap
 		emit("freq", float64(s.Frequency))
 	}
 	if s.TXPower > 0 {
-		emit("txpower", -s.TXPower) // dBm - encode negated like signal
+		emit("txpower", s.TXPower)
 	}
 	if s.LinkQuality > 0 {
 		emit("quality", s.LinkQuality)

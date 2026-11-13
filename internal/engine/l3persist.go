@@ -84,3 +84,34 @@ func (p *l3Persist) conntrack(rows []storage.ConntrackSample, now time.Time) []s
 	}
 	return out
 }
+
+// seriesPersist thins slowly changing scalar series before they reach the
+// samples table: a value is written when it differs from the last one written
+// for that series, and at least once per seriesHeartbeat. A WiFi link reports
+// seven metrics every poll; channel, TX power and often signal sit still for
+// hours, so most of those rows were repeats.
+type seriesPersist struct {
+	last map[string]seriesPoint
+}
+
+type seriesPoint struct {
+	v  float64
+	at time.Time
+}
+
+const seriesHeartbeat = time.Minute
+
+func (p *seriesPersist) due(name string, v float64, now time.Time) bool {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if p.last == nil {
+		p.last = map[string]seriesPoint{}
+	}
+	prev, ok := p.last[name]
+	if ok && prev.v == v && now.Sub(prev.at) < seriesHeartbeat {
+		return false
+	}
+	p.last[name] = seriesPoint{v: v, at: now}
+	return true
+}

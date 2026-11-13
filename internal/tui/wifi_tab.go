@@ -79,13 +79,12 @@ func (t *wifiTab) View(w, h int) string {
 			Render(fmt.Sprintf("%d/100 (%s)", score, letter))
 		b.WriteString("  " + dimStyle.Render("Quality") + "      " + grade +
 			"  " + dimStyle.Render("· "+verdict) + "\n")
-		// Signal-history sparkline from the metrics aggregator (samples encode
-		// -dBm; we shift to a higher-is-better magnitude for the plot).
-		if samples := t.eng.Aggregator().LatencySamples("wifi:signal:" + s.Iface); len(samples) > 1 {
+		// Signal-history sparkline from the aggregator's dBm series, shifted to
+		// a higher-is-better magnitude for the plot.
+		if samples := t.eng.Aggregator().Series("wifi:signal:" + s.Iface); len(samples) > 1 {
 			vals := make([]float64, len(samples))
-			for i, d := range samples {
-				ms := float64(d.Microseconds()) / 1000.0 // == -dBm
-				vals[i] = 100 - ms                       // -60dBm -> 40, higher is better
+			for i, dBm := range samples {
+				vals[i] = 100 + dBm // -60 dBm -> 40, higher is better
 			}
 			plotW := innerW - 18
 			if plotW < 8 {
