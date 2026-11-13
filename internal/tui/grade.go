@@ -986,9 +986,7 @@ func filterTargets(ts []metrics.TargetStats, pred func(string) bool) []metrics.T
 	return out
 }
 
-func isHTTPTarget(t string) bool {
-	return strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://")
-}
+func isHTTPTarget(t string) bool { return metrics.ClassifyTarget(t) == metrics.TargetHTTP }
 
 // isLANTarget reports whether the target should be treated as a LAN
 // host for grading. IP literals: IsLAN heuristic. Hostnames: the
@@ -1029,14 +1027,7 @@ func isWANTarget(t string) bool {
 // names other collectors (traceroute, wifi, bufferbloat) write into the
 // aggregator. Those have dedicated Health-tab renderers and would
 // otherwise pollute the ICMP latency panels on the Dashboard.
-func isSyntheticTarget(t string) bool {
-	for _, p := range []string{"trace:", "wifi:", "bufferbloat:"} {
-		if strings.HasPrefix(t, p) {
-			return true
-		}
-	}
-	return false
-}
+func isSyntheticTarget(t string) bool { return !metrics.ClassifyTarget(t).IsProbe() }
 
 // filterICMPTargets keeps only real ICMP/TCP probe targets - LAN and WAN
 // hosts the user configured for icmp probing. Synthetic entries and

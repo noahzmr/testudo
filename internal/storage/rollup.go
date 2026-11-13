@@ -193,6 +193,9 @@ func (s *Store) Retain(ctx context.Context, now time.Time) error {
 	if now.IsZero() {
 		now = time.Now()
 	}
+	if err := s.flushSamples(ctx); err != nil {
+		return err
+	}
 	rawCut := now.Add(-RawSampleRetention).UnixMilli()
 	rollupCut := now.Add(-RollupRetention).UnixMilli()
 	stmts := []struct {

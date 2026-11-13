@@ -592,9 +592,7 @@ func filterT(ts []metrics.TargetStats, pred func(string) bool) []metrics.TargetS
 	return out
 }
 
-func isHTTPTargetW(t string) bool {
-	return strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://")
-}
+func isHTTPTargetW(t string) bool { return metrics.ClassifyTarget(t) == metrics.TargetHTTP }
 
 func isLANTargetW(t string) bool {
 	host := t
@@ -612,19 +610,11 @@ func isLANTargetW(t string) bool {
 	return false
 }
 
+// isWANTargetW: a host RTT target (ICMP/TCP) that is not on the LAN. HTTP
+// endpoints and the encoded series (wifi:/trace:/bufferbloat:) are scored
+// separately - see metrics.ClassifyTarget.
 func isWANTargetW(t string) bool {
-	if isHTTPTargetW(t) {
-		return false
-	}
-	for _, p := range []string{"trace:", "wifi:", "bufferbloat:"} {
-		if strings.HasPrefix(t, p) {
-			return false
-		}
-	}
-	if isLANTargetW(t) {
-		return false
-	}
-	return true
+	return metrics.ClassifyTarget(t).IsHostRTT() && !isLANTargetW(t)
 }
 
 // ---- averages ----

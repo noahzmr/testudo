@@ -834,11 +834,9 @@
     el._html = html;
   }
 
-  // Probe targets share one aggregator with internal pseudo-targets: WiFi
-  // link metrics ("wifi:<metric>:<iface>"), traceroute hops and bufferbloat
-  // runs. Those are not latencies to a host and have their own views, so the
-  // dashboard drops them (the grade code in internal/web/grade.go does the
-  // same).
+  // The server classifies targets (metrics.ClassifyTarget) and ships only
+  // probe targets with their kind; this fallback mirrors it for an older
+  // server that sends neither.
   function targetKind(name) {
     if (/^(wifi|trace|bufferbloat):/.test(name)) return 'internal';
     if (/^https?:\/\//.test(name)) return 'http';
@@ -1289,7 +1287,7 @@
   function renderTargets(rows, series) {
     series = series || {};
     const list = (rows || [])
-      .map(t => Object.assign({ kind: targetKind(t.target) }, t))
+      .map(t => Object.assign({}, t, { kind: t.kind || targetKind(t.target) }))
       .filter(t => t.kind !== 'internal')
       .sort((a, b) => (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || a.target.localeCompare(b.target));
     setHTML(document.getElementById('targets-body'), list.map(t => {

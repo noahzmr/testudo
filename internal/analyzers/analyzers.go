@@ -18,6 +18,7 @@ import (
 
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/events"
+	"github.com/noahzmr/testudo/internal/metrics"
 )
 
 // Analyzer is the unit of correlation. Run blocks until ctx ends.
@@ -70,7 +71,10 @@ func (d *HighRTTDetector) Run(ctx context.Context, in <-chan events.Event, bus *
 				continue
 			}
 			p, ok := ev.Payload.(events.LatencyPayload)
-			if !ok {
+			if !ok || !metrics.ClassifyTarget(p.Target).IsHostRTT() {
+				// WiFi link metrics, traceroute hops, bufferbloat runs and
+				// HTTP time-to-first-byte also travel as KindLatency; the RTT
+				// threshold means none of them.
 				continue
 			}
 			thresh := d.Settings.Snapshot().RTTMs
@@ -300,7 +304,8 @@ func (d *LatencySpikeDetector) Run(ctx context.Context, in <-chan events.Event, 
 				continue
 			}
 			p, ok := ev.Payload.(events.LatencyPayload)
-			if !ok {
+			if !ok || !metrics.ClassifyTarget(p.Target).IsProbe() {
+				// A WiFi bitrate step or a traceroute hop is not a latency spike.
 				continue
 			}
 			d.record(p.Target, p.RTT, bus)
@@ -388,7 +393,9 @@ func (d *JitterSpikeDetector) Run(ctx context.Context, in <-chan events.Event, b
 				continue
 			}
 			p, ok := ev.Payload.(events.LatencyPayload)
-			if !ok {
+			if !ok || !metrics.ClassifyTarget(p.Target).IsHostRTT() {
+				// Jitter is RTT variation to a host; a changing WiFi bitrate or
+				// a TTFB series is not.
 				continue
 			}
 			d.record(p.Target, p.RTT, bus)

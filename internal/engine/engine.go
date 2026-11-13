@@ -34,6 +34,9 @@ import (
 )
 
 type Engine struct {
+	// l3 dedupes neighbour/conntrack persistence (snapshot goroutine only).
+	l3 l3Persist
+
 	cfg       config.Config
 	bus       *events.Bus
 	agg       *metrics.Aggregator
@@ -780,6 +783,10 @@ func (e *Engine) SelfHealth() (worst health.State, coreDegraded bool) {
 // render. It publishes the transition like the supervisor does.
 func (e *Engine) MarkSubsystem(name string, core bool, state health.State, lastErr, hint string) {
 	reg := e.sup.Registry()
+	// Pollers (WireGuard, firewall, …) report their state on every tick. Only
+	// a change is news: republishing an unchanged state stored a fresh
+	// "subsystem X → unprivileged" timeline row every few seconds.
+	prev, known := reg.Get(name)
 	reg.Register(name, core)
 	switch state {
 	case health.StateOK:
@@ -791,7 +798,10 @@ func (e *Engine) MarkSubsystem(name string, core bool, state health.State, lastE
 	case health.StateUnprivileged:
 		reg.MarkUnprivileged(name, lastErr, hint)
 	}
-	e.sup.publish(name)
+	cur, _ := reg.Get(name)
+	if !known || cur.State != prev.State || cur.LastErr != prev.LastErr || cur.Hint != prev.Hint {
+		e.sup.publish(name)
+	}
 }
 
 func (e *Engine) startAnalyzers(ctx context.Context) {

@@ -68,9 +68,10 @@ func (e *Engine) snapshotOnce(ctx context.Context, topo *topology.Builder) {
 	_ = e.store.InsertSnapshot(ctx, e.sessionID, storage.SnapshotKindTopology, g)
 }
 
-// snapshotL3 persists the neighbour table and live conntrack flows for this
-// tick, reading the collector's cached dump so we don't issue a second
-// netlink request. No-op when the collector is disabled. These rows let
+// snapshotL3 persists the neighbour table and live conntrack flows - only
+// what changed since the last write, plus a periodic keyframe (l3persist.go)
+// - reading the collector's cached dump so we don't issue a second netlink
+// request. No-op when the collector is disabled. These rows let
 // replay answer "was there an IP conflict at 02:00?" and "what was NAT'd
 // during the incident?".
 func (e *Engine) snapshotL3(ctx context.Context) {
@@ -86,7 +87,9 @@ func (e *Engine) snapshotL3(ctx context.Context) {
 				Family: n.Family, State: n.State, Router: n.Router,
 			})
 		}
-		_ = e.store.InsertNeighbours(ctx, e.sessionID, now, rows)
+		if e.l3.neighbours(rows, now) {
+			_ = e.store.InsertNeighbours(ctx, e.sessionID, now, rows)
+		}
 	}
 	if fs := e.neigh.Conntrack(); len(fs) > 0 {
 		rows := make([]storage.ConntrackSample, 0, len(fs))
@@ -100,7 +103,9 @@ func (e *Engine) snapshotL3(ctx context.Context) {
 				Packets: f.Packets, Bytes: f.Bytes,
 			})
 		}
-		_ = e.store.InsertConntrack(ctx, e.sessionID, now, rows)
+		if rows = e.l3.conntrack(rows, now); len(rows) > 0 {
+			_ = e.store.InsertConntrack(ctx, e.sessionID, now, rows)
+		}
 	}
 }
 

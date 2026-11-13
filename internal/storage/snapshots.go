@@ -227,6 +227,9 @@ func (s *Store) DownsampleSamples(ctx context.Context, keep, compactAfter time.D
 	deleteCutoff := now.Add(-keep).UnixMilli()
 	compactCutoff := now.Add(-compactAfter).UnixMilli()
 	bucketMs := bucket.Milliseconds()
+	if err := s.flushSamples(ctx); err != nil {
+		return err
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

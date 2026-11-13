@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/flows"
+	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/probes"
 	"github.com/noahzmr/testudo/internal/quality"
 	"github.com/noahzmr/testudo/internal/storage"
@@ -315,8 +316,13 @@ func parseHopTarget(target, prefix string) (int, string) {
 	return ttl, rest[idx+1:]
 }
 
+// isRealTarget reports whether target gets an hour-of-week baseline: ICMP
+// probe hosts, IPv6 included. (The old "contains no colon" test dropped every
+// IPv6 target.) TCP top-talker probes come and go with traffic, so they are
+// left out to keep quality_rollup bounded; HTTP and the encoded series have
+// their own scoring.
 func isRealTarget(target string) bool {
-	return !strings.Contains(target, ":")
+	return metrics.ClassifyTarget(target) == metrics.TargetICMP
 }
 
 func isPublicIP(s string) bool {

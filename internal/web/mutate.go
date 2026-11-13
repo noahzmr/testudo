@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/capture"
+	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netops"
 )
 
@@ -52,8 +53,8 @@ func (s *Server) handleBaselineReset(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	n := 0
 	for _, ts := range s.Engine.Aggregator().SnapshotTargets() {
-		if strings.Contains(ts.Target, ":") {
-			continue // skip synthetic trace:/bufferbloat: targets
+		if metrics.ClassifyTarget(ts.Target) != metrics.TargetICMP {
+			continue // baselines exist for ICMP probe hosts only (IPv6 included)
 		}
 		if err := s.Engine.ResetBaseline(ctx, ts.Target); err == nil {
 			n++

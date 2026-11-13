@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -33,9 +34,13 @@ CREATE TABLE IF NOT EXISTS samples (
     failed      INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_samples_session ON samples(session_id);
-CREATE INDEX IF NOT EXISTS idx_samples_ts      ON samples(ts);
-CREATE INDEX IF NOT EXISTS idx_samples_kind    ON samples(session_id, kind);
+-- One index per access path: replay reads a session in time order; retention
+-- and downsampling delete by ts. (The former session_id and (session_id, kind)
+-- indexes served no query and cost two extra page writes per sample.)
+DROP INDEX IF EXISTS idx_samples_session;
+DROP INDEX IF EXISTS idx_samples_kind;
+CREATE INDEX IF NOT EXISTS idx_samples_session_ts ON samples(session_id, ts);
+CREATE INDEX IF NOT EXISTS idx_samples_ts         ON samples(ts);
 
 CREATE TABLE IF NOT EXISTS anomalies (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,6 +264,10 @@ CREATE TABLE IF NOT EXISTS geoip_cache (
 
 type Store struct {
 	db *sql.DB
+
+	samples *sampleBatcher // see sample_batch.go
+	flushMu sync.Mutex     // one sample flush at a time
+	closeMu sync.Once
 }
 
 func Open(path string) (*Store, error) {
@@ -278,7 +287,9 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply pam schema: %w", err)
 	}
-	return &Store{db: db}, nil
+	s := &Store{db: db, samples: newSampleBatcher()}
+	s.startSampleWriter()
+	return s, nil
 }
 
 // migrate handles schema drift between releases. Each release that needs a
@@ -400,7 +411,16 @@ func columnExists(db *sql.DB, table, column string) (bool, error) {
 	return false, rows.Err()
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+// Close flushes pending samples and closes the database.
+func (s *Store) Close() error {
+	s.closeMu.Do(func() {
+		if s.samples != nil {
+			close(s.samples.stop)
+			<-s.samples.done
+		}
+	})
+	return s.db.Close()
+}
 
 // SessionRecord is a row in the sessions table.
 type SessionRecord struct {
@@ -485,20 +505,11 @@ func (s *Store) InsertSample(ctx context.Context, sessionID string, sm Sample) e
 	if sessionID == "" {
 		return errors.New("session id required")
 	}
-	ts := sm.TS
-	if ts.IsZero() {
-		ts = time.Now()
+	if sm.TS.IsZero() {
+		sm.TS = time.Now()
 	}
-	failed := 0
-	if sm.Failed {
-		failed = 1
-	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO samples (session_id, kind, ts, label, value, failed)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		sessionID, sm.Kind, ts.UnixMilli(), sm.Label, sm.Value, failed,
-	)
-	return err
+	s.samples.add(sessionID, sm) // written within a second (sample_batch.go)
+	return nil
 }
 
 // InsertAnomaly records an analyzer-detected operational issue.
@@ -811,6 +822,9 @@ func (s *Store) CapAuditLog(ctx context.Context, maxRows int) error {
 
 // SamplesBySession returns all samples for a session in chronological order.
 func (s *Store) SamplesBySession(ctx context.Context, sessionID string) ([]Sample, error) {
+	if err := s.flushSamples(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT kind, label, value, failed, ts FROM samples WHERE session_id = ? ORDER BY ts ASC`,
 		sessionID)

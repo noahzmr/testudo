@@ -4,6 +4,7 @@ package metrics
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ type TargetStats struct {
 
 	rttSamples []time.Duration // bounded ring; newest at the end
 	outcomes   []bool          // bounded ring of recent probe outcomes (true=lost)
+	sorted     []time.Duration // recompute's reusable percentile buffer
 }
 
 // liveWindow is how many recent probe outcomes the live-window loss/RTT views
@@ -57,11 +59,23 @@ type DNSStats struct {
 // Aggregator is the in-memory mirror of recent measurements. The TUI reads
 // snapshots; storage flushes raw samples. Aggregator does not persist.
 type Aggregator struct {
-	mu      sync.RWMutex
-	targets map[string]*TargetStats
-	dns     map[string]*DNSStats
-	maxKeep int // per-key sample cap, bounds memory
+	mu        sync.RWMutex
+	targets   map[string]*TargetStats
+	dns       map[string]*DNSStats
+	maxKeep   int // per-key sample cap, bounds memory
+	lastPrune time.Time
 }
+
+// Targets that stop reporting are evicted so the maps cannot grow without
+// bound. Top-talker TCP probes ("host:port") follow whichever LAN hosts are
+// busy, so they churn and go quickly; everything else - configured probes,
+// DNS names, and encoded series such as bufferbloat runs that report only
+// every few hours - is kept for a day after its last update.
+const (
+	pruneEvery      = time.Minute
+	staleTCPTarget  = 15 * time.Minute
+	staleOtherEntry = 24 * time.Hour
+)
 
 func NewAggregator() *Aggregator {
 	return &Aggregator{
@@ -75,6 +89,7 @@ func NewAggregator() *Aggregator {
 func (a *Aggregator) RecordLatency(target string, rtt time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.maybePrune(time.Now())
 	t := a.touchTarget(target)
 	t.Sent++
 	t.LastRTT = rtt
@@ -88,6 +103,7 @@ func (a *Aggregator) RecordLatency(target string, rtt time.Duration) {
 func (a *Aggregator) RecordLoss(target string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.maybePrune(time.Now())
 	t := a.touchTarget(target)
 	t.Sent++
 	t.Lost++
@@ -132,6 +148,7 @@ func (a *Aggregator) SnapshotTargets() []TargetStats {
 		c := *t
 		c.rttSamples = nil
 		c.outcomes = nil
+		c.sorted = nil
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Target < out[j].Target })
@@ -181,6 +198,29 @@ func (a *Aggregator) DNSSamples(name string) []time.Duration {
 	return out
 }
 
+// maybePrune drops entries that stopped reporting (see staleTCPTarget).
+// Caller holds a.mu for writing.
+func (a *Aggregator) maybePrune(now time.Time) {
+	if now.Sub(a.lastPrune) < pruneEvery {
+		return
+	}
+	a.lastPrune = now
+	for k, t := range a.targets {
+		limit := staleOtherEntry
+		if ClassifyTarget(k) == TargetTCP {
+			limit = staleTCPTarget
+		}
+		if now.Sub(t.UpdatedAt) > limit {
+			delete(a.targets, k)
+		}
+	}
+	for k, d := range a.dns {
+		if now.Sub(d.UpdatedAt) > staleOtherEntry {
+			delete(a.dns, k)
+		}
+	}
+}
+
 func (a *Aggregator) touchTarget(target string) *TargetStats {
 	t, ok := a.targets[target]
 	if !ok {
@@ -211,9 +251,13 @@ func (t *TargetStats) recompute() {
 	}
 	t.AvgRTT = sum / time.Duration(len(t.rttSamples))
 	t.LossPct = percent(t.Lost, t.Sent)
-	t.P50RTT = percentile(t.rttSamples, 0.50)
-	t.P95RTT = percentile(t.rttSamples, 0.95)
-	t.P99RTT = percentile(t.rttSamples, 0.99)
+	// Sort the window once into a reused buffer for all three percentiles
+	// (was: three copies and three sorts per sample, under the write lock).
+	t.sorted = append(t.sorted[:0], t.rttSamples...)
+	slices.Sort(t.sorted)
+	t.P50RTT = pickPercentile(t.sorted, 0.50)
+	t.P95RTT = pickPercentile(t.sorted, 0.95)
+	t.P99RTT = pickPercentile(t.sorted, 0.99)
 	t.JitterMs = jitterMs(t.rttSamples)
 	t.RecentRTT = meanTail(t.rttSamples, liveWindow)
 }
@@ -271,9 +315,17 @@ func percentile(samples []time.Duration, p float64) time.Duration {
 	if len(samples) == 0 {
 		return 0
 	}
-	sorted := make([]time.Duration, len(samples))
-	copy(sorted, samples)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	sorted := slices.Clone(samples)
+	slices.Sort(sorted)
+	return pickPercentile(sorted, p)
+}
+
+// pickPercentile returns the nearest-rank p-th percentile of an already
+// sorted slice.
+func pickPercentile(sorted []time.Duration, p float64) time.Duration {
+	if len(sorted) == 0 {
+		return 0
+	}
 	idx := int(math.Ceil(p*float64(len(sorted)))) - 1
 	if idx < 0 {
 		idx = 0

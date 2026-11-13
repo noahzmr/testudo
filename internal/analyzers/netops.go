@@ -204,6 +204,10 @@ type BandwidthSpikeDetector struct {
 	Interval time.Duration
 	Factor   float64 // 3.0 means "3× the rolling baseline"
 	Window   int     // baseline window size
+	// MinRate is the absolute floor (bytes/s) a spike must reach. A ratio
+	// alone fires on idle links: 7 KB/s over a 1 KB/s baseline is "7×" and
+	// was raised as a WARN on every idle bridge and veth. Default 1 MB/s.
+	MinRate float64
 
 	mu       sync.Mutex
 	primed   bool
@@ -226,11 +230,21 @@ func (d *BandwidthSpikeDetector) Run(ctx context.Context, _ <-chan events.Event,
 	if d.Window <= 0 {
 		d.Window = 12
 	}
+	if d.MinRate <= 0 {
+		d.MinRate = 1e6
+	}
 	d.last = map[string]ifaceCounter{}
 	d.history = map[string][]float64{}
 	d.lastFire = map[string]time.Time{}
 	p := &netopsPoller{name: d.Name(), interval: d.Interval, poll: d.poll}
 	return p.run(ctx, bus)
+}
+
+// isSpike: rate is Factor× the rolling baseline and above the absolute
+// MinRate floor. Loopback carries host-local traffic (the console itself,
+// local databases); a burst there is not a network event.
+func (d *BandwidthSpikeDetector) isSpike(iface string, rate, baseline float64) bool {
+	return iface != "lo" && baseline > 0 && rate >= d.MinRate && rate > d.Factor*baseline
 }
 
 func (d *BandwidthSpikeDetector) poll(_ context.Context, bus *events.Bus) {
@@ -264,7 +278,7 @@ func (d *BandwidthSpikeDetector) poll(_ context.Context, bus *events.Bus) {
 				sum += v
 			}
 			baseline := sum / float64(len(hist))
-			if baseline > 0 && rate > d.Factor*baseline {
+			if d.isSpike(iface, rate, baseline) {
 				last := d.lastFire[iface]
 				if last.IsZero() || time.Since(last) > 60*time.Second {
 					d.lastFire[iface] = now

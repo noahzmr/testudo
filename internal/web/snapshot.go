@@ -9,6 +9,7 @@ import (
 	"github.com/noahzmr/testudo/internal/collectors"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/flows"
+	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netlabel"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/quality"
@@ -195,6 +196,7 @@ type captureView struct {
 
 type targetView struct {
 	Target    string  `json:"target"`
+	Kind      string  `json:"kind"` // icmp | tcp | http (metrics.ClassifyTarget)
 	LastRTTus int64   `json:"last_rtt_us"`
 	AvgRTTus  int64   `json:"avg_rtt_us"`
 	P50RTTus  int64   `json:"p50_rtt_us"`
@@ -685,8 +687,17 @@ func (s *Server) buildSnapshot() snapshot {
 	// Targets / DNS from the metrics aggregator.
 	targets := eng.Aggregator().SnapshotTargets()
 	for _, t := range targets {
+		// Probe targets only: WiFi link metrics, traceroute hops and
+		// bufferbloat runs share the aggregator but are not latencies to a
+		// host (the WiFi view has its own data), so they are not shipped -
+		// neither as rows nor as ~120-sample series on every 2 s poll.
+		kind := metrics.ClassifyTarget(t.Target)
+		if !kind.IsProbe() {
+			continue
+		}
 		tv := targetView{
 			Target:    t.Target,
+			Kind:      kind.String(),
 			LastRTTus: t.LastRTT.Microseconds(),
 			AvgRTTus:  t.AvgRTT.Microseconds(),
 			P50RTTus:  t.P50RTT.Microseconds(),
