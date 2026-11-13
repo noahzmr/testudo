@@ -25,6 +25,7 @@
     // History is opt-in: don't bake its query into the 2s snapshot loop.
     // Load it lazily when the tab is shown.
     if (target === 'history') loadHistory();
+    if (target === 'access') loadAccess();
   }));
 
   // ---- Mobile nav drawer (sidebar collapses below 1080px) ----
@@ -168,25 +169,215 @@
         break;
       case 'fw-add':
         await post('/api/firewall/add', {
-          chain:     val('fw-chain'),
-          action:    val('fw-action'),
-          proto:     val('fw-proto'),
-          port:      parseInt(val('fw-port') || '0', 10),
-          in_iface:  val('fw-iif'),
-          out_iface: val('fw-oif'),
-          src:       val('fw-src'),
-          dst:       val('fw-dst'),
+          chain:      val('fw-chain'),
+          action:     val('fw-action'),
+          proto:      val('fw-proto'),
+          port:       parseInt(val('fw-port') || '0', 10),
+          port_end:   parseInt(val('fw-port-end') || '0', 10),
+          in_iface:   val('fw-iif'),
+          out_iface:  val('fw-oif'),
+          src:        val('fw-src'),
+          dst:        val('fw-dst'),
+          ct_state:   val('fw-ct'),
+          rate_limit: val('fw-rate'),
+          rate_over:  document.getElementById('fw-rate-over').checked,
+          log:        document.getElementById('fw-log').checked,
+          comment:    val('fw-comment'),
         });
         showToast('rule added');
-        clearInputs(['fw-port', 'fw-iif', 'fw-oif', 'fw-src', 'fw-dst']);
+        clearInputs(['fw-port', 'fw-port-end', 'fw-iif', 'fw-oif', 'fw-src', 'fw-dst', 'fw-rate', 'fw-comment']);
         break;
       case 'fw-del': {
-        const rule = JSON.parse(btn.dataset.rule);
-        if (!confirm('Delete rule on chain=' + rule.chain + ' port=' + rule.port + '?')) return;
-        await post('/api/firewall/del', rule);
+        if (!confirm('Delete rule ' + btn.dataset.text + ' ?')) return;
+        await post('/api/firewall/del', { id: btn.dataset.id });
         showToast('rule deleted');
         break;
       }
+      case 'fw-move': {
+        // Reorder: swap the selected user rule with its neighbour and send the
+        // full new order (the API takes a permutation of user-rule ids).
+        const ids = Array.from(document.querySelectorAll('#fw-rules-body tr[data-user-id]'))
+          .map(tr => tr.dataset.userId);
+        const i = ids.indexOf(btn.dataset.id);
+        const j = i + (btn.dataset.dir === 'up' ? -1 : 1);
+        if (i < 0 || j < 0 || j >= ids.length) return;
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+        await post('/api/firewall/reorder', { ids });
+        showToast('rules reordered');
+        break;
+      }
+      case 'fw-enforce-on': {
+        if (!confirm('Enable default-deny?\n\nInput and forward chains switch to policy DROP. The baseline keeps '
+          + 'established/related, loopback, ICMP, SSH and this Web UI reachable.\n\n'
+          + 'The change reverts automatically in 90 s unless this page confirms it - '
+          + 'it will do so as soon as it can still reach the API.')) return;
+        await post('/api/firewall/enforce', { enforce: true, confirm_sec: 90 });
+        showToast('default-deny enabled - confirming…');
+        fwAutoConfirm = true;
+        break;
+      }
+      case 'fw-enforce-off':
+        if (!confirm('Disable default-deny? Unmatched traffic will pass again.')) return;
+        await post('/api/firewall/enforce', { enforce: false, confirm_sec: 0 });
+        showToast('default-deny disabled');
+        break;
+      case 'fw-confirm':
+        await post('/api/firewall/enforce/confirm', {});
+        showToast('default-deny confirmed');
+        break;
+
+      // ---- privileged access ----
+      case 'pam-request':
+        await post('/api/pam/request', {
+          resource_id: val('pam-res'), ttl_sec: parseInt(val('pam-ttl') || '60', 10) * 60,
+          justification: val('pam-just'), ticket: val('pam-ticket'),
+        });
+        showToast('access requested');
+        clearInputs(['pam-just', 'pam-ticket']);
+        await loadAccess();
+        break;
+      case 'pam-breakglass': {
+        if (!confirm('BREAK GLASS: immediate access without policy or approval, loudly logged. Continue?')) return;
+        await post('/api/pam/breakglass', {
+          resource_id: val('pam-res'), ttl_sec: parseInt(val('pam-ttl') || '60', 10) * 60,
+          justification: val('pam-just'),
+        });
+        showToast('break-glass access active');
+        clearInputs(['pam-just']);
+        await loadAccess();
+        break;
+      }
+      case 'pam-approve':
+        await post('/api/pam/approve', { grant_id: btn.dataset.id });
+        showToast('grant approved and activated');
+        await loadAccess();
+        break;
+      case 'pam-deny': {
+        const reason = prompt('Reason for denying ' + btn.dataset.id + ':');
+        if (reason === null) return;
+        await post('/api/pam/deny', { grant_id: btn.dataset.id, reason });
+        showToast('grant denied');
+        await loadAccess();
+        break;
+      }
+      case 'pam-revoke': {
+        const reason = prompt('Reason for revoking ' + btn.dataset.id + ' (live connections will be cut):');
+        if (reason === null) return;
+        await post('/api/pam/revoke', { grant_id: btn.dataset.id, reason });
+        showToast('grant revoked');
+        await loadAccess();
+        break;
+      }
+      case 'pam-ssh-cert': {
+        const pub = prompt('Paste your SSH public key (contents of ~/.ssh/id_ed25519.pub). It is signed for this grant only:');
+        if (!pub) return;
+        const r = await post('/api/pam/ssh/cert', { grant_id: btn.dataset.id, public_key: pub });
+        if (r && r.certificate) {
+          const box = document.getElementById('pam-cert-result');
+          if (box) {
+            box.hidden = false;
+            document.getElementById('pam-cert-text').textContent = r.certificate;
+            document.getElementById('pam-cert-hint').textContent = r.hint || '';
+            box.scrollIntoView({ block: 'nearest' });
+          }
+          showToast('certificate issued for ' + (r.principals || []).join(','));
+        }
+        break;
+      }
+      case 'pam-res-add':
+        await post('/api/pam/resource/add', {
+          name: val('pam-r-name'), kind: val('pam-r-kind'), cidr: val('pam-r-cidr'), proto: val('pam-r-proto'),
+          port_lo: parseInt(val('pam-r-port') || '0', 10), port_hi: parseInt(val('pam-r-port-end') || '0', 10),
+          login: val('pam-r-login'), broker_ref: val('pam-r-broker'),
+        });
+        showToast('resource added');
+        clearInputs(['pam-r-name', 'pam-r-cidr', 'pam-r-port', 'pam-r-port-end', 'pam-r-login', 'pam-r-broker']);
+        await loadAccess();
+        break;
+      case 'pam-res-del':
+        if (!confirm('Delete resource ' + btn.dataset.name + '?')) return;
+        await post('/api/pam/resource/del', { id: btn.dataset.id });
+        showToast('resource deleted');
+        await loadAccess();
+        break;
+      case 'pam-pol-add':
+        await post('/api/pam/policy/add', {
+          name: val('pam-p-name'), subject: val('pam-p-skind') + ':' + val('pam-p-sval'), resource_id: val('pam-p-res'),
+          max_ttl_sec: parseInt(val('pam-p-ttl') || '120', 10) * 60,
+          requires_approval: document.getElementById('pam-p-approval').checked,
+          requires_mfa: document.getElementById('pam-p-mfa').checked,
+        });
+        showToast('policy added');
+        clearInputs(['pam-p-name', 'pam-p-sval']);
+        await loadAccess();
+        break;
+      case 'pam-pol-del':
+        if (!confirm('Delete policy ' + btn.dataset.name + '? Existing grants keep running.')) return;
+        await post('/api/pam/policy/del', { id: btn.dataset.id });
+        showToast('policy deleted');
+        await loadAccess();
+        break;
+
+      // ---- identity: my account + user management (admin) ----
+      case 'me-passwd':
+        await post('/api/me/passwd', { current: val('me-cur'), new: val('me-new') });
+        showToast('password changed');
+        clearInputs(['me-cur', 'me-new']);
+        break;
+      case 'me-totp-enroll': {
+        const pw = prompt('Confirm your password to enroll an authenticator app:');
+        if (!pw) return;
+        const r = await post('/api/me/totp/enroll', { password: pw });
+        showTOTP(r && r.otpauth);
+        loadMe();
+        break;
+      }
+      case 'me-totp-disable': {
+        const pw = prompt('Confirm your password to disable MFA:');
+        if (!pw) return;
+        await post('/api/me/totp/disable', { password: pw });
+        showToast('MFA disabled');
+        hideTOTP();
+        loadMe();
+        break;
+      }
+      case 'user-add':
+        await post('/api/users/add', { name: val('u-name'), password: val('u-pass'), role: val('u-role') });
+        showToast('user added');
+        clearInputs(['u-name', 'u-pass']);
+        await renderUsers();
+        break;
+      case 'user-del':
+        if (!confirm('Delete user ' + btn.dataset.name + '? Their sessions end immediately.')) return;
+        await post('/api/users/del', { name: btn.dataset.name });
+        showToast('user deleted');
+        await renderUsers();
+        break;
+      case 'user-disable':
+        await post('/api/users/disable', { name: btn.dataset.name, disabled: btn.dataset.disabled === 'true' });
+        showToast(btn.dataset.disabled === 'true' ? 'user disabled' : 'user enabled');
+        await renderUsers();
+        break;
+      case 'user-passwd': {
+        const pw = prompt('New password for ' + btn.dataset.name + ':');
+        if (!pw) return;
+        await post('/api/users/passwd', { name: btn.dataset.name, password: pw });
+        showToast('password set');
+        break;
+      }
+      case 'user-totp-enroll': {
+        if (!confirm('Enroll MFA for ' + btn.dataset.name + '? The secret is shown once; hand it to the user now.')) return;
+        const r = await post('/api/users/totp/enroll', { name: btn.dataset.name });
+        showTOTP(r && r.otpauth);
+        await renderUsers();
+        break;
+      }
+      case 'user-totp-disable':
+        if (!confirm('Disable MFA for ' + btn.dataset.name + '?')) return;
+        await post('/api/users/totp/disable', { name: btn.dataset.name });
+        showToast('MFA disabled');
+        await renderUsers();
+        break;
       case 'fw-reset': {
         if (!confirm('Reset counter on ' + btn.dataset.table + '/' + btn.dataset.chain + ' handle ' + btn.dataset.handle + '?')) return;
         await post('/api/firewall/reset-counter', {
@@ -494,6 +685,10 @@
       guacamole_url:        val('s-guac-url'),
       guacamole_conn_id:    val('s-guac-cid'),
       guacamole_template:   val('s-guac-tpl'),
+      guacamole_api_user:   val('s-guac-api-user'),
+      guacamole_api_password: val('s-guac-api-pass') || null,
+      guacamole_recording_path:  val('s-guac-rec'),
+      guacamole_typescript_path: val('s-guac-ts'),
       ipfix_enabled:        document.getElementById('s-ipfix-en').checked,
       ipfix_endpoint:       val('s-ipfix-ep'),
       ipfix_interval_sec:   parseInt(val('s-ipfix-int') || '0', 10),
@@ -526,7 +721,9 @@
     return v.toFixed(i === 0 ? 0 : 1) + ' ' + u[i];
   }
   function fmtUs(us) {
-    if (!us) return '-';
+    // A negative latency is a "no sample" sentinel from the probe layer
+    // (e.g. math.MinInt64), never a measurement.
+    if (!us || us < 0) return '-';
     if (us < 1000) return us + 'µs';
     return (us / 1000).toFixed(1) + 'ms';
   }
@@ -594,8 +791,8 @@
     document.getElementById('grade-verdict').textContent = g.verdict || '-';
     const bars = document.getElementById('grade-bars');
     // Sub-scores listed in g.no_data produced no measurements yet -
-    // render them violet so the operator can see they were excluded
-    // from the overall grade instead of contributing a fake 100.
+    // render them as an empty hatched track so the operator can see they
+    // were excluded from the overall grade instead of contributing a fake 100.
     const noData = new Set(g.no_data || []);
     const rows = [
       ['Loss',       g.loss_score],
@@ -618,16 +815,16 @@
       }
       const attrs = ' data-tip="' + tip + '" tabindex="0"';
       if (noData.has(label)) {
-        return '<div class="grade-bar"' + attrs + '>'
+        return '<div class="grade-bar is-nodata"' + attrs + '>'
           + '<span>' + escape(label) + '</span>'
-          + '<div class="grade-bar-track"><div class="grade-bar-fill" style="width:100%;background:var(--accent-violet)"></div></div>'
-          + '<span class="grade-bar-value" style="color:var(--accent-violet)">no data</span>'
+          + '<div class="grade-bar-track"></div>'
+          + '<span class="grade-bar-value">no data</span>'
           + '</div>';
       }
-      const color = score >= 85 ? '#3fb950'
-                 : score >= 70 ? '#d29922'
-                 : score >= 60 ? '#db6d28'
-                 :              '#f85149';
+      const color = score >= 85 ? 'var(--accent)'
+                 : score >= 70 ? 'var(--accent-yellow)'
+                 : score >= 60 ? 'var(--accent-orange)'
+                 :              'var(--accent-red)';
       return '<div class="grade-bar"' + attrs + '>'
         + '<span>' + escape(label) + '</span>'
         + '<div class="grade-bar-track"><div class="grade-bar-fill" style="width:' + (score || 0) + '%;background:' + color + '"></div></div>'
@@ -683,10 +880,11 @@
         return '<tr>'
           + '<td>' + escape(e.ts || '-') + '</td>'
           + '<td>' + escape(e.op) + '</td>'
+          + '<td>' + escape(e.actor || '-') + '</td>'
           + '<td>' + (e.peer_uid || 0) + '</td>'
           + '<td class="' + (ok ? 'ok' : 'err') + '">' + escape(ok ? 'ok' : e.result) + '</td>'
           + '</tr>';
-      }).join('') || '<tr><td colspan="4" class="muted">no privileged mutations recorded</td></tr>';
+      }).join('') || '<tr><td colspan="5" class="muted">no privileged mutations recorded</td></tr>';
     }
   }
 
@@ -923,12 +1121,12 @@
       return ''
         + '<div class="spark" title="rx ' + rxLast + ' · peak ' + rxPeak + '">'
         +   '<span class="spark-label">' + escape(b.iface) + ' &darr; rx</span>'
-        +   spark(b.rx || [], '#3fb950')
+        +   spark(b.rx || [], '#58a6ff')
         +   '<span class="spark-value">' + rxLast + '</span>'
         + '</div>'
         + '<div class="spark" title="tx ' + txLast + ' · peak ' + txPeak + '">'
         +   '<span class="spark-label">' + escape(b.iface) + ' &uarr; tx</span>'
-        +   spark(b.tx || [], '#d29922')
+        +   spark(b.tx || [], '#3cc7b8')
         +   '<span class="spark-value">' + txLast + '</span>'
         + '</div>';
     }).join('');
@@ -984,7 +1182,7 @@
       return;
     }
     el.innerHTML = names.map(name => {
-      const vals = series[name];
+      const vals = (series[name] || []).filter(v => v >= 0);
       const last = vals.length ? vals[vals.length - 1].toFixed(1) + 'ms' : '-';
       return '<div class="spark"><span class="spark-label">' + escape(name) + '</span>'
         + spark(vals, color)
@@ -1167,8 +1365,8 @@
     const color = name => {
       if (name.startsWith(TAG.P)) return '#58a6ff'; // process – blue
       if (name.startsWith(TAG.I)) return '#f0883e'; // iface – orange
-      if (name.startsWith(TAG.S)) return '#a371f7'; // service – purple
-      return '#3fb950';                              // host – green
+      if (name.startsWith(TAG.S)) return '#e275ad'; // service – pink
+      return '#3cc7b8';                              // host – teal
     };
     const columnLabel = tag => {
       if (tag === TAG.P) return 'Process';
@@ -1701,21 +1899,359 @@
     });
   }
 
-  function renderFirewall(rules, system, ruleCounters) {
-    document.getElementById('fw-rules-body').innerHTML = (rules || []).map(r => {
-      const dataRule = JSON.stringify(r).replace(/"/g, '&quot;');
-      return '<tr>'
-        + '<td>' + escape(r.chain) + '</td>'
-        + '<td>' + escape(r.action.toUpperCase()) + '</td>'
-        + '<td>' + escape(r.proto.toUpperCase() || '-') + '</td>'
-        + '<td>' + (r.port || '-') + '</td>'
-        + '<td>' + escape(r.in_iface || '-') + '</td>'
-        + '<td>' + escape(r.out_iface || '-') + '</td>'
-        + '<td>' + escape(r.src || '-') + '</td>'
-        + '<td>' + escape(r.dst || '-') + '</td>'
-        + '<td><button class="btn btn-small btn-danger" data-action="fw-del" data-rule="' + dataRule + '">del</button></td>'
+  // ---- privileged access (Access tab) ----
+  // Loaded lazily when the tab is shown and every 5th snapshot poll while it
+  // stays active; grants change slowly compared to the 2 s snapshot loop.
+  let pamTick = 0;
+  let lastWG = [];
+  let pamUsers = null;
+  function isPaneActive(name) {
+    const p = document.querySelector('[data-pane="' + name + '"]');
+    return !!(p && p.classList.contains('active'));
+  }
+  async function loadAccess() {
+    let d;
+    try { d = await api('/api/pam'); } catch (e) {
+      const s = document.getElementById('pam-summary');
+      if (s) s.textContent = 'unavailable: ' + (e.message || e);
+      return;
+    }
+    if (!d) return;
+    if (d.is_admin && pamUsers === null) {
+      try { pamUsers = (await api('/api/users')).users || []; } catch (_) { pamUsers = []; }
+    }
+    renderAccess(d);
+  }
+  function fmtWindow(g) {
+    if (g.state === 'active') {
+      const left = Math.max(0, Math.round((new Date(g.ends_at) - Date.now()) / 60000));
+      return 'until ' + new Date(g.ends_at).toLocaleTimeString() + ' (' + left + ' min left)';
+    }
+    if (g.state === 'pending') return (g.ttl_sec / 60) + ' min requested';
+    if (g.ended_at && g.ended_at !== '0001-01-01T00:00:00Z') return 'ended ' + new Date(g.ended_at).toLocaleString();
+    return '-';
+  }
+  function renderAccess(d) {
+    const ov = d.overview || {};
+    const resById = {};
+    (ov.resources || []).forEach(r => { resById[r.id] = r; });
+    const summary = document.getElementById('pam-summary');
+    if (summary) {
+      const active = (ov.grants || []).filter(g => g.state === 'active').length;
+      const pending = (ov.grants || []).filter(g => g.state === 'pending').length;
+      summary.textContent = d.me + ' (' + d.role + (d.mfa ? ', MFA' : '') + ') · ' + active + ' active · ' + pending + ' pending · tunnel ' + (ov.device || 'wg0');
+    }
+    const reqCard = document.getElementById('pam-request-card');
+    if (reqCard) reqCard.hidden = !d.can_request;
+    document.querySelectorAll('[data-pane="access"] [data-admin-only]').forEach(el => { el.hidden = !d.is_admin; });
+
+    const resOpts = (ov.resources || []).map(r => '<option value="' + escape(r.id) + '">' + escape(r.name) + ' (' + escape(r.cidr) + ')</option>').join('');
+    ['pam-res', 'pam-p-res'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const cur = sel.value;
+      sel.innerHTML = resOpts || '<option value="">no resources yet</option>';
+      if (cur) sel.value = cur;
+    });
+
+    document.getElementById('pam-grants-body').innerHTML = (ov.grants || []).map(g => {
+      const res = resById[g.resource_id];
+      const mine = g.user === d.me;
+      const actions = [];
+      if (g.state === 'pending' && d.can_approve && !mine) {
+        actions.push('<button class="btn btn-small btn-go" data-action="pam-approve" data-id="' + escape(g.id) + '">approve</button>');
+        actions.push('<button class="btn btn-small" data-action="pam-deny" data-id="' + escape(g.id) + '">deny</button>');
+      }
+      if (g.state === 'active' && mine) {
+        const url = (d.launch_urls || {})[g.id];
+        if (url) actions.push('<a class="btn btn-small btn-go" href="' + escape(url) + '" target="_blank" rel="noopener">open session</a>');
+        if (res && res.kind === 'ssh') actions.push('<button class="btn btn-small" data-action="pam-ssh-cert" data-id="' + escape(g.id) + '" title="sign your SSH public key for this grant window">ssh cert</button>');
+      }
+      if ((g.state === 'active' || g.state === 'pending') && (mine || d.can_approve)) {
+        actions.push('<button class="btn btn-small btn-danger" data-action="pam-revoke" data-id="' + escape(g.id) + '">' + (g.state === 'active' ? 'revoke' : 'withdraw') + '</button>');
+      }
+      const stateCls = g.state === 'active' ? 'on' : (g.state === 'pending' ? 'warn' : 'off');
+      return '<tr' + (g.break_glass ? ' class="warn"' : '') + '>'
+        + '<td><code title="' + escape(g.justification) + '">' + escape(g.id.replace('grant-', '')) + '</code>' + (g.break_glass ? ' 🚨' : '') + (g.ticket ? ' <span class="muted">' + escape(g.ticket) + '</span>' : '') + '</td>'
+        + '<td>' + escape(g.user) + '</td>'
+        + '<td>' + escape(res ? res.name : g.resource_id) + '</td>'
+        + '<td><span class="status-pill ' + stateCls + '">' + escape(g.state) + '</span>' + (g.end_reason ? '<div class="muted">' + escape(g.end_reason) + '</div>' : '') + '</td>'
+        + '<td>' + escape(fmtWindow(g)) + '</td>'
+        + '<td>' + escape(g.approved_by || '-') + '</td>'
+        + '<td>' + (g.observed_flows ? g.observed_flows + ' flows · ' + fmtBytes(g.observed_bytes) : '-') + (g.capture_id ? '<div class="muted">pcap ' + escape(g.capture_id) + '</div>' : '') + '</td>'
+        + '<td>' + actions.join(' ') + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="9" class="muted">no managed rules - add one above</td></tr>';
+    }).join('') || '<tr><td colspan="8" class="muted">no grants yet</td></tr>';
+
+    document.getElementById('pam-res-body').innerHTML = (ov.resources || []).map(r => {
+      const port = r.port_lo ? (r.proto + '/' + r.port_lo + (r.port_hi ? '-' + r.port_hi : '')) : (r.proto || 'any');
+      return '<tr>'
+        + '<td>' + escape(r.name) + '</td>'
+        + '<td>' + escape(r.kind) + '</td>'
+        + '<td><code>' + escape(r.cidr) + ' ' + escape(port) + '</code></td>'
+        + '<td>' + escape(r.login || '-') + '</td>'
+        + '<td>' + escape(r.broker_ref || '-') + '</td>'
+        + '<td>' + (d.is_admin ? '<button class="btn btn-small btn-danger" data-action="pam-res-del" data-id="' + escape(r.id) + '" data-name="' + escape(r.name) + '">del</button>' : '') + '</td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">no resources - an admin adds them above</td></tr>';
+
+    document.getElementById('pam-pol-body').innerHTML = (ov.policies || []).map(p => {
+      const res = resById[p.resource_id];
+      return '<tr>'
+        + '<td>' + escape(p.name) + '</td>'
+        + '<td><code>' + escape(p.subject) + '</code></td>'
+        + '<td>' + escape(res ? res.name : p.resource_id) + '</td>'
+        + '<td>' + Math.round(p.max_ttl_sec / 60) + ' min</td>'
+        + '<td>' + (p.requires_approval ? 'yes' : 'auto') + '</td>'
+        + '<td>' + (p.requires_mfa ? 'yes' : '-') + '</td>'
+        + '<td>' + (d.is_admin ? '<button class="btn btn-small btn-danger" data-action="pam-pol-del" data-id="' + escape(p.id) + '" data-name="' + escape(p.name) + '">del</button>' : '') + '</td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">no policies - nobody can request anything yet</td></tr>';
+
+    if (d.is_admin) {
+      const peerUsers = ov.peer_users || {};
+      const userOpts = ['<option value="">— unbound —</option>'].concat((pamUsers || []).map(u => '<option value="' + escape(u.name) + '">' + escape(u.name) + ' (' + escape(u.role) + ')</option>'));
+      const rows = [];
+      (lastWG || []).forEach(dev => (dev.peers || []).forEach(p => {
+        const bound = peerUsers[p.public_key] || '';
+        rows.push('<tr>'
+          + '<td><code title="' + escape(p.public_key) + '">' + escape(p.name || p.short_key || p.public_key.slice(0, 10) + '…') + '</code></td>'
+          + '<td>' + escape(dev.name) + '</td>'
+          + '<td>' + escape((p.allowed_ips || []).join(', ')) + '</td>'
+          + '<td><select data-change="pam-bind" data-key="' + escape(p.public_key) + '">' + userOpts.join('').replace('value="' + escape(bound) + '"', 'value="' + escape(bound) + '" selected') + '</select></td>'
+          + '</tr>');
+      }));
+      document.getElementById('pam-peers-body').innerHTML = rows.join('') || '<tr><td colspan="4" class="muted">no WireGuard peers visible - provision one in the WireGuard tab</td></tr>';
+    }
+
+    const chain = document.getElementById('pam-chain');
+    if (chain) {
+      chain.textContent = ov.chain_broken_at ? 'BROKEN at row ' + ov.chain_broken_at : (ov.chain_checked + ' events verified');
+      chain.className = ov.chain_broken_at ? 'status-pill off' : 'status-pill on';
+    }
+    const caEl = document.getElementById('pam-ssh-ca');
+    if (caEl) {
+      caEl.textContent = d.ssh_ca_key ? d.ssh_ca_key + '   # ' + d.ssh_ca_fp : 'SSH CA unavailable';
+    }
+    const brokerEl = document.getElementById('pam-broker');
+    if (brokerEl) brokerEl.textContent = d.broker_ready ? 'Guacamole brokering on' : 'Guacamole brokering off (set the API credentials in Settings)';
+    document.getElementById('pam-events-body').innerHTML = (ov.events || []).map(e => '<tr>'
+      + '<td>' + escape(new Date(e.ts).toLocaleString()) + '</td>'
+      + '<td>' + escape(e.actor) + '</td>'
+      + '<td>' + escape(e.action) + '</td>'
+      + '<td><code>' + escape((e.grant_id || '').replace('grant-', '')) + '</code></td>'
+      + '<td class="muted">' + escape(e.detail || '') + '</td>'
+      + '</tr>').join('') || '<tr><td colspan="5" class="muted">no access events yet</td></tr>';
+  }
+  document.addEventListener('change', async (ev) => {
+    const sel = ev.target.closest('select[data-change="pam-bind"]');
+    if (!sel) return;
+    try {
+      await post('/api/pam/peer/bind', { public_key: sel.dataset.key, user: sel.value });
+      showToast(sel.value ? 'peer bound to ' + sel.value : 'peer unbound');
+    } catch (_) { /* toast shown */ }
+    loadAccess();
+  });
+
+  // ---- identity ----
+  // me is the logged-in user as reported by /api/me; the role decides which
+  // admin-only cards render. The server enforces every permission regardless.
+  let me = null;
+  async function loadMe() {
+    try {
+      me = await api('/api/me');
+    } catch (_) { me = null; }
+    const badge = document.getElementById('me-badge');
+    if (badge) {
+      badge.textContent = me ? (me.user + ' · ' + me.role + (me.mfa_enrolled ? ' · MFA' : '')) : '';
+      badge.title = me && !me.tls ? 'plain HTTP - enable --tls-auto before exposing this UI' : 'signed-in user · role';
+    }
+    const sum = document.getElementById('me-summary');
+    if (sum && me) sum.textContent = me.user + ' (' + me.role + ')' + (me.mfa_enrolled ? ' · MFA enrolled' : ' · no MFA');
+    document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = !(me && me.role === 'admin'); });
+    document.body.dataset.role = me ? me.role : '';
+    if (me && me.role === 'admin') renderUsers();
+  }
+
+  async function renderUsers() {
+    const body = document.getElementById('users-body');
+    if (!body || !me || me.role !== 'admin') return;
+    let data;
+    try { data = await api('/api/users'); } catch (_) { return; }
+    const roles = data.roles || ['viewer', 'approver', 'operator', 'admin'];
+    body.innerHTML = (data.users || []).map(u => {
+      const self = me && u.name === me.user;
+      const roleSel = '<select data-change="user-role" data-name="' + escape(u.name) + '"' + (self ? ' disabled title="change your own role from another admin account"' : '') + '>'
+        + roles.map(r => '<option' + (r === u.role ? ' selected' : '') + '>' + r + '</option>').join('') + '</select>';
+      const state = u.disabled ? '<span class="status-pill off">disabled</span>' : '<span class="status-pill on">enabled</span>';
+      const actions = []
+        .concat(self ? [] : ['<button class="btn btn-small" data-action="user-disable" data-name="' + escape(u.name) + '" data-disabled="' + (!u.disabled) + '">' + (u.disabled ? 'enable' : 'disable') + '</button>'])
+        .concat(['<button class="btn btn-small" data-action="user-passwd" data-name="' + escape(u.name) + '">password</button>'])
+        .concat(u.mfa_enrolled
+          ? ['<button class="btn btn-small" data-action="user-totp-disable" data-name="' + escape(u.name) + '">MFA off</button>']
+          : ['<button class="btn btn-small" data-action="user-totp-enroll" data-name="' + escape(u.name) + '">enroll MFA</button>'])
+        .concat(self ? [] : ['<button class="btn btn-small btn-danger" data-action="user-del" data-name="' + escape(u.name) + '">del</button>']);
+      return '<tr>'
+        + '<td>' + escape(u.name) + (self ? ' <span class="muted">(you)</span>' : '') + '</td>'
+        + '<td>' + roleSel + '</td>'
+        + '<td>' + (u.mfa_enrolled ? 'TOTP' : '-') + '</td>'
+        + '<td>' + state + '</td>'
+        + '<td class="muted">' + escape(u.updated_at || '') + '</td>'
+        + '<td>' + actions.join(' ') + '</td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">no users</td></tr>';
+  }
+
+  // Role changes come from a <select>, which the click dispatcher does not see.
+  document.addEventListener('change', async (ev) => {
+    const sel = ev.target.closest('select[data-change="user-role"]');
+    if (!sel) return;
+    try {
+      await post('/api/users/role', { name: sel.dataset.name, role: sel.value });
+      showToast('role updated - ' + sel.dataset.name + ' must sign in again');
+    } catch (_) { /* toast shown */ }
+    renderUsers();
+  });
+
+  // showTOTP renders a one-shot otpauth:// URI (and a QR when an encoder is on
+  // the page). Nothing here is sent back to the server.
+  function showTOTP(uri) {
+    const box = document.getElementById('totp-result');
+    if (!box) return;
+    if (!uri) { box.hidden = true; return; }
+    document.getElementById('totp-uri').textContent = uri;
+    const qr = document.getElementById('totp-qr');
+    qr.innerHTML = '';
+    if (window.QRCode && typeof window.QRCode.toCanvas === 'function') {
+      const c = document.createElement('canvas');
+      qr.appendChild(c);
+      window.QRCode.toCanvas(c, uri, { width: 200, errorCorrectionLevel: 'M' }, () => {});
+    }
+    box.hidden = false;
+    box.scrollIntoView({ block: 'nearest' });
+  }
+  function hideTOTP() {
+    const box = document.getElementById('totp-result');
+    if (box) box.hidden = true;
+  }
+
+  // fwAutoConfirm is set right after the operator enables default-deny: the
+  // next successful snapshot proves this page can still reach the API, so the
+  // pending enforce change is confirmed automatically (commit-confirm).
+  let fwAutoConfirm = false;
+  let fwImportWired = false;
+
+  // wireFirewallImport uploads a chosen policy file as the new policy.
+  function wireFirewallImport() {
+    if (fwImportWired) return;
+    const input = document.getElementById('fw-import-file');
+    if (!input) return;
+    fwImportWired = true;
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      if (!confirm('Replace the whole firewall policy with ' + f.name + '? It is applied immediately.')) { input.value = ''; return; }
+      try {
+        const text = await f.text();
+        const res = await fetch('/api/firewall/import', { method: 'POST', body: text,
+          headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
+        if (!res.ok) throw new Error(await res.text());
+        showToast('policy imported');
+      } catch (e) {
+        showToast('import failed: ' + (e.message || e), true);
+      } finally {
+        input.value = '';
+      }
+    });
+  }
+
+  function renderFirewallPolicy(p) {
+    wireFirewallImport();
+    const mode = document.getElementById('fw-policy-mode');
+    const summary = document.getElementById('fw-policy-summary');
+    const pending = document.getElementById('fw-policy-pending');
+    if (!mode) return;
+    if (!p) {
+      mode.textContent = 'unavailable';
+      summary.textContent = 'netops not initialized - firewall management is off';
+      pending.hidden = true;
+      return;
+    }
+    if (!p.available) {
+      mode.textContent = 'unavailable';
+      summary.textContent = p.error || 'policy file could not be loaded';
+      pending.hidden = true;
+      return;
+    }
+    mode.textContent = p.enforce ? 'DEFAULT-DENY (enforcing)' : 'default-accept (permissive)';
+    mode.className = p.enforce ? 'status-pill on' : '';
+    const bits = [];
+    bits.push(p.rule_count + ' rule' + (p.rule_count === 1 ? '' : 's'));
+    if (p.drift_error) bits.push('kernel state unreadable (' + p.drift_error + ')');
+    else if (p.inert && !p.table_exists) bits.push('inert - nothing installed until the first rule or default-deny');
+    else bits.push(p.in_sync ? 'kernel in sync' : 'DRIFT: ' + (p.drift_detail || []).join('; '));
+    if (!p.writes_allowed) bits.push('netops writes disabled (read-only)');
+    if (p.last_apply) bits.push('applied ' + new Date(p.last_apply).toLocaleTimeString());
+    if (p.last_error) bits.push('last error: ' + p.last_error);
+    if (p.imported) bits.push('imported ' + p.imported + ' pre-policy entries');
+    bits.push('file ' + p.path);
+    summary.textContent = bits.join(' · ');
+    summary.className = (p.in_sync || p.drift_error) && !p.last_error ? 'muted' : 'muted warn';
+    pending.hidden = !p.pending_confirm;
+    if (p.pending_confirm) {
+      document.getElementById('fw-policy-pending-secs').textContent = p.pending_secs;
+      if (fwAutoConfirm) {
+        fwAutoConfirm = false;
+        post('/api/firewall/enforce/confirm', {})
+          .then(() => showToast('default-deny confirmed - this page can still reach Testudo'))
+          .catch(() => {});
+      }
+    } else {
+      fwAutoConfirm = false;
+    }
+  }
+
+  function fwMatchText(r) {
+    // Strip the leading chain and trailing action from the nft-style line so
+    // the table shows just the match.
+    let t = r.text || '';
+    if (t.startsWith(r.chain + ' ')) t = t.slice(r.chain.length + 1);
+    const tail = ' ' + r.action;
+    if (t.endsWith(tail)) t = t.slice(0, -tail.length);
+    if (t.endsWith(' log')) t = t.slice(0, -4);
+    return t.trim() || 'any';
+  }
+
+  // lastFWPolicy lets the rule table tell "not installed because the policy is
+  // inert" apart from real drift.
+  let lastFWPolicy = null;
+  function renderFirewall(rules, system, ruleCounters) {
+    const userIds = (rules || []).filter(r => !r.baseline).map(r => r.id);
+    const inertIdle = !!(lastFWPolicy && lastFWPolicy.inert && !lastFWPolicy.table_exists);
+    document.getElementById('fw-rules-body').innerHTML = (rules || []).map(r => {
+      const notLive = !r.live && !inertIdle;
+      const cls = (r.baseline ? ' class="dim"' : '') + (notLive ? ' title="desired but not live (drift)"' : '');
+      const userAttr = r.baseline ? '' : ' data-user-id="' + escape(r.id) + '"';
+      const pos = userIds.indexOf(r.id);
+      let actions = '<span class="muted">baseline</span>';
+      if (!r.baseline) {
+        actions = ''
+          + (pos > 0 ? '<button class="btn btn-small" data-action="fw-move" data-dir="up" data-id="' + escape(r.id) + '" title="move up">▲</button>' : '')
+          + (pos >= 0 && pos < userIds.length - 1 ? '<button class="btn btn-small" data-action="fw-move" data-dir="down" data-id="' + escape(r.id) + '" title="move down">▼</button>' : '')
+          + '<button class="btn btn-small btn-danger" data-action="fw-del" data-id="' + escape(r.id) + '" data-text="' + escape(r.text) + '">del</button>';
+      }
+      const actionCls = (r.action === 'drop' || r.action === 'reject') ? ' class="status-pill off"' : '';
+      return '<tr' + cls + userAttr + '>'
+        + '<td>' + escape(r.chain) + '</td>'
+        + '<td><span' + actionCls + '>' + escape(r.action.toUpperCase()) + (r.log ? ' +log' : '') + '</span></td>'
+        + '<td><code>' + escape(fwMatchText(r)) + '</code></td>'
+        + '<td>' + escape(r.owner === 'user' ? '' : r.owner) + (notLive ? ' <span class="status-pill off">not live</span>' : '') + '</td>'
+        + '<td>' + escape(r.comment || '') + '</td>'
+        + '<td>' + (r.has_counter ? r.packets : '-') + '</td>'
+        + '<td>' + (r.has_counter ? fmtBytes(r.bytes) : '-') + '</td>'
+        + '<td>' + actions + '</td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="8" class="muted">no rules - add one above</td></tr>';
 
     const sysRows = [];
     (system || []).forEach(t => {
@@ -2304,6 +2840,10 @@
     document.getElementById('s-guac-url').value = t.guacamole_url || '';
     document.getElementById('s-guac-cid').value = t.guacamole_conn_id || '';
     document.getElementById('s-guac-tpl').value = t.guacamole_template || '';
+    document.getElementById('s-guac-api-user').value = t.guacamole_api_user || '';
+    document.getElementById('s-guac-rec').value = t.guacamole_recording_path || '';
+    document.getElementById('s-guac-ts').value = t.guacamole_typescript_path || '';
+    // The API password is never sent to the page; blank means "keep".
     document.getElementById('s-ipfix-en').checked = !!t.ipfix_enabled;
     document.getElementById('s-ipfix-ep').value = t.ipfix_endpoint || '';
     document.getElementById('s-ipfix-int').value = t.ipfix_interval_sec || 30;
@@ -2459,7 +2999,7 @@
       renderBandwidth(snap.bandwidth || []);
       renderTalkers(snap.top_hosts, snap.top_processes, snap.top_services);
       renderSparks('icmp-sparks', snap.latency_series || {}, '#58a6ff');
-      renderSparks('dns-sparks',  snap.dns_series || {}, '#a371f7');
+      renderSparks('dns-sparks',  snap.dns_series || {}, '#3cc7b8');
       renderTargets(snap.targets);
       renderDNS(snap.dns);
       renderFlows(snap.flows);
@@ -2471,6 +3011,8 @@
       renderWiFiDetail(snap.wifi);
       renderRoutes(snap.routes);
       renderWatcher(snap.watcher);
+      lastFWPolicy = snap.firewall_policy || null;
+      renderFirewallPolicy(snap.firewall_policy);
       renderFirewall(snap.filter_rules, snap.firewall, snap.firewall_rules);
       renderNAT(snap.nat);
       renderWGDashboard(snap.wireguard);
@@ -2483,6 +3025,8 @@
       renderIPFIX(snap.ipfix);
       renderHealth(snap.subsystems, snap.audit, snap.privsep);
       renderSettings(snap.thresholds);
+      lastWG = snap.wireguard || [];
+      if (isPaneActive('access') && (++pamTick % 5 === 0)) loadAccess();
     } catch (e) {
       console.error('refresh failed', e);
     } finally {
@@ -2529,4 +3073,5 @@
   }
   refresh();
   setInterval(refresh, 2000);
+  loadMe();
 })();

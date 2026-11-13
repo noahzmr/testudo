@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <title>Testudo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -23,11 +28,13 @@
       <symbol id="i-routes" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v3a4 4 0 0 0 4 4h5.5"/></symbol>
       <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.5a16 16 0 0 1 20 0"/><path d="M5 12a11 11 0 0 1 14 0"/><path d="M8.5 15.5a6 6 0 0 1 7 0"/><line x1="12" y1="19" x2="12.01" y2="19"/></symbol>
       <symbol id="i-firewall" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+      <symbol id="i-access" viewBox="0 0 24 24"><path d="M15 3a6 6 0 0 0-5.7 7.9L3 17.2V21h3.8l1.2-1.2v-2h2v-2h2l1.1-1.1A6 6 0 1 0 15 3zm1.5 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/></symbol>
       <symbol id="i-nat" viewBox="0 0 24 24"><polyline points="7 4 3 8 7 12"/><line x1="3" y1="8" x2="17" y2="8"/><polyline points="17 12 21 16 17 20"/><line x1="21" y1="16" x2="7" y2="16"/></symbol>
       <symbol id="i-wireguard" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="2"/></symbol>
       <symbol id="i-tcpdump" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></symbol>
       <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></symbol>
       <symbol id="i-health" viewBox="0 0 24 24"><path d="M3 12h4l2 6 4-14 2 8h6"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></symbol>
       <symbol id="i-settings" viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="15" cy="17" r="2.2"/></symbol>
     </defs>
   </svg>
@@ -36,7 +43,15 @@
     <!-- ===================== SIDEBAR (primary nav) ===================== -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
-        <span class="brand">Testudo</span>
+        <span class="brand">
+          <svg class="brand-mark" viewBox="0 0 144 96" aria-hidden="true" focusable="false">
+            <text x="0" y="18" textLength="120" lengthAdjust="spacing" xml:space="preserve"> ,,  // \\</text>
+            <text x="0" y="42" textLength="132" lengthAdjust="spacing" xml:space="preserve">(_,\/ \_/ \</text>
+            <text x="0" y="66" textLength="144" lengthAdjust="spacing" xml:space="preserve">  \ \_/_\_/&gt;</text>
+            <text x="0" y="90" textLength="120" lengthAdjust="spacing" xml:space="preserve">  /_/  /_/</text>
+          </svg>
+          Testudo
+        </span>
       </div>
 
       <nav class="sidebar-nav" aria-label="Primary">
@@ -62,6 +77,7 @@
           <button data-tab="firewall" class="tab"><svg class="nav-ico"><use href="#i-firewall"/></svg> Firewall</button>
           <button data-tab="nat" class="tab"><svg class="nav-ico"><use href="#i-nat"/></svg> NAT</button>
           <button data-tab="wireguard" class="tab"><svg class="nav-ico"><use href="#i-wireguard"/></svg> WireGuard</button>
+          <button data-tab="access" class="tab"><svg class="nav-ico"><use href="#i-access"/></svg> Access</button>
         </div>
 
         <div class="nav-group">
@@ -92,10 +108,11 @@
     <!-- ===================== CONTENT COLUMN ===================== -->
     <div class="content">
       <header class="topbar">
-        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg aria-hidden="true" focusable="false"><use href="#i-menu"/></svg></button>
         <h1 class="topbar-title" id="view-title">Dashboard</h1>
         <div class="topbar-spacer"></div>
         <div class="topbar-meta">
+          <span class="muted" id="me-badge" title="signed-in user · role">…</span>
           <span class="live-dot" id="live-dot" title="live snapshot poll">live</span>
           <span class="uptime-wrap">uptime <span id="uptime-top">-</span></span>
         </div>
@@ -215,20 +232,20 @@
         </div>
       </div>
       <div class="card">
-        <div class="row" style="justify-content: space-between; align-items: center;">
-          <h2 style="margin:0">Flow graph (Process &rarr; Iface &rarr; Service &rarr; Host)</h2>
+        <div class="card-head">
+          <h2>Flow graph <span class="muted">process &rarr; iface &rarr; service &rarr; host</span></h2>
           <span id="sankey-filter-pill" class="sankey-filter-pill" role="button" tabindex="0" aria-label="Clear Sankey filter">
             <span id="sankey-filter-pill-text">filter</span>
             <span aria-hidden="true">×</span>
           </span>
-          <div class="row" style="gap: var(--sp-2); margin-left: auto;">
+          <div class="card-tools">
             <label class="muted" for="sankey-metric">weight</label>
-            <select id="sankey-metric" class="filter" style="width: auto;">
+            <select id="sankey-metric">
               <option value="bytes" selected>bytes</option>
               <option value="packets">packets</option>
             </select>
             <label class="muted" for="sankey-topn">nodes/col</label>
-            <select id="sankey-topn" class="filter" style="width: auto;">
+            <select id="sankey-topn">
               <option value="8">8</option>
               <option value="12" selected>12</option>
               <option value="20">20</option>
@@ -339,25 +356,46 @@
 
     <!-- FIREWALL ------------------------------------------------------ -->
     <section data-pane="firewall" class="pane" role="tabpanel" aria-label="Firewall">
+      <div class="card" id="fw-policy-card">
+        <h2>Policy <span class="muted">· <span id="fw-policy-mode">—</span></span></h2>
+        <p class="muted" id="fw-policy-summary">loading…</p>
+        <div id="fw-policy-pending" class="muted" hidden>
+          Default-deny is active but <strong>not confirmed</strong>. It reverts automatically in
+          <span id="fw-policy-pending-secs">—</span> s unless this page can still reach the API.
+          <button data-action="fw-confirm" class="btn btn-small btn-go">Confirm now</button>
+        </div>
+        <div class="row">
+          <button data-action="fw-enforce-on" class="btn btn-danger" title="Set input + forward chain policy to drop. Baseline rules (established/related, loopback, ICMP, SSH, this Web UI port) stay open. Reverts in 90 s unless confirmed.">Enable default-deny</button>
+          <button data-action="fw-enforce-off" class="btn" title="Back to default-accept: rules still apply, unmatched traffic passes.">Disable default-deny</button>
+          <a class="btn btn-small" href="/api/firewall/export" download="testudo-firewall.json">Export policy</a>
+          <label class="btn btn-small">Import policy<input type="file" id="fw-import-file" accept="application/json" hidden/></label>
+        </div>
+      </div>
       <div class="card">
         <h2>Add filter rule</h2>
         <div class="form-grid">
           <label>chain<select id="fw-chain"><option>input</option><option>output</option><option>forward</option></select></label>
-          <label>action<select id="fw-action"><option>drop</option><option>accept</option></select></label>
-          <label>proto<select id="fw-proto"><option value="">any</option><option>tcp</option><option>udp</option></select></label>
+          <label>action<select id="fw-action"><option>drop</option><option>accept</option><option>reject</option><option>log</option></select></label>
+          <label>proto<select id="fw-proto"><option value="">any</option><option>tcp</option><option>udp</option><option>icmp</option><option>icmpv6</option></select></label>
           <label>port<input id="fw-port" placeholder="dst port; blank = any"/></label>
+          <label>port end<input id="fw-port-end" placeholder="range end; blank = single"/></label>
           <label>in iface<input id="fw-iif" placeholder="blank = any"/></label>
           <label>out iface<input id="fw-oif" placeholder="blank = any"/></label>
-          <label>src (IPv4/CIDR)<input id="fw-src" placeholder="blank = any"/></label>
-          <label>dst (IPv4/CIDR)<input id="fw-dst" placeholder="blank = any"/></label>
+          <label>src (IP/CIDR, v4 or v6)<input id="fw-src" placeholder="blank = any"/></label>
+          <label>dst (IP/CIDR, v4 or v6)<input id="fw-dst" placeholder="blank = any"/></label>
+          <label>ct state<select id="fw-ct"><option value="">any</option><option>new</option><option value="established,related">established,related</option><option>invalid</option></select></label>
+          <label>rate limit<input id="fw-rate" placeholder="e.g. 5/minute; blank = none"/></label>
+          <label>comment<input id="fw-comment" placeholder="optional"/></label>
+          <label class="check"><input type="checkbox" id="fw-log"/> log matches</label>
+          <label class="check"><input type="checkbox" id="fw-rate-over"/> match <em>over</em> the rate</label>
         </div>
         <div class="row"><button data-action="fw-add" class="btn btn-go">Add rule</button></div>
       </div>
       <div class="card">
-        <h2>Testudo-managed rules</h2>
+        <h2>Policy rules <span class="muted">· install order per chain · baseline rows are read-only</span></h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Chain</th><th>Action</th><th>Proto</th><th>Port</th><th>In</th><th>Out</th><th>Src</th><th>Dst</th><th></th></tr></thead>
+            <thead><tr><th>Chain</th><th>Action</th><th>Match</th><th>Owner</th><th>Comment</th><th>Pkts</th><th>Bytes</th><th></th></tr></thead>
             <tbody id="fw-rules-body"></tbody>
           </table>
         </div>
@@ -713,7 +751,7 @@
         <h2>Audit Log · privileged mutations</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Time</th><th>Op</th><th>UID</th><th>Result</th></tr></thead>
+            <thead><tr><th>Time</th><th>Op</th><th>Actor</th><th>UID</th><th>Result</th></tr></thead>
             <tbody id="audit-body"></tbody>
           </table>
         </div>
@@ -721,6 +759,110 @@
     </section>
 
     <!-- SETTINGS ------------------------------------------------------ -->
+    <!-- ACCESS (privileged access management) ------------------------- -->
+    <section data-pane="access" class="pane" role="tabpanel" aria-label="Access">
+      <div class="card">
+        <h2>Privileged access <span class="muted">· <span id="pam-summary">loading…</span></span></h2>
+        <p class="muted">Just-in-time, time-boxed access over WireGuard. A grant compiles into firewall rules for the requester's bound peers, is recorded (per-grant capture), and is torn down - live connections included - when it ends. Every step lands in a hash-chained access log.</p>
+      </div>
+
+      <div class="card" id="pam-request-card" hidden>
+        <h2>Request access</h2>
+        <div class="form-grid">
+          <label>resource<select id="pam-res"></select></label>
+          <label>duration (minutes)<input id="pam-ttl" type="number" min="1" value="60"/></label>
+          <label>ticket / change ref<input id="pam-ticket" placeholder="optional"/></label>
+          <label class="full">justification<input id="pam-just" placeholder="why do you need this access?"/></label>
+        </div>
+        <div class="row">
+          <button data-action="pam-request" class="btn btn-go">Request</button>
+          <button data-action="pam-breakglass" class="btn btn-danger" data-admin-only hidden title="Admin emergency access: no policy, no approval, max 4 h, loudly logged. Needs a justification of at least 10 characters.">Break glass</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Grants</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Grant</th><th>User</th><th>Resource</th><th>State</th><th>Window</th><th>Decided by</th><th>Observed</th><th></th></tr></thead>
+            <tbody id="pam-grants-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Resources <span class="muted">· what a grant can reach</span></h2>
+        <div class="form-grid" data-admin-only hidden>
+          <label>name<input id="pam-r-name" placeholder="prod-db"/></label>
+          <label>kind<select id="pam-r-kind"><option>l3</option><option>ssh</option><option>rdp</option><option>https</option></select></label>
+          <label>address / CIDR<input id="pam-r-cidr" placeholder="10.1.0.5 or 192.168.1.0/24"/></label>
+          <label>proto<select id="pam-r-proto"><option value="">any</option><option>tcp</option><option>udp</option></select></label>
+          <label>port<input id="pam-r-port" placeholder="blank = any (ssh/rdp/https default)"/></label>
+          <label>port end<input id="pam-r-port-end" placeholder="range end"/></label>
+          <label>login<input id="pam-r-login" placeholder="ssh principal / rdp user"/></label>
+          <label>broker ref<input id="pam-r-broker" placeholder="guacamole connection id"/></label>
+        </div>
+        <div class="row" data-admin-only hidden><button data-action="pam-res-add" class="btn btn-go">Add resource</button></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Kind</th><th>Target</th><th>Login</th><th>Broker</th><th></th></tr></thead>
+            <tbody id="pam-res-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Policies <span class="muted">· who may ask, on what terms</span></h2>
+        <div class="form-grid" data-admin-only hidden>
+          <label>name<input id="pam-p-name" placeholder="ops → prod-db"/></label>
+          <label>subject kind<select id="pam-p-skind"><option value="role">role (at least)</option><option value="user">user</option></select></label>
+          <label>subject<input id="pam-p-sval" placeholder="operator | alice"/></label>
+          <label>resource<select id="pam-p-res"></select></label>
+          <label>max duration (minutes)<input id="pam-p-ttl" type="number" min="1" value="120"/></label>
+          <label class="check"><input type="checkbox" id="pam-p-approval" checked/> requires approval</label>
+          <label class="check"><input type="checkbox" id="pam-p-mfa"/> requires MFA</label>
+        </div>
+        <div class="row" data-admin-only hidden><button data-action="pam-pol-add" class="btn btn-go">Add policy</button></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Subject</th><th>Resource</th><th>Max</th><th>Approval</th><th>MFA</th><th></th></tr></thead>
+            <tbody id="pam-pol-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" data-admin-only hidden>
+        <h2>Peer bindings <span class="muted">· which WireGuard peer belongs to whom</span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Peer</th><th>Device</th><th>Tunnel IPs</th><th>Bound user</th></tr></thead>
+            <tbody id="pam-peers-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Brokers <span class="muted">· sessions without standing credentials</span></h2>
+        <p class="muted" id="pam-broker">—</p>
+        <p class="muted">SSH targets trust this CA (<code>TrustedUserCAKeys</code>); an active ssh grant can sign your key for exactly its window and login:</p>
+        <code id="pam-ssh-ca" style="word-break:break-all">—</code>
+        <div id="pam-cert-result" hidden>
+          <p class="muted" id="pam-cert-hint"></p>
+          <pre id="pam-cert-text" style="white-space:pre-wrap;word-break:break-all"></pre>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Access log <span class="muted">· hash-chained · <span id="pam-chain">—</span></span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Grant</th><th>Detail</th></tr></thead>
+            <tbody id="pam-events-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section data-pane="settings" class="pane" role="tabpanel" aria-label="Settings">
       <div class="card">
         <h2>Thresholds</h2>
@@ -745,7 +887,12 @@
           <label class="full">Connect template (Guacamole or custom)
             <input id="s-guac-tpl" placeholder="https://guac.example.com/#/client/?host={host}&amp;protocol={proto}&amp;port={port}"/>
           </label>
+          <label>Guacamole API user <span class="muted">(brokered access)</span><input id="s-guac-api-user" placeholder="account that may manage connections"/></label>
+          <label>Guacamole API password<input id="s-guac-api-pass" type="password" autocomplete="off" placeholder="leave blank to keep"/></label>
+          <label>recording path (in guacd)<input id="s-guac-rec" placeholder="/var/lib/guacamole/recordings"/></label>
+          <label>typescript path (ssh)<input id="s-guac-ts" placeholder="/var/lib/guacamole/typescripts"/></label>
         </div>
+        <p class="muted">With API credentials set, an ssh/rdp access grant creates a per-grant Guacamole connection (template = the resource's broker ref) with recording on, and deletes it - killing the live session - when the grant ends.</p>
       </div>
       <div class="card">
         <h2>IPFIX flow export</h2>
@@ -763,6 +910,41 @@
         <div class="row"><button data-action="baseline-reset" class="btn btn-warn">Reset learned baselines</button></div>
       </div>
       <div class="row"><button data-action="settings-save" class="btn btn-go">Save settings</button></div>
+
+      <div class="card" id="account-card">
+        <h2>My account <span class="muted">· <span id="me-summary">—</span></span></h2>
+        <div class="form-grid">
+          <label>current password<input id="me-cur" type="password" autocomplete="current-password"/></label>
+          <label>new password<input id="me-new" type="password" autocomplete="new-password" placeholder="min 8 characters"/></label>
+        </div>
+        <div class="row">
+          <button data-action="me-passwd" class="btn">Change password</button>
+          <button data-action="me-totp-enroll" class="btn" title="Enroll an authenticator app (TOTP). Asks for your password.">Enroll MFA</button>
+          <button data-action="me-totp-disable" class="btn btn-warn" title="Remove MFA from your account. Asks for your password.">Disable MFA</button>
+        </div>
+        <div id="totp-result" hidden>
+          <p class="muted">Scan this in your authenticator app <strong>now</strong> - it is shown once and never stored in a readable form again.</p>
+          <div id="totp-qr"></div>
+          <code id="totp-uri" style="word-break:break-all"></code>
+        </div>
+      </div>
+
+      <div class="card" id="users-card" data-admin-only hidden>
+        <h2>Users <span class="muted">· roles: viewer · approver · operator · admin</span></h2>
+        <div class="form-grid">
+          <label>name<input id="u-name" placeholder="letters, digits, . _ - @"/></label>
+          <label>password<input id="u-pass" type="password" autocomplete="new-password"/></label>
+          <label>role<select id="u-role"><option>viewer</option><option>approver</option><option>operator</option><option>admin</option></select></label>
+        </div>
+        <div class="row"><button data-action="user-add" class="btn btn-go">Add user</button></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Role</th><th>MFA</th><th>State</th><th>Updated</th><th></th></tr></thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+        <p class="muted">Admins manage users and settings, enable default-deny and import policies. Operators change network state. Approvers approve access requests. Viewers read. Demoting, disabling or deleting a user ends their sessions.</p>
+      </div>
     </section>
       </main>
     </div>
