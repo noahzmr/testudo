@@ -59,8 +59,11 @@
   }
 
   // ---- API helpers ----
+  // Every request times out: a hung connection must not wedge the refresh
+  // loop (it skips while a poll is in flight) and freeze the console.
+  const API_TIMEOUT_MS = 15000;
   async function api(path, method, body) {
-    const init = { method: method || 'GET' };
+    const init = { method: method || 'GET', signal: AbortSignal.timeout(API_TIMEOUT_MS) };
     if (body !== undefined) {
       init.headers = { 'Content-Type': 'application/json' };
       init.body = JSON.stringify(body);
@@ -740,6 +743,52 @@
     return mbps + ' Mbps';
   }
 
+  // ---- On-demand libraries ----
+  // index.html lists each library's vendored files as
+  // <meta name="lazy-script" data-lib="…" content="/static/…?v=hash">; they
+  // load in order the first time a view needs them, so the console's first
+  // paint does not wait for d3 or the QR encoder.
+  const libLoads = {};
+  function loadLib(name) {
+    if (libLoads[name]) return libLoads[name];
+    const urls = Array.from(document.querySelectorAll('meta[name="lazy-script"][data-lib="' + name + '"]'))
+      .map(m => m.content);
+    libLoads[name] = urls.reduce((chain, url) => chain.then(() => new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = url;
+      el.onload = resolve;
+      el.onerror = () => reject(new Error('failed to load ' + url));
+      document.head.appendChild(el);
+    })), Promise.resolve());
+    libLoads[name].catch(() => { delete libLoads[name]; }); // allow a retry
+    return libLoads[name];
+  }
+
+  // renderQR draws text as an SVG QR code (error correction M) into el.
+  // Used for TOTP enrolment URIs and WireGuard client configs; both contain
+  // secrets, so nothing is sent anywhere and no title/alt echoes the text.
+  function renderQR(el, text, size) {
+    if (!el) return;
+    el.innerHTML = '<span class="muted">rendering QR…</span>';
+    loadLib('qr').then(() => {
+      window.qrcode.stringToBytes = window.qrcode.stringToBytesFuncs['UTF-8'];
+      const q = window.qrcode(0, 'M');
+      q.addData(text, 'Byte');
+      q.make();
+      el.innerHTML = q.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+      const svg = el.querySelector('svg');
+      if (svg) {
+        svg.setAttribute('width', size);
+        svg.setAttribute('height', size);
+        svg.setAttribute('role', 'img');
+        svg.setAttribute('aria-label', 'QR code');
+        svg.classList.add('qr-svg');
+      }
+    }).catch(() => {
+      el.innerHTML = '<span class="muted">QR unavailable - import the text above instead.</span>';
+    });
+  }
+
   // ---- Sparklines (inline SVG) ----
   // sparkLines draws one or more series on a shared zero-based scale. With
   // opts.threshold the alert threshold is drawn as a dashed line and included
@@ -1350,6 +1399,9 @@
     if (!host) return;
     if (typeof d3 === 'undefined' || !d3.sankey) {
       host.innerHTML = '<div class="sankey-empty">loading sankey library…</div>';
+      loadLib('sankey').then(renderActive, () => {
+        host.innerHTML = '<div class="sankey-empty">the Sankey library could not be loaded</div>';
+      });
       return;
     }
     const metric = (document.getElementById('sankey-metric') || {}).value || 'bytes';
@@ -2189,13 +2241,7 @@
     if (!box) return;
     if (!uri) { box.hidden = true; return; }
     document.getElementById('totp-uri').textContent = uri;
-    const qr = document.getElementById('totp-qr');
-    qr.innerHTML = '';
-    if (window.QRCode && typeof window.QRCode.toCanvas === 'function') {
-      const c = document.createElement('canvas');
-      qr.appendChild(c);
-      window.QRCode.toCanvas(c, uri, { width: 200, errorCorrectionLevel: 'M' }, () => {});
-    }
+    renderQR(document.getElementById('totp-qr'), uri, 200);
     box.hidden = false;
     box.scrollIntoView({ block: 'nearest' });
   }
@@ -2593,17 +2639,9 @@
     document.getElementById('wg-config-text').textContent = config || '';
     const qr = document.getElementById('wg-qr');
     if (qr) {
-      // QR generation is a client-side concern (never server-side). If a QR
-      // encoder is available on the page, use it; otherwise fall back to the
-      // copyable config text above (which imports directly into any client).
-      if (window.QRCode && typeof window.QRCode.toCanvas === 'function') {
-        qr.innerHTML = '';
-        const c = document.createElement('canvas');
-        qr.appendChild(c);
-        window.QRCode.toCanvas(c, config, { width: 240, errorCorrectionLevel: 'M' }, () => {});
-      } else {
-        qr.innerHTML = '<span class="muted">QR: import the config text above into your WireGuard client, or paste it into a client-side QR generator.</span>';
-      }
+      // QR generation is a client-side concern (never server-side): the
+      // config with its private key never leaves this page.
+      renderQR(qr, config || '', 240);
     }
     modal.hidden = false;
   }
@@ -3108,7 +3146,12 @@
       // Pulse the topbar live indicator on every successful poll so the
       // operator can see the snapshot loop is actually breathing.
       const dot = document.getElementById('live-dot');
-      if (dot) { dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
+      if (dot) {
+        dot.classList.remove('pulse', 'stale');
+        dot.textContent = 'live';
+        void dot.offsetWidth;
+        dot.classList.add('pulse');
+      }
       // Always, whatever pane is open: the firewall policy renderer carries
       // the commit-confirm, and the one-shot form prefills must land once.
       lastFWPolicy = snap.firewall_policy || null;
@@ -3120,6 +3163,9 @@
       if (isPaneActive('access') && (++pamTick % 5 === 0)) loadAccess();
     } catch (e) {
       console.error('refresh failed', e);
+      // Say so instead of silently showing the last snapshot as if live.
+      const dot = document.getElementById('live-dot');
+      if (dot) { dot.classList.add('stale'); dot.textContent = 'offline'; }
     } finally {
       refreshing = false;
     }

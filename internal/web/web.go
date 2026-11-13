@@ -7,9 +7,11 @@ package web
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +46,8 @@ type Server struct {
 
 	loginTmpl *template.Template
 	mux       *http.ServeMux
+	static    *staticSet
+	index     *staticAsset // index.html with versioned asset URLs
 
 	mu       sync.RWMutex
 	sessions map[string]*sessionRecord
@@ -106,13 +110,29 @@ func (s *Server) buildMux() error {
 	if err != nil {
 		return fmt.Errorf("sub assets: %w", err)
 	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	s.static, err = newStaticSet(staticFS)
+	if err != nil {
+		return fmt.Errorf("prepare assets: %w", err)
+	}
+	mux.Handle("/static/", http.StripPrefix("/static", s.static))
+
+	// The two pages reference assets by content hash (see staticSet).
+	indexBytes, err := assetsFS.ReadFile("assets/index.html")
+	if err != nil {
+		return fmt.Errorf("read index.html: %w", err)
+	}
+	s.index = &staticAsset{body: s.static.Version(indexBytes), ctype: "text/html; charset=utf-8"}
+	sum := sha256.Sum256(s.index.body)
+	s.index.hash = hex.EncodeToString(sum[:])[:12]
+	if s.index.gz, err = gzipBytes(s.index.body); err != nil {
+		return fmt.Errorf("gzip index.html: %w", err)
+	}
 
 	loginBytes, err := assetsFS.ReadFile("assets/login.html")
 	if err != nil {
 		return fmt.Errorf("read login.html: %w", err)
 	}
-	t, err := template.New("login").Parse(string(loginBytes))
+	t, err := template.New("login").Parse(string(s.static.Version(loginBytes)))
 	if err != nil {
 		return fmt.Errorf("parse login.html: %w", err)
 	}
@@ -241,7 +261,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 	srv := &http.Server{
 		Addr:              s.Addr,
-		Handler:           s.mux,
+		Handler:           s.withTransport(s.mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
 	}
@@ -492,13 +512,10 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	data, err := assetsFS.ReadFile("assets/index.html")
-	if err != nil {
-		http.Error(w, "internal", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	// private: the page sits behind the session cookie; no-cache: revalidate
+	// by ETag so a new build's asset hashes are picked up on the next load.
+	w.Header().Set("Cache-Control", "private, no-cache")
+	s.index.write(w, r)
 }
 
 // ---- snapshot ----

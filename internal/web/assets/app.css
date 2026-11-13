@@ -12,6 +12,16 @@
    freely, but never rename them.
    ========================================================================== */
 
+/* ---- Fonts ----------------------------------------------------------------
+   IBM Plex, self-hosted (latin subset, assets/fonts, SIL OFL 1.1): the console
+   works offline and never calls a third party. Mono 500 falls back to 400. */
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/static/fonts/ibm-plex-sans-400.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url("/static/fonts/ibm-plex-sans-500.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("/static/fonts/ibm-plex-sans-600.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url("/static/fonts/ibm-plex-sans-700.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("/static/fonts/ibm-plex-mono-600.woff2") format("woff2"); }
+
 /* ---- Design tokens --------------------------------------------------------
    One interactive colour, one meaning per colour:
      --brand   shell teal: brand mark, active nav, primary action, focus.
@@ -362,6 +372,10 @@ a { color: var(--accent-blue); }
   box-shadow: 0 0 0 0 rgba(63,185,80,0.6);
 }
 .live-dot.pulse::before { animation: pulse 0.6s ease-out; }
+.live-dot.stale { color: var(--accent-red); }
+.live-dot.stale::before { background: var(--accent-red); }
+/* QR codes keep a white quiet zone so phones can scan them on the dark UI. */
+.qr-svg { display: block; background: #fff; border-radius: var(--r-sm); }
 @keyframes pulse {
   0%   { box-shadow: 0 0 0 0 rgba(63,185,80,0.55); }
   100% { box-shadow: 0 0 0 7px rgba(63,185,80,0); }
