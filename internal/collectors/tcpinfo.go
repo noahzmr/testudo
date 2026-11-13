@@ -338,7 +338,7 @@ func (c *TCPInfoCollector) detectAnomalies(bus *events.Bus, s telemetry.Sample, 
 		return true
 	}
 
-	if rate >= thresh {
+	if rate >= thresh && rtxEvidence(dRetrans, dSegs) {
 		bus.Publish(events.Event{
 			Kind: events.KindAnomaly, Source: c.Name(), Time: now,
 			Payload: events.AnomalyPayload{
@@ -350,6 +350,21 @@ func (c *TCPInfoCollector) detectAnomalies(bus *events.Bus, s telemetry.Sample, 
 		c.cooldown[key] = now.Add(2 * time.Minute)
 	}
 	return false
+}
+
+// A per-interval RTX rate means little on a near-idle flow: one retransmit
+// out of five segments reads "20%" and was raised as a WARN for any chatty
+// keep-alive connection. A flow is judged only once the interval holds enough
+// segments for the rate to be evidence. (The PMTU black-hole check above has
+// its own shape test and is unaffected; the grade's congestion input is
+// byte-weighted, so small flows barely move it anyway.)
+const (
+	rtxMinSegs    = 30 // segments sent in the interval
+	rtxMinRetrans = 3  // retransmitted segments in the interval
+)
+
+func rtxEvidence(dRetrans, dSegs int64) bool {
+	return dRetrans >= rtxMinRetrans && dSegs >= rtxMinSegs
 }
 
 // reportConnectStall publishes an ERROR anomaly for a connection wedged in its
