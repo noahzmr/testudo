@@ -89,6 +89,7 @@ func (c *LANReachabilityCollector) Run(ctx context.Context, bus *events.Bus) err
 			go func(seqKey, target string, start time.Time) {
 				timer := time.NewTimer(c.Timeout)
 				defer timer.Stop()
+				defer pending.remove(seqKey)
 				select {
 				case <-ctx.Done():
 					return

@@ -114,6 +114,7 @@ func (c *TopTalkersCollector) Run(ctx context.Context, bus *events.Bus) error {
 			go func(seqKey, target string, start time.Time) {
 				timer := time.NewTimer(c.Timeout)
 				defer timer.Stop()
+				defer pending.remove(seqKey)
 				select {
 				case <-ctx.Done():
 					return

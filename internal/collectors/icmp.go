@@ -90,6 +90,7 @@ func (c *ICMPCollector) Run(ctx context.Context, bus *events.Bus) error {
 			go func(seqKey, target string, start time.Time) {
 				timer := time.NewTimer(c.Timeout)
 				defer timer.Stop()
+				defer pending.remove(seqKey)
 				select {
 				case <-ctx.Done():
 					return
@@ -179,24 +180,25 @@ func (p *pendingMap) add(key string) {
 	p.mu.Unlock()
 }
 
+// wait returns the reply channel for key. The entry stays in the map until
+// the prober calls remove, so a reply that is delivered before wait runs (a
+// fast LAN host can answer before the prober's goroutine is scheduled) is
+// still waiting in the channel's one-slot buffer. An unknown key returns a
+// nil channel, which never fires: the prober's timeout then reports loss
+// instead of receiving a zero time.Time and recording reply.Sub(start) as a
+// saturated, hugely negative RTT.
 func (p *pendingMap) wait(key string) <-chan time.Time {
 	p.mu.Lock()
-	ch, ok := p.m[key]
+	ch := p.m[key]
 	p.mu.Unlock()
-	if !ok {
-		c := make(chan time.Time)
-		close(c)
-		return c
-	}
 	return ch
 }
 
+// deliver hands ts to the prober waiting on key. Duplicate replies find the
+// buffer full and are dropped.
 func (p *pendingMap) deliver(key string, ts time.Time) {
 	p.mu.Lock()
 	ch, ok := p.m[key]
-	if ok {
-		delete(p.m, key)
-	}
 	p.mu.Unlock()
 	if ok {
 		select {
@@ -206,6 +208,8 @@ func (p *pendingMap) deliver(key string, ts time.Time) {
 	}
 }
 
+// remove forgets key; every prober calls it once it has a reply, timed out,
+// or failed to send.
 func (p *pendingMap) remove(key string) {
 	p.mu.Lock()
 	delete(p.m, key)

@@ -194,6 +194,7 @@ func (c *BufferbloatCollector) pingFor(ctx context.Context, dur time.Duration) [
 		}
 		select {
 		case reply := <-pending.wait(seqKey):
+			pending.remove(seqKey)
 			samples = append(samples, reply.Sub(start))
 		case <-time.After(c.Timeout):
 			pending.remove(seqKey)
