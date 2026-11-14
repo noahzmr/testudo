@@ -4,21 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/fwbridge"
+	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/storage"
 )
 
 // confCore is the configuration model's runtime: the versioned store and the
-// transactional apply engine. No stage is registered yet; the packet filter,
-// routing, VPN and proxy stages are added as those subsystems move onto the
-// model. Until then the model is stored, versioned and audited but does not
-// change the running system.
+// transactional apply engine. The packet filter is driven by the model
+// through internal/fwbridge; routing, VPN and proxy stages are added as those
+// subsystems move onto the model.
 type confCore struct {
 	store  *confstore.Store
 	apply  *confapply.Engine
@@ -36,7 +39,14 @@ func (e *Engine) openConfig() {
 		log.Printf("config: model store unavailable: %v", c.err)
 		return
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice})
+	// The packet filter is the first subsystem the model drives. A typed nil
+	// must not reach the interface, hence the explicit check.
+	var fw fwbridge.Manager
+	if e.fw != nil {
+		fw = e.fw
+	}
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice},
+		&fwbridge.Stage{Manager: fw, Locate: localNode})
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
@@ -87,4 +97,21 @@ func (e *Engine) startConfig(ctx context.Context) {
 	if err := e.conf.apply.Start(ctx); err != nil {
 		log.Printf("config: start: %v", err)
 	}
+}
+
+// localNode finds this machine in the model by host name. Until a node is
+// defined, only objects with global scope apply here.
+func localNode(st *confstore.State) (siteID, nodeID string) {
+	host, err := os.Hostname()
+	if err != nil {
+		return "", ""
+	}
+	host = strings.ToLower(host)
+	for _, e := range st.List(model.KindClusterNode) {
+		n := e.(*model.ClusterNode)
+		if strings.ToLower(n.Hostname) == host || strings.ToLower(n.Name) == host {
+			return n.Site.ID, n.ID
+		}
+	}
+	return "", ""
 }
