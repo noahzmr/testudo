@@ -34,7 +34,7 @@ or copied, so their terms do not extend to Testudo's source.
 | Module | License | For |
 | --- | --- | --- |
 | `github.com/coreos/go-oidc` | Apache-2.0 | OIDC discovery and token verification |
-| `github.com/msteinert/pam` | BSD-2-Clause | Linux-PAM binding (needs cgo; decision pending) |
+| `github.com/msteinert/pam` | BSD-2-Clause | Linux-PAM binding (needs cgo, which is accepted) |
 
 ## Direct Go dependencies today
 

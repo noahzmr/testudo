@@ -3,9 +3,10 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phase 0 complete. Phase 1 in progress: model, generation, store and
-apply engine are built and tested ([phase-1-config-core.md](phase-1-config-core.md));
-the HTTP API, the import of existing state and the UI renderer are open.**
+**Status: Phases 0 and 1 complete ([phase-1-config-core.md](phase-1-config-core.md)).
+The configuration model is stored, versioned, audited and editable through
+the API and the page, but no subsystem is driven by it yet: that starts with
+the packet filter in Phase 2.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -15,7 +16,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 
 | # | Area | Today | Effort | Risk |
 | --- | --- | --- | --- | --- |
-| 1 | Data model, generation, config core | about 50 % | 8–10 weeks | high |
+| 1 | Data model, generation, config core | done | - | - |
 | 2 | Stateful packet filter and NAT | about 40 % | 5–6 weeks | high |
 | 3 | Routing (FRR), multi-WAN, PBR | about 5 % | 6–8 weeks | medium |
 | 4 | WireGuard and identity-aware access | about 45 % | 5–6 weeks | medium |
@@ -70,23 +71,23 @@ product built around the first; it is not an increment.
 
 | Target | State |
 | --- | --- |
-| `internal/model` structs with json/yaml/validate/ui/secret tags | done: 22 kinds, tag lint test |
-| Generated OpenAPI and UI schema, staleness test | done |
-| Generated UI forms rendered in the browser | open |
+| `internal/model` structs with json/yaml/validate/ui/secret tags | done: 25 kinds, tag lint test |
+| Generated OpenAPI and UI schema, staleness test, route coverage test | done |
+| UI forms generated from the schema, inline creation of references | done |
 | `Meta` with UUID, version, scope, overrides, effective value with origin | done |
 | Typed references, reference index, delete protection | done |
 | Version tied to the log index | done (local log; Raft in Phase 7) |
-| Optimistic concurrency with field-level diff | done in the store; HTTP `If-Match` open |
-| Change sets, combined preview, one transaction | done in the store; API open |
-| Live updates | events in the store; SSE endpoint open |
-| Audit with before/after per object and per apply | done in the log; not yet joined with the existing audit table |
-| Transactional apply with dry run, health check, timed rollback, crash recovery | done, with no real stages yet |
-| Golden files for renderers | open (first renderer in Phase 2) |
-| History, diff, revert | done; import/export and migrations open |
-| Existing subsystems moved onto the model | open |
+| Optimistic concurrency, `If-Match`, 409 with field diff | done |
+| Change sets, combined review, one transaction | done |
+| Live updates with the author's identity | done (server-sent events) |
+| Audit with before/after per object and per apply | done |
+| Transactional apply with dry run, health check, timed rollback, crash recovery | done; no real stage yet |
+| History, diff, revert, export, import, migrations, compaction | done |
+| Golden files for renderers | helper done; first renderer in Phase 2 |
+| Existing subsystems moved onto the model | open by design: one per phase, starting with Phase 2 |
 
-Risk is high because every later phase stands on this one and because it
-replaces the on-disk formats operators already have.
+The remaining risk sits in the switch-overs: each replaces an on-disk format
+operators already have.
 
 ## 2. Stateful packet filter (nftables)
 

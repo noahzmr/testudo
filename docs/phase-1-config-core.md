@@ -1,6 +1,6 @@
 # Phase 1: data model and configuration core
 
-Design note. Status at the end tells what is built and what is still open.
+Design note for Phase 1. The status at the end says what later phases still owe.
 
 ## Packages
 
@@ -11,9 +11,14 @@ Design note. Status at the end tells what is built and what is still open.
 | `internal/model/gen` | The `go generate` entry point |
 | `internal/confstore` | Versioned store: log, optimistic concurrency, reference index, cross-object checks, change sets, history, events |
 | `internal/confapply` | Transactional apply: render, dry run, commit, apply, health check, confirm or roll back |
+| `internal/confapi` | HTTP API with per-kind permissions, change sets, history, event stream |
+| `internal/confimport` | One-way translation of the pre-model state into model objects |
+| `internal/testutil/golden` | Golden-file helper for renderer tests |
 
-None of this is wired into the running daemon yet. The existing firewall,
-WireGuard and user stores keep working unchanged, and so does flow analysis.
+The engine runs the store and the apply engine and the web server exposes
+them, but no apply stage is registered yet: the existing firewall, WireGuard
+and user stores keep driving the running system unchanged, and so does flow
+analysis.
 
 ## Model
 
@@ -105,21 +110,100 @@ packet filter on an unconfirmed ruleset.
 * OIDC is an external provider; Keycloak is used for tests.
 * Rollback window: 60 seconds.
 
+## HTTP API
+
+`internal/confapi` serves everything below `/api/v1/`. The generated
+OpenAPI document (`/api/v1/schema/openapi.json`) is the reference; a test
+fails when it and the registered routes disagree.
+
+| Situation | Answer |
+| --- | --- |
+| Update or delete without `If-Match` | 428 |
+| Stale `If-Match` | 409 `conflict` with the field diff and the current object |
+| Delete of a referenced object | 409 `in_use` with the list of users |
+| Invalid object | 422 `invalid` with one entry per JSON field path |
+| Cross-object problem | 422 `inconsistent` |
+| A stage refuses in its dry run | 422 `stage_failed`; nothing was changed |
+| A stage fails while applying | 502 `stage_failed` with `rolled_back` |
+| Another change awaits confirmation | 423 `pending` |
+
+A write without `?changeset=` is applied at once and answers with
+`Testudo-Pending` and `Testudo-Confirm-By`; it stays until confirmed or
+comes back by itself. A write with `?changeset=<id>` is recorded in that
+change set and answered with 202.
+
+**Permissions** are `<area>:read|write`, where the area is the first menu
+segment of a kind (`firewall`, `routing`, `vpn`, `loadbalancer`,
+`interfaces`, `access`, `system`, `cluster`). They are checked per object
+kind on every request, for every op inside a change set, and before an
+object is named on the event stream. Until Phase 6 the four existing roles
+are mapped onto them: admin `*:write`; operator read everything and write
+the network areas; approver read everything and write `access`; viewer read
+everything.
+
+**Live updates** are server-sent events at `/api/v1/events`: `change` per
+committed record (kind, id, name, actor; no content) and `apply` per apply
+outcome.
+
+## Page
+
+`/config` is built from `ui.json` at run time: menus, tables, forms and
+pickers, with no per-entity code and no build step (plain JavaScript, same
+as the existing pages). A reference picker has a "+ new" button that
+creates the target through the target's own endpoint and selects it. A
+conflict shows the differing fields with "discard mine" and "save mine over
+it". A blocked delete lists its users with links. After an immediate apply
+the page confirms on its own after five seconds, because reaching the
+server again is the proof that management access survived; the operator
+can roll back in that time.
+
+## Operations
+
+* The engine opens the store under `<storage>/config` and settles an
+  unconfirmed change from a previous run at start. Apply outcomes are also
+  written to the existing audit log (`config_applied`, `config_confirmed`,
+  `config_rolled_back`, `config_rollback_failed`).
+* One process writes the log (exclusive lock). `testudo config status` and
+  `export` read next to a running daemon; `history`, `compact` and
+  `import-legacy --apply` need it stopped.
+* Records carry the schema version they were written with. A migration per
+  version step is applied on replay; a store written by a newer build is
+  refused. `schema/released.json` freezes the wire format of a released
+  version: copy `fingerprints.json` into it when a release is cut.
+* `testudo config compact --keep N` folds older records into
+  `config.snapshot`; history and revert then reach the remaining N records.
+
+## Import of the existing state
+
+`testudo config import-legacy` translates `firewall.json`, the user list and
+live WireGuard devices into model objects and prints what it would create
+and what it cannot carry over. `--apply` writes it into an empty model.
+
+It is not run automatically. The existing firewall, WireGuard and user
+stores remain the source of truth for the running system until their phase
+moves them onto the model; importing earlier would produce a copy that
+drifts. Each subsystem's switch-over runs the import for its part.
+
+Not carried over, by design or because the model has no equivalent yet:
+password hashes and second factors (the model holds no credentials),
+private keys, log-only rules, rules that match traffic *over* a rate, owner
+tags on NAT rules, and `settings.json` (node-local thresholds and
+integration credentials stay where they are).
+
 ## Status
 
-Built and tested: model, generation, store, apply engine.
+Phase 1 is complete: model, generation, store, apply engine, HTTP API,
+page, import, migrations, compaction, export and import.
 
-Still open in Phase 1:
+Carried into later phases:
 
-* HTTP API over the store and engine: CRUD with `ETag` / `If-Match`, 409
-  with the diff, change-set endpoints, an SSE stream, object-level RBAC.
-* Wiring the engine into the daemon and a one-way import of
-  `firewall.json`, `users.json`, `settings.json` and the WireGuard metadata.
-* The schema-driven UI renderer, including inline creation of referenced
-  objects.
-* Schema fingerprints and migrations; log compaction and snapshots;
-  configuration export and import.
-* A golden-file helper for stage renderers (the first real renderer arrives
-  with Phase 2).
-* Model entities for the existing privileged-access objects (resources,
-  policies, grants).
+* No apply stage exists yet, so the model is stored, versioned and audited
+  but does not change the running system. Phase 2 adds the nftables stage
+  and with it the first golden files (the helper is in
+  `internal/testutil/golden`).
+* The node-local secret store that `key_ref` fields point to (Phase 4 for
+  WireGuard keys, Phase 5 for certificates).
+* Authentication is still the existing user store; roles from the model
+  take over in Phase 6.
+* The page was verified in a browser by hand-driven scripts, not by an
+  automated browser test in the suite.
