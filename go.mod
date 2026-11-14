@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/endobit/oui v0.7.0
 	github.com/getsentry/sentry-go v0.46.2
+	github.com/go-playground/validator/v10 v10.27.0
 	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.3.0
 	github.com/mdlayher/netlink v1.8.0
@@ -29,9 +30,13 @@ require (
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
+	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
+	github.com/go-playground/locales v0.14.1 // indirect
+	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
