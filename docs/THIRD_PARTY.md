@@ -33,7 +33,6 @@ or copied, so their terms do not extend to Testudo's source.
 
 | Module | License | For |
 | --- | --- | --- |
-| `github.com/go-playground/validator` | MIT | struct-tag validation ([ADR 0003](adr/0003-generation-from-struct-tags.md)) |
 | `github.com/coreos/go-oidc` | Apache-2.0 | OIDC discovery and token verification |
 | `github.com/msteinert/pam` | BSD-2-Clause | Linux-PAM binding (needs cgo; decision pending) |
 
@@ -46,8 +45,10 @@ or copied, so their terms do not extend to Testudo's source.
 | `github.com/charmbracelet/x/ansi` | v0.10.1 | MIT |
 | `github.com/endobit/oui` | v0.7.0 | Apache-2.0 |
 | `github.com/getsentry/sentry-go` | v0.46.2 | MIT |
+| `github.com/go-playground/validator/v10` | v10.27.0 | MIT |
 | `github.com/google/gopacket` | v1.1.19 | BSD-3-Clause |
 | `github.com/google/nftables` | v0.3.0 | Apache-2.0 |
+| `github.com/google/uuid` | v1.6.0 | BSD-3-Clause |
 | `github.com/mdlayher/netlink` | v1.8.0 | MIT |
 | `github.com/mdlayher/wifi` | v0.7.2 | MIT |
 | `github.com/oschwald/geoip2-golang` | v1.13.0 | ISC |

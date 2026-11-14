@@ -3,7 +3,9 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phase 0 complete, nothing in the target areas has been changed yet.**
+**Status: Phase 0 complete. Phase 1 in progress: model, generation, store and
+apply engine are built and tested ([phase-1-config-core.md](phase-1-config-core.md));
+the HTTP API, the import of existing state and the UI renderer are open.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -13,7 +15,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 
 | # | Area | Today | Effort | Risk |
 | --- | --- | --- | --- | --- |
-| 1 | Data model, generation, config core | not started | 8–10 weeks | high |
+| 1 | Data model, generation, config core | about 50 % | 8–10 weeks | high |
 | 2 | Stateful packet filter and NAT | about 40 % | 5–6 weeks | high |
 | 3 | Routing (FRR), multi-WAN, PBR | about 5 % | 6–8 weeks | medium |
 | 4 | WireGuard and identity-aware access | about 45 % | 5–6 weeks | medium |
@@ -66,16 +68,22 @@ product built around the first; it is not an increment.
 
 ## 1. Go core, data model and configuration
 
-| Target | Today | Gap |
-| --- | --- | --- |
-| `internal/model` structs with json/yaml/validate/ui/secret tags | `json` tags only, structs spread over packages | all of it |
-| Generated UI forms, OpenAPI, validation | none | generator, schema renderer, staleness test |
-| `Meta` with UUID, version, scope, overrides | content hashes and ad-hoc IDs | all of it |
-| Typed references, reference index, delete protection | references by string (interface name, public key) | all of it |
-| Optimistic concurrency, change sets, live updates | last write wins, polling | all of it |
-| Transactional apply with dry run, health check, timed rollback | atomic nftables apply; commit-confirm for one operation; no health check | generalise, add stages |
-| Golden files for renderers | none | all of it |
-| Config history, diff, revert, migrations | export/import of one JSON file; no schema version | all of it |
+| Target | State |
+| --- | --- |
+| `internal/model` structs with json/yaml/validate/ui/secret tags | done: 22 kinds, tag lint test |
+| Generated OpenAPI and UI schema, staleness test | done |
+| Generated UI forms rendered in the browser | open |
+| `Meta` with UUID, version, scope, overrides, effective value with origin | done |
+| Typed references, reference index, delete protection | done |
+| Version tied to the log index | done (local log; Raft in Phase 7) |
+| Optimistic concurrency with field-level diff | done in the store; HTTP `If-Match` open |
+| Change sets, combined preview, one transaction | done in the store; API open |
+| Live updates | events in the store; SSE endpoint open |
+| Audit with before/after per object and per apply | done in the log; not yet joined with the existing audit table |
+| Transactional apply with dry run, health check, timed rollback, crash recovery | done, with no real stages yet |
+| Golden files for renderers | open (first renderer in Phase 2) |
+| History, diff, revert | done; import/export and migrations open |
+| Existing subsystems moved onto the model | open |
 
 Risk is high because every later phase stands on this one and because it
 replaces the on-disk formats operators already have.
@@ -188,14 +196,14 @@ backup/restore, upgrade migrations, keepalived and conntrackd integration, CI.
   topology, exact packet, byte and direction assertions on both interfaces).
 * `scripts/flow-baseline.sh` and the commit hooks in `scripts/hooks/`.
 
-## Open questions that block Phase 1
+## Answers received (2026-11-14)
 
-1. Target OS and whether the UI stays build-step-free (see
-   [ADR 0003](adr/0003-generation-from-struct-tags.md)).
-2. Migration of the existing on-disk formats (`firewall.json`, `users.json`,
-   `settings.json`, netplan-held WireGuard state): one-way import on first
-   start of the new core is proposed.
-3. Whether the "pure Go, no cgo, no shell-out" rule may be relaxed as
-   described above.
-4. OIDC test provider and planned sites.
-5. Rollback window for unconfirmed changes (60 s proposed, matching the CLI).
+1. React is acceptable for the UI.
+2. The "pure Go, no cgo, no shell-out" rule is relaxed for managed daemons,
+   dry runs and host PAM.
+3. Existing on-disk formats are imported one way.
+4. OIDC is external; Keycloak for tests.
+5. Rollback window: 60 seconds.
+
+Still unanswered: the target OS (Debian 12 assumed) and the number and names
+of the planned sites (three assumed).

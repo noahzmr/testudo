@@ -1,6 +1,6 @@
 # ADR 0003: Generating OpenAPI, UI forms and validation from the model
 
-Status: proposed (Phase 0). The UI part needs an explicit answer before Phase 1.
+Status: accepted. Generation is implemented; the renderer is not built yet.
 
 ## Context
 
@@ -17,8 +17,8 @@ UI is hand-written vanilla JavaScript with no build step.
 1. **One generator, driven by reflection.** `internal/model/gen` is a small
    Go program run by `go generate ./internal/model`. It imports the model
    package, walks a registry of entity types with `reflect`, and writes:
-   * `internal/web/assets/schema/openapi.json` (OpenAPI 3.1), and
-   * `internal/web/assets/schema/ui.json` (per entity: fields, labels, menus,
+   * `internal/model/schema/openapi.json` (OpenAPI 3.1), and
+   * `internal/model/schema/ui.json` (per entity: fields, labels, menus,
      widgets, reference targets, groups, order, help, secret flags).
 
    Reflection is preferred over parsing source because it sees exactly what
@@ -64,6 +64,9 @@ The renderer can be built two ways:
 
 The generated `ui.json` contract is the same for both, so the choice can be
 revisited without touching the model.
+
+Answer (2026-11-14): React is acceptable. The choice between A and B is made
+when the renderer is built; the existing pages stay as they are meanwhile.
 
 ## Consequences
 
