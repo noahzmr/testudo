@@ -1,0 +1,376 @@
+package confstore
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/noahzmr/testudo/internal/model"
+)
+
+// Event tells subscribers that the model changed. It carries no secrets.
+type Event struct {
+	Index   int64    `json:"index"`
+	Time    string   `json:"time"`
+	Actor   string   `json:"actor"`
+	Type    string   `json:"type"`
+	Changes []Change `json:"changes,omitempty"` // Before/After stripped
+	// Resync is set when earlier events were dropped because the subscriber
+	// was slow; it should reload instead of patching its view.
+	Resync bool `json:"resync,omitempty"`
+}
+
+// Store is the node-local implementation: an append-only JSON-lines log
+// (mode 0600, fsynced per record) that is replayed on open.
+type Store struct {
+	mu    sync.Mutex // serialises writers
+	state atomic.Pointer[State]
+	log   *os.File
+	path  string
+	now   func() time.Time
+
+	subMu sync.Mutex
+	subs  map[*subscriber]struct{}
+}
+
+type subscriber struct {
+	ch      chan Event
+	dropped bool
+}
+
+// Open replays the log in dir (created with mode 0700 when missing).
+func Open(dir string) (*Store, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	s := &Store{path: filepath.Join(dir, "config.log"), now: time.Now, subs: map[*subscriber]struct{}{}}
+	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	st := newState()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	var good int64
+	for sc.Scan() {
+		var r Record
+		if err := json.Unmarshal(sc.Bytes(), &r); err != nil || r.Index != st.index+1 {
+			// A torn final line after a crash is expected and dropped;
+			// anything else in the middle of the log is corruption.
+			rest := sc.Scan()
+			if rest || err == nil {
+				f.Close()
+				return nil, fmt.Errorf("confstore: %s is corrupt after record %d", s.path, st.index)
+			}
+			break
+		}
+		if st, err = st.apply(r); err != nil {
+			f.Close()
+			return nil, err
+		}
+		good += int64(len(sc.Bytes())) + 1
+	}
+	if err := sc.Err(); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if err := f.Truncate(good); err != nil {
+		f.Close()
+		return nil, err
+	}
+	s.log = f
+	s.state.Store(st)
+	return s, nil
+}
+
+// Close releases the log file.
+func (s *Store) Close() error { return s.log.Close() }
+
+// Current returns the current immutable state.
+func (s *Store) Current() *State { return s.state.Load() }
+
+// Preview validates ops against the current state and returns the state they
+// would produce and the resulting changes, without committing anything. The
+// apply pipeline renders and dry-runs from this candidate.
+func (s *Store) Preview(actor string, ops []Op) (*State, []Change, error) {
+	cur := s.Current()
+	return cur.prepare(cur.index+1, actor, s.now().UTC(), fillIDs(ops))
+}
+
+// Commit applies ops as one transaction. removeChangeSets are deleted in the
+// same record, which is how applying change sets consumes them.
+func (s *Store) Commit(ctx context.Context, actor, note string, ops []Op, removeChangeSets ...string) (Record, error) {
+	return s.commit(ctx, Record{Actor: actor, Type: "commit", Note: note, DeleteChangeSets: removeChangeSets}, ops, 0)
+}
+
+// commit is the only writer. csVersion is the change-set version an edit of
+// r.PutChangeSet is based on.
+func (s *Store) commit(ctx context.Context, r Record, ops []Op, csVersion int64) (Record, error) {
+	if err := ctx.Err(); err != nil {
+		return Record{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur := s.Current()
+	r.Index, r.Time = cur.index+1, s.now().UTC()
+	if cs := r.PutChangeSet; cs != nil {
+		if old, ok := cur.changesets[cs.ID]; ok {
+			if old.Version != csVersion {
+				return Record{}, &ConflictError{Kind: "changeset", ID: cs.ID, YourVersion: csVersion,
+					CurrentVersion: old.Version, CurrentBy: old.Owner}
+			}
+			cs.Owner = old.Owner
+		} else {
+			cs.Owner = r.Actor
+		}
+		cs.Version, cs.UpdatedAt = r.Index, r.Time
+	}
+	_, changes, err := cur.prepare(r.Index, r.Actor, r.Time, fillIDs(ops))
+	if err != nil {
+		return Record{}, err
+	}
+	r.Changes = changes
+	next, err := cur.apply(r)
+	if err != nil {
+		return Record{}, err
+	}
+	line, err := json.Marshal(r)
+	if err != nil {
+		return Record{}, err
+	}
+	if _, err := s.log.Write(append(line, '\n')); err != nil {
+		return Record{}, fmt.Errorf("confstore: append: %w", err)
+	}
+	if err := s.log.Sync(); err != nil {
+		return Record{}, fmt.Errorf("confstore: sync: %w", err)
+	}
+	s.state.Store(next)
+	s.publish(r)
+	return r, nil
+}
+
+// fillIDs gives creates without an id a fresh one, outside the deterministic
+// state machine.
+func fillIDs(ops []Op) []Op {
+	out := make([]Op, len(ops))
+	copy(out, ops)
+	for i, op := range out {
+		if op.Type == OpCreate && op.ID == "" {
+			var probe struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(op.Object, &probe)
+			if probe.ID == "" {
+				out[i].ID = NewID()
+			} else {
+				out[i].ID = probe.ID
+			}
+		}
+	}
+	return out
+}
+
+// Revert undoes the record at index with a new record. It only succeeds when
+// nothing has touched the affected objects since.
+func (s *Store) Revert(ctx context.Context, actor string, index int64, note string) (Record, error) {
+	target, err := s.RecordAt(index)
+	if err != nil {
+		return Record{}, err
+	}
+	var ops []Op
+	for i := len(target.Changes) - 1; i >= 0; i-- {
+		c := target.Changes[i]
+		switch c.Type {
+		case OpCreate:
+			ops = append(ops, Op{Type: OpDelete, Kind: c.Kind, ID: c.ID, IfMatch: index})
+		case OpUpdate:
+			ops = append(ops, Op{Type: OpUpdate, Kind: c.Kind, ID: c.ID, Object: c.Before, IfMatch: index})
+		case OpDelete:
+			ops = append(ops, Op{Type: OpCreate, Kind: c.Kind, ID: c.ID, Object: c.Before})
+		}
+	}
+	return s.commit(ctx, Record{Actor: actor, Type: "revert", Note: note, Reverts: index}, ops, 0)
+}
+
+// PutChangeSet creates or replaces a change set. version is the change set
+// version the edit is based on (0 to create).
+func (s *Store) PutChangeSet(ctx context.Context, actor string, cs ChangeSet, version int64) (ChangeSet, error) {
+	if cs.ID == "" {
+		cs.ID = NewID()
+	}
+	cs.Ops = fillIDs(cs.Ops)
+	if _, err := s.commit(ctx, Record{Actor: actor, Type: "changeset", PutChangeSet: &cs}, nil, version); err != nil {
+		return ChangeSet{}, err
+	}
+	return cs, nil
+}
+
+// DeleteChangeSet discards a change set.
+func (s *Store) DeleteChangeSet(ctx context.Context, actor, id string) error {
+	if _, ok := s.Current().ChangeSet(id); !ok {
+		return ErrNotFound
+	}
+	_, err := s.commit(ctx, Record{Actor: actor, Type: "changeset", DeleteChangeSets: []string{id}}, nil, 0)
+	return err
+}
+
+// Combine returns the ops of several change sets in order, ready for Preview
+// (the combined diff) or Commit (applying them as one transaction).
+func (s *Store) Combine(ids ...string) ([]Op, error) {
+	st := s.Current()
+	var ops []Op
+	for _, id := range ids {
+		cs, ok := st.ChangeSet(id)
+		if !ok {
+			return nil, fmt.Errorf("%w: change set %s", ErrNotFound, id)
+		}
+		ops = append(ops, cs.Ops...)
+	}
+	return ops, nil
+}
+
+// History returns up to limit records, newest first, starting below before
+// (0 means from the end). Secrets are still present; mask before output.
+func (s *Store) History(before int64, limit int) ([]Record, error) {
+	var out []Record
+	err := s.scan(func(r Record) bool {
+		if before == 0 || r.Index < before {
+			out = append(out, r)
+		}
+		return true
+	})
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, err
+}
+
+// RecordAt returns one record of the log.
+func (s *Store) RecordAt(index int64) (Record, error) {
+	var found *Record
+	err := s.scan(func(r Record) bool {
+		if r.Index == index {
+			found = &r
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		return Record{}, err
+	}
+	if found == nil {
+		return Record{}, fmt.Errorf("%w: record %d", ErrNotFound, index)
+	}
+	return *found, nil
+}
+
+func (s *Store) scan(fn func(Record) bool) error {
+	f, err := os.Open(s.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	last := s.Current().index
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	for sc.Scan() {
+		var r Record
+		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
+			return err
+		}
+		if r.Index > last || !fn(r) {
+			break
+		}
+	}
+	return sc.Err()
+}
+
+// Subscribe delivers an Event for every committed record until cancel is
+// called. A subscriber that falls more than buf events behind loses events
+// and gets Resync on the next one it receives.
+func (s *Store) Subscribe(buf int) (<-chan Event, func()) {
+	sub := &subscriber{ch: make(chan Event, buf)}
+	s.subMu.Lock()
+	s.subs[sub] = struct{}{}
+	s.subMu.Unlock()
+	var once sync.Once
+	return sub.ch, func() {
+		once.Do(func() {
+			s.subMu.Lock()
+			delete(s.subs, sub)
+			s.subMu.Unlock()
+		})
+	}
+}
+
+func (s *Store) publish(r Record) {
+	ev := Event{Index: r.Index, Time: r.Time.Format(time.RFC3339Nano), Actor: r.Actor, Type: r.Type}
+	for _, c := range r.Changes {
+		ev.Changes = append(ev.Changes, Change{Type: c.Type, Kind: c.Kind, ID: c.ID, Name: c.Name})
+	}
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	for sub := range s.subs {
+		e := ev
+		e.Resync = sub.dropped
+		select {
+		case sub.ch <- e:
+			sub.dropped = false
+		default:
+			sub.dropped = true
+		}
+	}
+}
+
+// Create, Update and Delete are single-op conveniences over Commit.
+
+func (s *Store) Create(ctx context.Context, actor string, e model.Entity) (model.Entity, error) {
+	if e.GetMeta().ID == "" {
+		e.GetMeta().ID = NewID()
+	}
+	_, err := s.Commit(ctx, actor, "", []Op{{Type: OpCreate, Kind: e.Kind(), ID: e.GetMeta().ID, Object: mustJSON(e)}})
+	if err != nil {
+		return nil, err
+	}
+	out, _ := s.Current().Get(e.Kind(), e.GetMeta().ID)
+	return out, nil
+}
+
+func (s *Store) Update(ctx context.Context, actor string, e model.Entity, ifMatch int64) (model.Entity, error) {
+	_, err := s.Commit(ctx, actor, "", []Op{{Type: OpUpdate, Kind: e.Kind(), ID: e.GetMeta().ID,
+		Object: mustJSON(e), IfMatch: ifMatch}})
+	if err != nil {
+		return nil, err
+	}
+	out, _ := s.Current().Get(e.Kind(), e.GetMeta().ID)
+	return out, nil
+}
+
+func (s *Store) Delete(ctx context.Context, actor string, kind model.Kind, id string, ifMatch int64) error {
+	_, err := s.Commit(ctx, actor, "", []Op{{Type: OpDelete, Kind: kind, ID: id, IfMatch: ifMatch}})
+	return err
+}
+
+// IsRejection reports whether err means the request was refused because of
+// its content (validation, conflict, integrity, reference), as opposed to an
+// internal failure.
+func IsRejection(err error) bool {
+	var (
+		v *model.ValidationError
+		c *ConflictError
+		r *ReferencedError
+		i *IntegrityError
+	)
+	return errors.As(err, &v) || errors.As(err, &c) || errors.As(err, &r) || errors.As(err, &i) ||
+		errors.Is(err, ErrIfMatchNeeded) || errors.Is(err, ErrNotFound)
+}
