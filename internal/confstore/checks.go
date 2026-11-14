@@ -112,6 +112,15 @@ func runChecks(s *State) []Problem {
 		listeners[key] = svc.Name
 	}
 
+	// There is one firewall policy per scope.
+	policies := map[model.Scope]string{}
+	for _, e := range sortedByName(s.objects[model.KindFirewallPolicy]) {
+		if other, dup := policies[e.GetMeta().Scope]; dup {
+			add(e, "scope", "firewall policy %q already covers this scope", other)
+		}
+		policies[e.GetMeta().Scope] = e.GetMeta().Name
+	}
+
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		return string(a.Kind)+a.Name+a.Field < string(b.Kind)+b.Name+b.Field

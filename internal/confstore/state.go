@@ -56,7 +56,9 @@ type Change struct {
 // Record is one committed transaction: the unit of the log, of history and
 // of the audit trail.
 type Record struct {
-	Index   int64     `json:"index"`
+	Index int64 `json:"index"`
+	// Schema is the model schema version the objects were written with.
+	Schema  int       `json:"schema,omitempty"`
 	Time    time.Time `json:"time"`
 	Actor   string    `json:"actor"`
 	Type    string    `json:"type"` // "commit", "revert", "changeset"
@@ -440,7 +442,11 @@ func (s *State) apply(r Record) (*State, error) {
 			delete(next.objects[c.Kind], c.ID)
 			continue
 		}
-		e, err := model.Decode(c.Kind, c.After)
+		after, err := migrate(r.Schema, c.Kind, c.After)
+		if err != nil {
+			return nil, fmt.Errorf("confstore: record %d: %w", r.Index, err)
+		}
+		e, err := model.Decode(c.Kind, after)
 		if err != nil {
 			return nil, fmt.Errorf("confstore: record %d: %w", r.Index, err)
 		}

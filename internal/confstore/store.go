@@ -33,6 +33,7 @@ type Store struct {
 	mu    sync.Mutex // serialises writers
 	state atomic.Pointer[State]
 	log   *os.File
+	dir   string
 	path  string
 	now   func() time.Time
 
@@ -50,18 +51,34 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	s := &Store{path: filepath.Join(dir, "config.log"), now: time.Now, subs: map[*subscriber]struct{}{}}
+	s := &Store{dir: dir, path: filepath.Join(dir, "config.log"), now: time.Now, subs: map[*subscriber]struct{}{}}
 	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	st := newState()
+	st, err := loadSnapshot(filepath.Join(dir, snapshotFile))
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
-	var good int64
+	var good, skipped int64
 	for sc.Scan() {
 		var r Record
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil || r.Index != st.index+1 {
+		err := json.Unmarshal(sc.Bytes(), &r)
+		if err == nil && r.Index <= st.index && good == 0 && r.Index > 0 {
+			// Already covered by the snapshot (compaction was interrupted
+			// between writing the snapshot and trimming the log).
+			skipped += int64(len(sc.Bytes())) + 1
+			continue
+		}
+		if err == nil && r.Schema > model.SchemaVersion {
+			f.Close()
+			return nil, fmt.Errorf("confstore: record %d was written by a newer version (schema %d, this build knows %d)",
+				r.Index, r.Schema, model.SchemaVersion)
+		}
+		if err != nil || r.Index != st.index+1 {
 			// A torn final line after a crash is expected and dropped;
 			// anything else in the middle of the log is corruption.
 			rest := sc.Scan()
@@ -81,7 +98,7 @@ func Open(dir string) (*Store, error) {
 		f.Close()
 		return nil, err
 	}
-	if err := f.Truncate(good); err != nil {
+	if err := f.Truncate(skipped + good); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -119,7 +136,7 @@ func (s *Store) commit(ctx context.Context, r Record, ops []Op, csVersion int64)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cur := s.Current()
-	r.Index, r.Time = cur.index+1, s.now().UTC()
+	r.Index, r.Time, r.Schema = cur.index+1, s.now().UTC(), model.SchemaVersion
 	if cs := r.PutChangeSet; cs != nil {
 		if old, ok := cur.changesets[cs.ID]; ok {
 			if old.Version != csVersion {
@@ -180,9 +197,20 @@ func fillIDs(ops []Op) []Op {
 // Revert undoes the record at index with a new record. It only succeeds when
 // nothing has touched the affected objects since.
 func (s *Store) Revert(ctx context.Context, actor string, index int64, note string) (Record, error) {
-	target, err := s.RecordAt(index)
+	ops, err := s.InverseOps(index)
 	if err != nil {
 		return Record{}, err
+	}
+	return s.commit(ctx, Record{Actor: actor, Type: "revert", Note: note, Reverts: index}, ops, 0)
+}
+
+// InverseOps returns the ops that undo the record at index. They carry the
+// record's index as their base version, so they only apply while nothing has
+// touched the affected objects since.
+func (s *Store) InverseOps(index int64) ([]Op, error) {
+	target, err := s.RecordAt(index)
+	if err != nil {
+		return nil, err
 	}
 	var ops []Op
 	for i := len(target.Changes) - 1; i >= 0; i-- {
@@ -196,7 +224,7 @@ func (s *Store) Revert(ctx context.Context, actor string, index int64, note stri
 			ops = append(ops, Op{Type: OpCreate, Kind: c.Kind, ID: c.ID, Object: c.Before})
 		}
 	}
-	return s.commit(ctx, Record{Actor: actor, Type: "revert", Note: note, Reverts: index}, ops, 0)
+	return ops, nil
 }
 
 // PutChangeSet creates or replaces a change set. version is the change set
