@@ -1,6 +1,9 @@
 table inet testudo
 delete table inet testudo
 table inet testudo {
+	set gen_b36546f62732b0ed {
+		type ifname
+	}
 	set z_lan_000000 {
 		type ifname
 		elements = { "lan0", "lan1" }
@@ -76,14 +79,38 @@ table inet testudo {
 		auto-merge
 		elements = { 2001:db8::10 }
 	}
+	ct timeout tcp_established_ipv4 {
+		protocol tcp
+		l3proto ip
+		policy = { established : 7200 }
+	}
+	ct timeout tcp_established_ipv6 {
+		protocol tcp
+		l3proto ip6
+		policy = { established : 7200 }
+	}
+	ct timeout udp_stream_ipv4 {
+		protocol udp
+		l3proto ip
+		policy = { replied : 90 }
+	}
+	ct timeout udp_stream_ipv6 {
+		protocol udp
+		l3proto ip6
+		policy = { replied : 90 }
+	}
 	chain input {
 		type filter hook input priority filter; policy drop;
+		meta nfproto ipv4 meta l4proto tcp ct timeout set "tcp_established_ipv4"
+		meta nfproto ipv6 meta l4proto tcp ct timeout set "tcp_established_ipv6"
+		meta nfproto ipv4 meta l4proto udp ct timeout set "udp_stream_ipv4"
+		meta nfproto ipv6 meta l4proto udp ct timeout set "udp_stream_ipv6"
 		ct state established,related accept
 		ct state invalid drop
 		iifname "lo" accept
 		iifname @z_wan_000000 fib saddr . iif oif missing counter drop
 		tcp flags & (fin | syn | rst | ack) == syn limit rate over 200/second burst 400 packets counter drop
-		meta l4proto { icmp, ipv6-icmp } accept
+		meta l4proto { icmp, icmpv6 } accept
 		tcp dport { 22, 443, 8080 } accept
 		udp dport { 51820 } accept
 		iifname @z_lan_000000 meta l4proto tcp th dport { 9090 } meta mark set 0x10 counter accept comment "00000000-0000-4000-8000-000000000054"
@@ -91,6 +118,10 @@ table inet testudo {
 	}
 	chain forward {
 		type filter hook forward priority filter; policy drop;
+		meta nfproto ipv4 meta l4proto tcp ct timeout set "tcp_established_ipv4"
+		meta nfproto ipv6 meta l4proto tcp ct timeout set "tcp_established_ipv6"
+		meta nfproto ipv4 meta l4proto udp ct timeout set "udp_stream_ipv4"
+		meta nfproto ipv6 meta l4proto udp ct timeout set "udp_stream_ipv6"
 		ct state established,related accept
 		ct state invalid drop
 		iifname @z_wan_000000 fib saddr . iif oif missing counter drop
@@ -106,6 +137,10 @@ table inet testudo {
 	}
 	chain output {
 		type filter hook output priority filter; policy accept;
+		meta nfproto ipv4 meta l4proto tcp ct timeout set "tcp_established_ipv4"
+		meta nfproto ipv6 meta l4proto tcp ct timeout set "tcp_established_ipv6"
+		meta nfproto ipv4 meta l4proto udp ct timeout set "udp_stream_ipv4"
+		meta nfproto ipv6 meta l4proto udp ct timeout set "udp_stream_ipv6"
 		oifname @z_wan_000000 meta l4proto tcp th dport { 25 } counter reject comment "00000000-0000-4000-8000-000000000055"
 	}
 	chain prerouting {

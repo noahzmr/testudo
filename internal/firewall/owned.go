@@ -32,6 +32,22 @@ func (m *Manager) ReplaceOwned(owner string, set OwnedSet, dryRun bool) error {
 	if m.revertTo != nil {
 		return ErrPendingConfirm
 	}
+	c, err := m.withOwnedLocked(owner, set)
+	if err != nil || dryRun {
+		return err
+	}
+	filterChanged := c.Enforce != m.pol.Enforce || !reflect.DeepEqual(c.Baseline, m.pol.Baseline) ||
+		!reflect.DeepEqual(c.Rules, m.pol.Rules)
+	natChanged := !reflect.DeepEqual(c.Forwards, m.pol.Forwards) || !reflect.DeepEqual(c.Masquerades, m.pol.Masquerades)
+	if !filterChanged && !natChanged {
+		return nil
+	}
+	return m.commitLocked(c, filterChanged, natChanged)
+}
+
+// withOwnedLocked returns the policy with owner's contribution replaced by
+// set, validated. Caller holds m.mu.
+func (m *Manager) withOwnedLocked(owner string, set OwnedSet) (Policy, error) {
 	c := m.pol.Clone()
 	rules := c.Rules[:0:0]
 	for _, r := range c.Rules {
@@ -70,19 +86,28 @@ func (m *Manager) ReplaceOwned(owner string, set OwnedSet, dryRun bool) error {
 	if set.Baseline != nil {
 		c.Baseline = *set.Baseline
 	}
-	if err := c.Validate(); err != nil {
-		return err
+	return c, c.Validate()
+}
+
+// PreviewOwned returns the table specs the policy would have with owner's
+// contribution replaced by set, without changing anything. A renderer uses
+// it to dry-run the ruleset a change would produce.
+func (m *Manager) PreviewOwned(owner string, set OwnedSet) (netops.FilterTableSpec, netops.NATSpec, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, err := m.withOwnedLocked(owner, set)
+	if err != nil {
+		return netops.FilterTableSpec{}, netops.NATSpec{}, err
 	}
-	if dryRun {
-		return nil
-	}
-	filterChanged := c.Enforce != m.pol.Enforce || !reflect.DeepEqual(c.Baseline, m.pol.Baseline) ||
-		!reflect.DeepEqual(c.Rules, m.pol.Rules)
-	natChanged := !reflect.DeepEqual(c.Forwards, m.pol.Forwards) || !reflect.DeepEqual(c.Masquerades, m.pol.Masquerades)
-	if !filterChanged && !natChanged {
-		return nil
-	}
-	return m.commitLocked(c, filterChanged, natChanged)
+	c = c.Normalize()
+	return c.filterSpec(m.opts.ProtectedTCPPorts), c.NATSpec(), nil
+}
+
+// Specs returns the table specs of the policy as it stands.
+func (m *Manager) Specs() (netops.FilterTableSpec, netops.NATSpec) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pol.filterSpec(m.opts.ProtectedTCPPorts), m.pol.NATSpec()
 }
 
 // CountOwned reports how many rules, forwards and masquerades an owner has.

@@ -93,7 +93,7 @@ func TestRenderGolden(t *testing.T) {
 	f.add(
 		&model.FirewallPolicy{Meta: meta(40, "default"), DefaultDeny: true, AllowEstablished: true, DropInvalid: true,
 			AllowLoopback: true, AllowICMP: true, AllowTCPPorts: []string{"443"}, AllowUDPPorts: []string{"51820"},
-			SynFloodGuard: true, LogDrops: true},
+			SynFloodGuard: true, LogDrops: true, TCPEstablished: "2h", UDPTimeout: "90s"},
 		&model.FilterRule{Meta: meta(50, "block-listed"), Sequence: 10, Enabled: true, Action: "drop", Direction: "forward",
 			Protocol: "any", Source: []model.Ref[model.Alias]{alias(33)}, Log: true},
 		&model.FilterRule{Meta: meta(51, "lan-to-web"), Sequence: 20, Enabled: true, Action: "accept", Direction: "forward",

@@ -202,6 +202,9 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 		}
 	})
 	if policy != nil {
+		if policy.TCPEstablished != "" || policy.UDPTimeout != "" {
+			v.bad.add(policy, "connection-tracking timeouts are not available in the running packet filter yet")
+		}
 		if policy.SynFloodGuard {
 			v.bad.add(policy, "the SYN flood guard is not available in the running packet filter yet")
 		}

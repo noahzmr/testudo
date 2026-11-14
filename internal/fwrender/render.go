@@ -8,14 +8,18 @@
 package fwrender
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/netops"
 )
 
 // Table is the nftables table this package owns, in the inet family so IPv4
@@ -27,7 +31,60 @@ type Options struct {
 	SiteID, NodeID string
 	// ProtectedTCPPorts stay open on the input chain whatever the model
 	// says (SSH, the web UI). They are the last line against a lock-out.
+	// With Running set, the running policy already contains them.
 	ProtectedTCPPorts []int
+	// Elements holds the current content of aliases that are filled at run
+	// time (URL tables, GeoIP), by alias id. They are rendered into the sets
+	// so that a full reload does not empty them.
+	Elements map[string][]string
+}
+
+// Running is the part of the ruleset that does not come from the model: the
+// firewall manager's defaults, its baseline, and the rules owned by the
+// operator's direct edits, WireGuard peers and access grants. When it is
+// given, those rules are rendered ahead of the model's in the same chains,
+// and the manager's defaults decide the chain policies.
+type Running struct {
+	Filter netops.FilterTableSpec
+	NAT    netops.NATSpec
+	// DropLegacyTables removes the tables the netlink path used to own, in
+	// the same transaction that installs this one.
+	DropLegacyTables bool
+}
+
+// Fragments is the model's contribution to the ruleset, rendered but not yet
+// combined with anything else. It is what the apply stage keeps, so that the
+// ruleset can be assembled again when the running side changes.
+type Fragments struct {
+	// HasPolicy says whether the model defines a firewall policy for this
+	// node. Without one, and without a running side, there is nothing to do.
+	HasPolicy bool             `json:"has_policy"`
+	Policy    PolicyFragment   `json:"policy"`
+	Sets      string           `json:"sets"`
+	Chains    map[string]Chain `json:"chains"`
+	Pre       []string         `json:"prerouting"`
+	Post      []string         `json:"postrouting"`
+}
+
+// PolicyFragment is the model's firewall policy in rendered form.
+type PolicyFragment struct {
+	DefaultDeny bool     `json:"default_deny"`
+	Baseline    []string `json:"baseline_input"` // input-chain baseline lines
+	Stateful    []string `json:"stateful"`       // established / invalid lines
+	LogPrefix   string   `json:"log_prefix"`     // empty: dropped packets are not logged
+	// Timeouts holds the connection-tracking timeout objects and Tracking
+	// the rules that attach them; both are empty for kernel defaults.
+	Timeouts string   `json:"ct_timeouts"`
+	Tracking []string `json:"ct_tracking"`
+	SynFlood bool     `json:"syn_flood_guard"`
+}
+
+// Chain is the model's part of one filter chain.
+type Chain struct {
+	Guards   []string `json:"guards"`    // anti-spoofing, ahead of every rule
+	Rules    []string `json:"rules"`     // the ordered filter rules
+	Tail     []string `json:"tail"`      // always at the end (traffic inside a zone)
+	TailOpen []string `json:"tail_open"` // zone defaults, used when the chain policy is accept
 }
 
 type renderer struct {
@@ -91,21 +148,22 @@ func isV6(s string) bool {
 	return ip != nil && ip.To4() == nil
 }
 
-// Render returns the complete ruleset for the node. A model without a
-// firewall policy for this node renders to a ruleset that only removes the
-// table, so the stage is inert until the operator defines a policy.
+// Render returns the complete ruleset for the node from the model alone. A
+// model without a firewall policy for this node renders to a ruleset that
+// only removes the table, so the stage is inert until one is defined.
 func Render(st *confstore.State, opt Options) ([]byte, error) {
+	f, err := Build(st, opt)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(Assemble(f, nil)), nil
+}
+
+// Build renders the model's fragments for one node.
+func Build(st *confstore.State, opt Options) (Fragments, error) {
 	r := &renderer{st: st, opt: opt, zones: map[string]*model.Zone{}, aliases: map[string]*model.Alias{},
 		zoneIfs: map[string][]string{}}
-
-	// Replace-the-table idiom: create (no-op if present), delete, define.
-	// nft applies one file as a single transaction.
-	fmt.Fprintf(&r.b, "table inet %s\ndelete table inet %s\n", Table, Table)
-
-	policy := r.policy()
-	if policy == nil {
-		return []byte(r.b.String()), r.err()
-	}
+	f := Fragments{Chains: map[string]Chain{}}
 	for _, z := range effective[*model.Zone](r, model.KindZone) {
 		r.zones[z.ID] = z
 	}
@@ -122,20 +180,236 @@ func Render(st *confstore.State, opt Options) ([]byte, error) {
 			r.zoneIfs[t.Zone.ID] = append(r.zoneIfs[t.Zone.ID], t.Device)
 		}
 	}
-
-	fmt.Fprintf(&r.b, "table inet %s {\n", Table)
 	r.sets()
+	f.Sets = r.take()
+
+	if p := r.policy(); p != nil {
+		f.HasPolicy = true
+		f.Policy = r.policyFragment(p)
+	}
 	rules := effective[*model.FilterRule](r, model.KindFilterRule)
 	sort.SliceStable(rules, func(i, j int) bool { return rules[i].Sequence < rules[j].Sequence })
+	zoneIDs := sortedKeys(r.zones, func(id string) string { return r.zones[id].Name })
+	for chain, direction := range map[string]string{"input": "in", "forward": "forward", "output": "out"} {
+		var c Chain
+		for _, fr := range rules {
+			if fr.Enabled && fr.Direction == direction {
+				r.rule(fr, chain)
+			}
+		}
+		c.Rules = r.takeLines()
+		if chain != "output" {
+			for _, id := range zoneIDs {
+				z := r.zones[id]
+				set := ident("z", &z.Meta)
+				if z.AntiSpoof {
+					c.Guards = append(c.Guards, fmt.Sprintf("iifname @%s fib saddr . iif oif missing counter drop", set))
+				}
+				if chain == "forward" && z.IntraZone {
+					c.Tail = append(c.Tail, fmt.Sprintf("iifname @%s oifname @%s accept", set, set))
+				}
+				if z.DefaultAction != "accept" {
+					c.TailOpen = append(c.TailOpen, fmt.Sprintf("iifname @%s counter %s", set, z.DefaultAction))
+				}
+			}
+		}
+		f.Chains[chain] = c
+	}
 	nat := effective[*model.NATRule](r, model.KindNATRule)
 	sort.SliceStable(nat, func(i, j int) bool { return nat[i].Sequence < nat[j].Sequence })
+	f.Pre, f.Post = r.nat(nat)
+	return f, r.err()
+}
 
-	r.filterChain("input", "in", policy, rules)
-	r.filterChain("forward", "forward", policy, rules)
-	r.filterChain("output", "out", policy, rules)
-	r.natChains(nat)
-	r.b.WriteString("}\n")
-	return []byte(r.b.String()), r.err()
+// Policy returns the firewall policy in effect on the node, or nil.
+func Policy(st *confstore.State, opt Options) *model.FirewallPolicy {
+	return (&renderer{st: st, opt: opt}).policy()
+}
+
+func (r *renderer) take() string {
+	out := r.b.String()
+	r.b.Reset()
+	return out
+}
+
+func (r *renderer) takeLines() []string {
+	var out []string
+	for _, l := range strings.Split(r.take(), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func (r *renderer) policyFragment(p *model.FirewallPolicy) PolicyFragment {
+	pf := PolicyFragment{DefaultDeny: p.DefaultDeny, SynFlood: p.SynFloodGuard}
+	if p.AllowEstablished {
+		pf.Stateful = append(pf.Stateful, "ct state established,related accept")
+	}
+	if p.DropInvalid {
+		pf.Stateful = append(pf.Stateful, "ct state invalid drop")
+	}
+	if p.AllowLoopback {
+		pf.Baseline = append(pf.Baseline, `iifname "lo" accept`)
+	}
+	if p.AllowICMP {
+		pf.Baseline = append(pf.Baseline, "meta l4proto { icmp, icmpv6 } accept")
+	}
+	if tcp := uniq(append(intList(r.opt.ProtectedTCPPorts), p.AllowTCPPorts...)); len(tcp) > 0 {
+		pf.Baseline = append(pf.Baseline, fmt.Sprintf("tcp dport { %s } accept", strings.Join(tcp, ", ")))
+	}
+	if udp := uniq(append([]string(nil), p.AllowUDPPorts...)); len(udp) > 0 {
+		pf.Baseline = append(pf.Baseline, fmt.Sprintf("udp dport { %s } accept", strings.Join(udp, ", ")))
+	}
+	// One timeout object per address family: an inet table needs the layer 3
+	// protocol spelled out.
+	timeout := func(name, proto, state, value string) {
+		d, err := time.ParseDuration(value)
+		if err != nil || d < time.Second {
+			return
+		}
+		for _, fam := range [][2]string{{"ip", "ipv4"}, {"ip6", "ipv6"}} {
+			obj := fmt.Sprintf("%s_%s", name, fam[1])
+			pf.Timeouts += fmt.Sprintf("\tct timeout %s {\n\t\tprotocol %s\n\t\tl3proto %s\n\t\tpolicy = { %s : %d }\n\t}\n",
+				obj, proto, fam[0], state, int(d.Seconds()))
+			pf.Tracking = append(pf.Tracking, fmt.Sprintf("meta nfproto %s meta l4proto %s ct timeout set %s", fam[1], proto, quote(obj)))
+		}
+	}
+	timeout("tcp_established", "tcp", "established", p.TCPEstablished)
+	timeout("udp_stream", "udp", "replied", p.UDPTimeout)
+	if p.LogDrops && p.DefaultDeny {
+		pf.LogPrefix = p.LogPrefix
+		if pf.LogPrefix == "" {
+			pf.LogPrefix = "testudo drop"
+		}
+	}
+	return pf
+}
+
+const synFloodLine = "tcp flags & (fin | syn | rst | ack) == syn limit rate over 200/second burst 400 packets counter drop"
+
+// Assemble combines the model's fragments with the running side into the
+// text nft loads. With run == nil the model's own firewall policy decides
+// defaults and baseline; with it, the running policy does.
+func Assemble(f Fragments, run *Running) string {
+	var b strings.Builder
+	if run != nil && run.DropLegacyTables {
+		b.WriteString("table inet testudo_filter\ndelete table inet testudo_filter\n")
+		b.WriteString("table ip testudo_nat\ndelete table ip testudo_nat\n")
+	}
+	// Replace-the-table idiom: create (no-op if present), delete, define.
+	// nft applies one file as a single transaction.
+	fmt.Fprintf(&b, "table inet %s\ndelete table inet %s\n", Table, Table)
+	if run == nil && !f.HasPolicy {
+		return b.String()
+	}
+	body := assembleBody(f, run)
+	sum := sha256.Sum256([]byte(body))
+	// The generation set carries a hash of the content, which is how a later
+	// check tells whether the kernel still holds exactly this ruleset.
+	fmt.Fprintf(&b, "table inet %s {\n\tset %s {\n\t\ttype ifname\n\t}\n%s}\n", Table, GenerationSet(sum), body)
+	return b.String()
+}
+
+// GenerationSet names the marker set for a body hash.
+func GenerationSet(sum [32]byte) string { return "gen_" + hex.EncodeToString(sum[:])[:16] }
+
+// Generation returns the marker set name Assemble would use.
+func Generation(f Fragments, run *Running) string {
+	return GenerationSet(sha256.Sum256([]byte(assembleBody(f, run))))
+}
+
+func assembleBody(f Fragments, run *Running) string {
+	var b strings.Builder
+	b.WriteString(f.Sets)
+	b.WriteString(f.Policy.Timeouts)
+	deny := f.Policy.DefaultDeny
+	var head, foreign, logTail map[string][]string
+	if run != nil {
+		deny = run.Filter.Enforce
+		head, foreign, logTail = runningLines(run.Filter)
+	}
+	for _, chain := range []string{"input", "forward", "output"} {
+		verdict := "accept"
+		if deny && chain != "output" {
+			verdict = "drop"
+		}
+		fmt.Fprintf(&b, "\tchain %s {\n\t\ttype filter hook %s priority filter; policy %s;\n", chain, chain, verdict)
+		w := func(lines ...string) {
+			for _, l := range lines {
+				fmt.Fprintf(&b, "\t\t%s\n", l)
+			}
+		}
+		c := f.Chains[chain]
+		// Timeouts are attached before anything accepts the packet.
+		w(f.Policy.Tracking...)
+		if run != nil {
+			w(head[chain]...)
+		} else if chain != "output" {
+			w(f.Policy.Stateful...)
+			if chain == "input" {
+				// Loopback first, then the guards, then the rest of the
+				// baseline, so anti-spoofing sees traffic before ICMP and
+				// the open ports accept it.
+				var rest []string
+				for _, l := range f.Policy.Baseline {
+					if strings.HasPrefix(l, `iifname "lo"`) {
+						w(l)
+					} else {
+						rest = append(rest, l)
+					}
+				}
+				w(c.Guards...)
+				if f.Policy.SynFlood {
+					w(synFloodLine)
+				}
+				w(rest...)
+				c.Guards = nil
+			}
+		}
+		if chain != "output" {
+			w(c.Guards...)
+			if run != nil && chain == "input" && f.Policy.SynFlood {
+				w(synFloodLine)
+			}
+		}
+		if chain == "forward" {
+			// Connections a destination NAT rule accepted are forwarded.
+			w("ct status dnat accept")
+		}
+		if run != nil {
+			w(foreign[chain]...)
+		}
+		w(c.Rules...)
+		if chain != "output" {
+			w(c.Tail...)
+			if !deny {
+				w(c.TailOpen...)
+			}
+			if run != nil {
+				w(logTail[chain]...)
+			} else if f.Policy.LogPrefix != "" {
+				w(fmt.Sprintf("limit rate 10/second log prefix %s", quote(f.Policy.LogPrefix+" "+chain+": ")))
+			}
+		}
+		b.WriteString("\t}\n")
+	}
+	pre, post := f.Pre, f.Post
+	if run != nil {
+		rp, rq := runningNAT(run.NAT)
+		pre, post = append(rp, pre...), append(rq, post...)
+	}
+	b.WriteString("\tchain prerouting {\n\t\ttype nat hook prerouting priority dstnat; policy accept;\n")
+	for _, l := range pre {
+		fmt.Fprintf(&b, "\t\t%s\n", l)
+	}
+	b.WriteString("\t}\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n")
+	for _, l := range post {
+		fmt.Fprintf(&b, "\t\t%s\n", l)
+	}
+	b.WriteString("\t}\n")
+	return b.String()
 }
 
 func (r *renderer) err() error {
@@ -236,6 +510,13 @@ func (r *renderer) sets() {
 			r.set(ident("p", &a.Meta), "inet_service", true, ports, false)
 			continue
 		}
+		for _, e := range r.opt.Elements[a.ID] {
+			if isV6(e) {
+				v6 = append(v6, e)
+			} else {
+				v4 = append(v4, e)
+			}
+		}
 		r.set(ident("a4", &a.Meta), "ipv4_addr", true, v4, false)
 		r.set(ident("a6", &a.Meta), "ipv6_addr", true, v6, false)
 	}
@@ -289,7 +570,7 @@ func protoMatch(proto string, hasPorts bool) string {
 	case "tcp", "udp", "icmp":
 		return "meta l4proto " + proto
 	case "icmpv6":
-		return "meta l4proto ipv6-icmp"
+		return "meta l4proto icmpv6"
 	}
 	if hasPorts {
 		return "meta l4proto { tcp, udp }"
@@ -390,85 +671,6 @@ func intList(ports []int) []string {
 	return out
 }
 
-func (r *renderer) filterChain(chain, direction string, p *model.FirewallPolicy, rules []*model.FilterRule) {
-	verdict := "accept"
-	if p.DefaultDeny && chain != "output" {
-		verdict = "drop"
-	}
-	fmt.Fprintf(&r.b, "\tchain %s {\n\t\ttype filter hook %s priority filter; policy %s;\n", chain, chain, verdict)
-	w := func(format string, a ...any) { fmt.Fprintf(&r.b, "\t\t"+format+"\n", a...) }
-
-	if chain != "output" {
-		// Baseline: what must keep working whatever the rules say.
-		if p.AllowEstablished {
-			w("ct state established,related accept")
-		}
-		if p.DropInvalid {
-			w("ct state invalid drop")
-		}
-	}
-	if chain == "input" {
-		if p.AllowLoopback {
-			w(`iifname "lo" accept`)
-		}
-		for _, id := range sortedKeys(r.zones, func(id string) string { return r.zones[id].Name }) {
-			if z := r.zones[id]; z.AntiSpoof {
-				w("iifname @%s fib saddr . iif oif missing counter drop", ident("z", &z.Meta))
-			}
-		}
-		if p.SynFloodGuard {
-			w("tcp flags & (fin | syn | rst | ack) == syn limit rate over 200/second burst 400 packets counter drop")
-		}
-		if p.AllowICMP {
-			w("meta l4proto { icmp, ipv6-icmp } accept")
-		}
-		if tcp := uniq(append(intList(r.opt.ProtectedTCPPorts), p.AllowTCPPorts...)); len(tcp) > 0 {
-			w("tcp dport { %s } accept", strings.Join(tcp, ", "))
-		}
-		if udp := uniq(append([]string(nil), p.AllowUDPPorts...)); len(udp) > 0 {
-			w("udp dport { %s } accept", strings.Join(udp, ", "))
-		}
-	}
-	if chain == "forward" {
-		for _, id := range sortedKeys(r.zones, func(id string) string { return r.zones[id].Name }) {
-			if z := r.zones[id]; z.AntiSpoof {
-				w("iifname @%s fib saddr . iif oif missing counter drop", ident("z", &z.Meta))
-			}
-		}
-		// Connections a destination NAT rule accepted are forwarded.
-		w("ct status dnat accept")
-	}
-
-	for _, fr := range rules {
-		if fr.Enabled && fr.Direction == direction {
-			r.rule(fr, chain)
-		}
-	}
-
-	if chain != "output" {
-		for _, id := range sortedKeys(r.zones, func(id string) string { return r.zones[id].Name }) {
-			z := r.zones[id]
-			set := ident("z", &z.Meta)
-			if chain == "forward" && z.IntraZone {
-				w("iifname @%s oifname @%s accept", set, set)
-			}
-			// Without default deny, a zone's own default still applies to
-			// what enters through it.
-			if !p.DefaultDeny && z.DefaultAction != "accept" {
-				w("iifname @%s counter %s", set, z.DefaultAction)
-			}
-		}
-		if p.LogDrops && p.DefaultDeny {
-			prefix := p.LogPrefix
-			if prefix == "" {
-				prefix = "testudo drop"
-			}
-			w("limit rate 10/second log prefix %s", quote(prefix+" "+chain+": "))
-		}
-	}
-	r.b.WriteString("\t}\n")
-}
-
 // natAddr renders "ip to X" or "ip6 to X" with an optional port.
 func natTarget(addr, port string) string {
 	fam := "ip"
@@ -494,8 +696,7 @@ func famAddr(dir, addr string) string {
 	return "ip " + dir + " " + addr
 }
 
-func (r *renderer) natChains(rules []*model.NATRule) {
-	var pre, post []string
+func (r *renderer) nat(rules []*model.NATRule) (pre, post []string) {
 	add := func(list *[]string, n *model.NATRule, parts ...string) {
 		var keep []string
 		for _, p := range parts {
@@ -566,13 +767,5 @@ func (r *renderer) natChains(rules []*model.NATRule) {
 			add(&post, n, r.zoneMatch("oifname", n.Zone), famAddr("saddr", n.TranslateTo), "counter", "snat "+natTarget(n.Destination, ""))
 		}
 	}
-	fmt.Fprintf(&r.b, "\tchain prerouting {\n\t\ttype nat hook prerouting priority dstnat; policy accept;\n")
-	for _, l := range pre {
-		fmt.Fprintf(&r.b, "\t\t%s\n", l)
-	}
-	fmt.Fprintf(&r.b, "\t}\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n")
-	for _, l := range post {
-		fmt.Fprintf(&r.b, "\t\t%s\n", l)
-	}
-	r.b.WriteString("\t}\n")
+	return pre, post
 }
