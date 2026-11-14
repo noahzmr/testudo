@@ -72,11 +72,24 @@ func TestTranslateProducesAModelTheStoreAccepts(t *testing.T) {
 	count := func(k model.Kind) int { return len(st.List(k)) }
 	for kind, want := range map[model.Kind]int{
 		model.KindSite: 1, model.KindClusterNode: 1, model.KindRole: 4, model.KindUser: 2,
-		model.KindFirewallPolicy: 1, model.KindFilterRule: 5, model.KindNATRule: 2,
+		model.KindFirewallPolicy: 1, model.KindFilterRule: 3, model.KindNATRule: 2,
 		model.KindZone: 2, model.KindInterface: 2, model.KindWGTunnel: 1, model.KindWGPeer: 2,
 	} {
 		if got := count(kind); got != want {
 			t.Errorf("%s: %d objects, want %d", kind, got, want)
+		}
+	}
+
+	// What became model objects leaves the old policy; what did not, stays
+	// there and keeps working: the two WireGuard rules, the rate-over rule
+	// and the log-only rule.
+	rest := res.Remaining
+	if rest == nil || len(rest.Rules) != 4 || len(rest.Forwards) != 0 || len(rest.Masquerades) != 0 || !rest.Enforce {
+		t.Errorf("remaining policy: %+v", rest)
+	}
+	for _, r := range rest.Rules {
+		if r.Owner != "wg-peer:abc" && !r.RateOver && r.Action != "log" {
+			t.Errorf("a translated rule stayed in the old policy: %+v", r)
 		}
 	}
 

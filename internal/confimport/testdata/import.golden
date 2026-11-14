@@ -146,77 +146,9 @@
     "443"
   ]
 }
-## zone
+## filter_rule
 {
   "id": "00000000-0000-4000-8000-000000000011",
-  "name": "zone-wg0",
-  "description": "Imported: stands for interface wg0",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "default_action": "drop"
-}
-## interface
-{
-  "id": "00000000-0000-4000-8000-000000000012",
-  "name": "wg0",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "node:00000000-0000-4000-8000-000000000002",
-  "device": "wg0",
-  "zone": "00000000-0000-4000-8000-000000000011",
-  "enabled": true
-}
-## filter_rule
-{
-  "id": "00000000-0000-4000-8000-000000000013",
-  "name": "rule-002",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "sequence": 20,
-  "enabled": true,
-  "action": "accept",
-  "direction": "forward",
-  "source_zone": "00000000-0000-4000-8000-000000000011",
-  "protocol": "any",
-  "source_nets": [
-    "10.8.0.2/32"
-  ],
-  "destination_nets": [
-    "192.168.1.0/24"
-  ],
-  "states": [
-    "new"
-  ],
-  "owner": "wg-peer:abc"
-}
-## filter_rule
-{
-  "id": "00000000-0000-4000-8000-000000000014",
-  "name": "rule-003",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "sequence": 30,
-  "enabled": true,
-  "action": "drop",
-  "direction": "forward",
-  "source_zone": "00000000-0000-4000-8000-000000000011",
-  "protocol": "any",
-  "source_nets": [
-    "10.8.0.2/32"
-  ],
-  "log": true,
-  "owner": "wg-peer:abc"
-}
-## filter_rule
-{
-  "id": "00000000-0000-4000-8000-000000000015",
   "name": "rule-004",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -234,7 +166,7 @@
 }
 ## filter_rule
 {
-  "id": "00000000-0000-4000-8000-000000000016",
+  "id": "00000000-0000-4000-8000-000000000012",
   "name": "rule-007",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -254,7 +186,7 @@
 }
 ## zone
 {
-  "id": "00000000-0000-4000-8000-000000000017",
+  "id": "00000000-0000-4000-8000-000000000013",
   "name": "zone-eth0",
   "description": "Imported: stands for interface eth0",
   "version": 0,
@@ -265,19 +197,19 @@
 }
 ## interface
 {
-  "id": "00000000-0000-4000-8000-000000000018",
+  "id": "00000000-0000-4000-8000-000000000014",
   "name": "eth0",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
   "updated_at": "0001-01-01T00:00:00Z",
   "scope": "node:00000000-0000-4000-8000-000000000002",
   "device": "eth0",
-  "zone": "00000000-0000-4000-8000-000000000017",
+  "zone": "00000000-0000-4000-8000-000000000013",
   "enabled": true
 }
 ## nat_rule
 {
-  "id": "00000000-0000-4000-8000-000000000019",
+  "id": "00000000-0000-4000-8000-000000000015",
   "name": "forward-001",
   "description": "nas",
   "version": 0,
@@ -287,7 +219,7 @@
   "enabled": true,
   "sequence": 10,
   "type": "dnat",
-  "zone": "00000000-0000-4000-8000-000000000017",
+  "zone": "00000000-0000-4000-8000-000000000013",
   "protocol": "tcp",
   "port": "443",
   "translate_to": "192.168.1.10",
@@ -295,7 +227,7 @@
 }
 ## nat_rule
 {
-  "id": "00000000-0000-4000-8000-000000000020",
+  "id": "00000000-0000-4000-8000-000000000016",
   "name": "masquerade-001",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -304,15 +236,38 @@
   "enabled": true,
   "sequence": 1010,
   "type": "masquerade",
-  "zone": "00000000-0000-4000-8000-000000000017",
+  "zone": "00000000-0000-4000-8000-000000000013",
   "protocol": "any",
   "source_nets": [
     "10.8.0.0/24"
   ]
 }
+## zone
+{
+  "id": "00000000-0000-4000-8000-000000000017",
+  "name": "zone-wg0",
+  "description": "Imported: stands for interface wg0",
+  "version": 0,
+  "created_at": "0001-01-01T00:00:00Z",
+  "updated_at": "0001-01-01T00:00:00Z",
+  "scope": "global",
+  "default_action": "drop"
+}
+## interface
+{
+  "id": "00000000-0000-4000-8000-000000000018",
+  "name": "wg0",
+  "version": 0,
+  "created_at": "0001-01-01T00:00:00Z",
+  "updated_at": "0001-01-01T00:00:00Z",
+  "scope": "node:00000000-0000-4000-8000-000000000002",
+  "device": "wg0",
+  "zone": "00000000-0000-4000-8000-000000000017",
+  "enabled": true
+}
 ## wg_tunnel
 {
-  "id": "00000000-0000-4000-8000-000000000021",
+  "id": "00000000-0000-4000-8000-000000000019",
   "name": "wg0",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -326,18 +281,18 @@
     "10.8.0.1/24"
   ],
   "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-  "zone": "00000000-0000-4000-8000-000000000011"
+  "zone": "00000000-0000-4000-8000-000000000017"
 }
 ## wg_peer
 {
-  "id": "00000000-0000-4000-8000-000000000022",
+  "id": "00000000-0000-4000-8000-000000000020",
   "name": "wg0-peer-01",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
   "updated_at": "0001-01-01T00:00:00Z",
   "scope": "global",
   "enabled": true,
-  "tunnel": "00000000-0000-4000-8000-000000000021",
+  "tunnel": "00000000-0000-4000-8000-000000000019",
   "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   "allowed_ips": [
     "10.8.0.2/32"
@@ -346,14 +301,14 @@
 }
 ## wg_peer
 {
-  "id": "00000000-0000-4000-8000-000000000023",
+  "id": "00000000-0000-4000-8000-000000000021",
   "name": "wg0-peer-02",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
   "updated_at": "0001-01-01T00:00:00Z",
   "scope": "global",
   "enabled": true,
-  "tunnel": "00000000-0000-4000-8000-000000000021",
+  "tunnel": "00000000-0000-4000-8000-000000000019",
   "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   "allowed_ips": [
     "0.0.0.0/0",

@@ -151,6 +151,30 @@ func cmdConfig(args []string) error {
 			return fmt.Errorf("import rejected: %w", err)
 		}
 		fmt.Printf("imported as record %d\n", rec.Index)
+		// The rules that are model objects now leave the old policy, so no
+		// rule exists twice. The original is kept next to it.
+		if res.Remaining != nil {
+			path := firewallPolicyPathFor(cfg)
+			orig, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(path+".before-import", orig, 0o600); err != nil {
+				return err
+			}
+			out, err := json.MarshalIndent(res.Remaining, "", "  ")
+			if err != nil {
+				return err
+			}
+			tmp := path + ".tmp"
+			if err := os.WriteFile(tmp, out, 0o600); err != nil {
+				return err
+			}
+			if err := os.Rename(tmp, path); err != nil {
+				return err
+			}
+			fmt.Printf("moved the imported rules out of %s (original kept as %s.before-import)\n", path, filepath.Base(path))
+		}
 		return nil
 	}
 	return fmt.Errorf("unknown config command: %s", args[0])

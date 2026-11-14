@@ -45,6 +45,11 @@ type Result struct {
 	// Notes lists what could not be carried over and why. Nothing is
 	// dropped silently.
 	Notes []string
+	// Remaining is the firewall policy without the rules that are now model
+	// objects: what could not be translated, and everything owned by
+	// WireGuard peers and access grants. Writing it back in place of the
+	// original keeps a rule from existing twice. Nil without a policy.
+	Remaining *firewall.Policy
 }
 
 var (
@@ -202,6 +207,12 @@ func (b *builder) users(users []auth.User) {
 }
 
 func (b *builder) firewall(p *firewall.Policy) {
+	rest := p.Clone()
+	rest.Rules, rest.Forwards, rest.Masquerades = nil, nil, nil
+	defer func() { b.res.Remaining = &rest }()
+	// Only what the operator made directly moves into the model. Rules of
+	// other owners belong to the subsystems that will remove them again.
+	direct := func(owner string) bool { return owner == "" || owner == "user" }
 	bl := p.Baseline
 	b.add(&model.FirewallPolicy{Meta: model.Meta{Name: "default", Description: "Imported from firewall.json"},
 		DefaultDeny: p.Enforce, AllowEstablished: bl.AllowEstablished, DropInvalid: bl.DropInvalid,
@@ -210,14 +221,22 @@ func (b *builder) firewall(p *firewall.Policy) {
 
 	for i, r := range p.Rules {
 		label := fmt.Sprintf("rule %d (%s)", i+1, r.ID())
+		if !direct(r.Owner) {
+			rest.Rules = append(rest.Rules, r)
+			continue
+		}
+		// A rule that is not translated stays in the policy and keeps working.
+		keep := func() { rest.Rules = append(rest.Rules, r) }
 		dir, ok := map[string]string{"input": "in", "output": "out", "forward": "forward"}[strings.ToLower(r.Chain)]
 		if !ok {
 			b.note("%s: unknown chain %q, not imported", label, r.Chain)
+			keep()
 			continue
 		}
 		action := strings.ToLower(r.Action)
 		if action != "accept" && action != "drop" && action != "reject" {
 			b.note("%s: action %q has no equivalent (a rule must decide); not imported", label, r.Action)
+			keep()
 			continue
 		}
 		proto := strings.ToLower(r.Proto)
@@ -242,16 +261,22 @@ func (b *builder) firewall(p *firewall.Policy) {
 			// Without its threshold an "over" rule would match everything,
 			// turning a brute-force guard into a blanket block.
 			b.note("%s: matches traffic over the rate %q, which is not modelled yet; not imported, because without the threshold it would match all traffic", label, r.RateLimit)
+			keep()
 			continue
 		case rateRe.MatchString(r.RateLimit):
 			fr.RateLimit = r.RateLimit
 		default:
 			b.note("%s: rate limit %q has an unsupported form; not imported, because without the limit it would match more than intended", label, r.RateLimit)
+			keep()
 			continue
 		}
 		b.add(fr)
 	}
 	for i, f := range p.Forwards {
+		if !direct(f.Owner) {
+			rest.Forwards = append(rest.Forwards, f)
+			continue
+		}
 		lan := f.LANPort
 		if lan == 0 {
 			lan = f.WANPort
@@ -259,11 +284,12 @@ func (b *builder) firewall(p *firewall.Policy) {
 		b.add(&model.NATRule{Meta: model.Meta{Name: fmt.Sprintf("forward-%03d", i+1), Description: f.Comment},
 			Enabled: true, Sequence: (i + 1) * 10, Type: "dnat", Zone: b.zone(f.InIface), Protocol: strings.ToLower(f.Proto),
 			Port: strconv.Itoa(int(f.WANPort)), TranslateTo: f.LANIP, TranslatePort: strconv.Itoa(int(lan))})
-		if f.Owner != "" && f.Owner != "user" {
-			b.note("forward %d: owner %q is not carried on NAT rules yet", i+1, f.Owner)
-		}
 	}
 	for i, m := range p.Masquerades {
+		if !direct(m.Owner) {
+			rest.Masquerades = append(rest.Masquerades, m)
+			continue
+		}
 		b.add(&model.NATRule{Meta: model.Meta{Name: fmt.Sprintf("masquerade-%03d", i+1), Description: m.Comment},
 			Enabled: true, Sequence: 1000 + (i+1)*10, Type: "masquerade", Zone: b.zone(m.OutIface), Protocol: "any",
 			SourceNets: nets(m.SrcCIDR)})
