@@ -59,6 +59,8 @@ type Engine struct {
 	// unreadable (fwErr says why). All firewall/NAT mutations go through it.
 	fw    *firewall.Manager
 	fwErr error
+	// conf is the configuration model's store and apply engine.
+	conf confCore
 	// pam is the privileged-access manager (JIT grants compiled into firewall
 	// rules for the requester's WireGuard peers); nil when disabled.
 	pam *pam.Manager
@@ -123,7 +125,7 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 	if fwErr != nil {
 		log.Printf("firewall: policy unavailable, firewall/NAT management disabled: %v", fwErr)
 	}
-	return &Engine{
+	e := &Engine{
 		fw:        fw,
 		fwErr:     fwErr,
 		cfg:       cfg,
@@ -143,6 +145,8 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 		store:     store,
 		baselines: make(map[string]quality.Rollup),
 	}
+	e.openConfig()
+	return e
 }
 
 func (e *Engine) Bus() *events.Bus                        { return e.bus }
@@ -258,6 +262,7 @@ func (e *Engine) Start(parent context.Context) error {
 	}
 
 	e.incidents = incidents.New(e.store, e.flowAgg, e.cfg.StorageDir, e.cfg.Thresholds.IncidentCooldown)
+	e.startConfig(ctx)
 
 	e.startMetricsAndStorageConsumer(ctx)
 	e.startAnalyzers(ctx)
