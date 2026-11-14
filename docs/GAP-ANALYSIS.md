@@ -3,10 +3,11 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 and 1 complete ([phase-1-config-core.md](phase-1-config-core.md)).
-The configuration model is stored, versioned, audited and editable through
-the API and the page, but no subsystem is driven by it yet: that starts with
-the packet filter in Phase 2.**
+**Status: Phases 0 and 1 complete. Phase 2 in progress
+([phase-2-packet-filter.md](phase-2-packet-filter.md)): the model now drives
+the running packet filter for zones, aliases, filter rules, port forwards,
+masquerade and the default policy, proven against a real kernel. The
+features that need the nftables text renderer are written but not applied.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -17,7 +18,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | # | Area | Today | Effort | Risk |
 | --- | --- | --- | --- | --- |
 | 1 | Data model, generation, config core | done | - | - |
-| 2 | Stateful packet filter and NAT | about 40 % | 5–6 weeks | high |
+| 2 | Stateful packet filter and NAT | about 65 % | 2–3 weeks left | high |
 | 3 | Routing (FRR), multi-WAN, PBR | about 5 % | 6–8 weeks | medium |
 | 4 | WireGuard and identity-aware access | about 45 % | 5–6 weeks | medium |
 | 5 | Load balancing, SNI, certificates | nothing | 7–9 weeks | medium |

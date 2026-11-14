@@ -1,15 +1,19 @@
 /* Configuration pane. Colours come from app.css. */
 .cfg-top { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+.cfg-top .cfg-note { flex: 1; color: var(--fg-dim); }
 .cfg-top select { width: auto; max-width: 340px; }
 .cfg-note { color: var(--fg-dim); flex: 1; }
 .cfg-pending { padding: 10px 16px; margin-bottom: 12px; background: #3a2f12; border: 1px solid #6b5518; border-radius: 6px; }
-.cfg-body { display: flex; gap: 20px; align-items: flex-start; }
-#cfg-nav { width: 200px; flex: none; padding: 4px 0 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; }
-#cfg-nav h3 { margin: 14px 16px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-faint); }
-#cfg-nav a { display: block; padding: 5px 16px; color: var(--fg-muted); text-decoration: none; }
-#cfg-nav a:hover { background: var(--bg-hover); }
-#cfg-nav a.active { color: var(--brand); background: var(--bg-card); }
-#cfg-main { flex: 1; min-width: 0; max-width: 1100px; }
+/* A section's row of tabs, and the rule that hides its live view while the
+   model editor is shown in it. */
+.cfg-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.cfg-bar button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--fg-dim); padding: 8px 14px; font: inherit; cursor: pointer; }
+.cfg-bar button:hover { color: var(--fg); }
+.cfg-bar button.active { color: var(--brand); border-bottom-color: var(--brand); }
+.pane.cfg-on > :not(.cfg-bar):not(#cfg-shell) { display: none !important; }
+.pane:not(.cfg-on) > #cfg-shell { display: none; }
+.cfg-planned { color: var(--fg-dim); border-left: 2px solid var(--border-strong); padding-left: 10px; margin: 0 0 12px; }
+#cfg-main { max-width: 1100px; }
 #cfg-main > header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
 #cfg-main h2 { margin: 0; font-size: 18px; flex: 1; }
 .cfg-table { width: 100%; border-collapse: collapse; }

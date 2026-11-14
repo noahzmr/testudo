@@ -64,22 +64,81 @@ function toast(msg, kind = '') {
 
 // ---- navigation ----------------------------------------------------------
 
-function renderNav() {
-  const nav = $('#cfg-nav');
-  fill(nav, );
-  const groups = {};
-  for (const f of S.forms) (groups[f.menu.split('/')[0]] ||= []).push(f);
-  for (const [group, forms] of Object.entries(groups)) {
-    nav.append(el('h3', { text: group }));
-    for (const f of forms) {
-      if (!can(f, 'read')) continue;
-      nav.append(el('a', { href: '#/' + f.plural, text: f.title, class: S.form === f ? 'active' : '' }));
-    }
+// Every kind lives in the console section it belongs to. PANE says which;
+// LABEL is the name of its tab there. A section that also has a live view
+// keeps it as its "Running state" tab.
+const PANE = {
+  filter_rule: 'firewall', zone: 'firewall', alias: 'firewall', firewall_policy: 'firewall',
+  nat_rule: 'nat', interface: 'ifaces',
+  route: 'routes', gateway: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
+  wg_tunnel: 'wireguard', wg_peer: 'wireguard',
+  access_resource: 'access', access_policy: 'access',
+  user: 'settings', group: 'settings', role: 'settings', certificate: 'settings',
+  lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
+  site: 'cluster', cluster_node: 'cluster',
+};
+const LABEL = {
+  filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
+  interface: 'Zone assignment', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs',
+  wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies',
+  user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates',
+  lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
+  site: 'Sites', cluster_node: 'Nodes',
+};
+// What the running system is driven by today. Everything else is stored,
+// versioned and audited, and takes effect when its subsystem moves over.
+const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'nat_rule', 'interface']);
+// Sections that open on the model instead of their live view.
+const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'sites', changes: 'changesets' };
+const paneOf = seg => seg === 'changesets' || seg === 'history' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
+const paneEl = name => document.querySelector(`.pane[data-pane="${name}"]`);
+
+// buildBars gives every section its row of tabs.
+function buildBars() {
+  const byPane = {};
+  for (const [kind, pane] of Object.entries(PANE)) {
+    const f = S.byKind[kind];
+    if (f && can(f, 'read')) (byPane[pane] ||= []).push(f);
   }
-  nav.append(el('h3', { text: 'changes' }),
-    el('a', { href: '#/changesets', text: 'Change sets' }),
-    el('a', { href: '#/history', text: 'History' }));
+  byPane.changes = [{ plural: 'changesets', label: 'Change sets' }, { plural: 'history', label: 'History' }];
+  for (const [pane, forms] of Object.entries(byPane)) {
+    const host = paneEl(pane);
+    if (!host || host.querySelector('.cfg-bar')) continue;
+    const live = host.children.length > 0;  // the section has a live view of its own
+    const bar = el('div', { class: 'cfg-bar', role: 'tablist' },
+      forms.map(f => el('button', { type: 'button', 'data-seg': f.plural, text: f.label || LABEL[f.kind] || f.title,
+        onclick: () => { location.hash = '#/' + f.plural; } })),
+      live ? el('button', { type: 'button', 'data-seg': '', text: 'Running state', onclick: () => showLive(pane) }) : null);
+    host.prepend(bar);
+    markBar(pane, live && !OPENS_ON[pane] ? '' : null);
+  }
 }
+
+function markBar(pane, seg) {
+  for (const b of paneEl(pane)?.querySelectorAll('.cfg-bar button') || []) b.classList.toggle('active', b.dataset.seg === seg);
+}
+
+// showLive puts a section back on its live view.
+function showLive(pane) {
+  paneEl(pane)?.classList.remove('cfg-on');
+  markBar(pane, '');
+  if (location.hash.startsWith('#/')) history.replaceState(null, '', location.pathname + location.search);
+}
+
+// mount moves the shared editor into a section and hides its live view.
+function mount(pane, seg) {
+  const host = paneEl(pane);
+  if (!host) return false;
+  const shell = $('#cfg-shell');
+  if (shell.parentElement !== host) host.querySelector('.cfg-bar').after(shell);
+  shell.hidden = false;
+  host.classList.add('cfg-on');
+  markBar(pane, seg);
+  const tab = document.querySelector(`.tab[data-tab="${pane}"]`);
+  if (tab && !tab.classList.contains('active')) { switching = true; tab.click(); switching = false; }
+  return true;
+}
+let switching = false;
 
 // Views load data before they render. gen identifies the newest navigation
 // so a slower, older view cannot paint over the one the user moved on to.
@@ -91,11 +150,12 @@ async function route() {
   const [, seg, id] = location.hash.split('/');
   const g = ++gen;
   S.editing = null;
-  if (seg === 'changesets') { S.form = null; renderNav(); return changeSetsView(); }
-  if (seg === 'history') { S.form = null; renderNav(); return historyView(); }
-  S.form = S.forms.find(f => f.plural === seg) || S.forms.find(f => can(f, 'read'));
-  renderNav();
-  if (!S.form) return fill($('#cfg-main'), el('p', { text: 'Nothing you may read.' }));
+  const pane = paneOf(seg);
+  if (!pane || !mount(pane, seg)) return;
+  if (seg === 'changesets') { S.form = null; return changeSetsView(); }
+  if (seg === 'history') { S.form = null; return historyView(); }
+  S.form = S.forms.find(f => f.plural === seg);
+  if (!S.form || !can(S.form, 'read')) return fill($('#cfg-main'), el('p', { text: 'Nothing you may read here.' }));
   if (id === 'new') return editView(S.form, null);
   if (id) {
     const r = await api('GET', `/${S.form.plural}/${id}`);
@@ -141,8 +201,9 @@ async function listView(form) {
     el('td', { text: o.scope }), el('td', { class: 'dim', text: `v${o.version} · ${o.updated_by || ''}` })));
   fill(main, 
     el('header', {},
-      el('h2', { text: form.title }),
+      el('h2', { text: LABEL[form.kind] || form.title }),
       can(form, 'write') ? el('button', { class: 'primary', text: 'New', onclick: () => { location.hash = `#/${form.plural}/new`; } }) : null),
+    ENFORCED.has(form.kind) ? null : el('p', { class: 'cfg-planned', text: 'Stored, versioned and audited. Not applied to the running system yet; use Running state for what is in effect.' }),
     rows.length ? el('table', { class: 'cfg-table' },
       el('thead', {}, el('tr', {}, cols.map(c => el('th', { text: c.label })), el('th', { text: 'Scope' }), el('th', { text: 'Version' }))),
       el('tbody', {}, rows)) : el('p', { class: 'dim', text: 'No objects yet.' }));
@@ -524,13 +585,19 @@ async function main() {
   if (st.data?.pending) showPending(st.data.pending.deadline);
   window.addEventListener('hashchange', route);
   listen();
-  // Opening the pane shows the first readable kind; a deep link into the
-  // pane (#/aliases/...) switches the console to it.
-  const tab = document.querySelector('.tab[data-tab="config"]');
-  tab?.addEventListener('click', () => {
-    if (!location.hash.startsWith('#/')) location.hash = '#/' + (S.forms.find(f => can(f, 'read'))?.plural || '');
-    else route();
-  });
-  if (location.hash.startsWith('#/')) tab?.click();
+  buildBars();
+  // A section that opens on the model does so when it is selected; the
+  // others open on their live view. A deep link (#/aliases/...) switches
+  // the console to the right section.
+  for (const tab of document.querySelectorAll('.tab[data-tab]')) {
+    tab.addEventListener('click', () => {
+      if (switching) return;
+      const pane = tab.dataset.tab, seg = OPENS_ON[pane];
+      if (!seg) return showLive(pane);
+      if (location.hash.split('/')[1] && paneOf(location.hash.split('/')[1]) === pane) return route();
+      if (location.hash === '#/' + seg) route(); else location.hash = '#/' + seg;
+    });
+  }
+  if (location.hash.startsWith('#/')) route();
 }
 main();

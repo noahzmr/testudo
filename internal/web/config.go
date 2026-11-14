@@ -9,16 +9,16 @@ import (
 )
 
 // mountConfig serves the configuration model's versioned API below /api/v1/.
-// Its screens are the Configuration pane of the main console (index.html).
+// Its screens are tabs inside the console's sections (index.html, config.js).
 //
 // The API does its own authorisation per object kind, so it is not wrapped
 // in protect (whose rules are per URL prefix). This wrapper only establishes
 // who is calling and rejects cross-origin writes.
 func (s *Server) mountConfig(mux *http.ServeMux) error {
-	// The configuration screens are a pane of the main console. The old
-	// address keeps working.
+	// The model's screens are part of the console. The old address keeps
+	// working.
 	mux.HandleFunc("/config", s.protect(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/#/", http.StatusFound)
+		http.Redirect(w, r, "/#/filter-rules", http.StatusFound)
 	}))
 
 	if s.Engine.ConfigStore() == nil {

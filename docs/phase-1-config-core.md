@@ -147,7 +147,7 @@ outcome.
 
 ## Console pane
 
-The Configuration pane of the console is built from `ui.json` at run time: menus, tables, forms and
+The model's screens in the console are built from `ui.json` at run time: menus, tables, forms and
 pickers, with no per-entity code and no build step (plain JavaScript, same
 as the existing pages). A reference picker has a "+ new" button that
 creates the target through the target's own endpoint and selects it. A
@@ -197,10 +197,8 @@ page, import, migrations, compaction, export and import.
 
 Carried into later phases:
 
-* No apply stage exists yet, so the model is stored, versioned and audited
-  but does not change the running system. Phase 2 adds the nftables stage
-  and with it the first golden files (the helper is in
-  `internal/testutil/golden`).
+* The first apply stage arrived with Phase 2 (the packet filter); every
+  other kind is stored, versioned and audited but not enforced yet.
 * The node-local secret store that `key_ref` fields point to (Phase 4 for
   WireGuard keys, Phase 5 for certificates).
 * Authentication is still the existing user store; roles from the model

@@ -77,6 +77,7 @@
           <button data-tab="firewall" class="tab"><svg class="nav-ico"><use href="#i-firewall"/></svg> Firewall</button>
           <button data-tab="nat" class="tab"><svg class="nav-ico"><use href="#i-nat"/></svg> NAT</button>
           <button data-tab="wireguard" class="tab"><svg class="nav-ico"><use href="#i-wireguard"/></svg> WireGuard</button>
+          <button data-tab="lb" class="tab"><svg class="nav-ico"><use href="#i-nat"/></svg> Load balancer</button>
           <button data-tab="access" class="tab"><svg class="nav-ico"><use href="#i-access"/></svg> Access</button>
         </div>
 
@@ -87,13 +88,10 @@
         </div>
 
         <div class="nav-group">
-          <div class="nav-group-label">Policy</div>
-          <button data-tab="config" class="tab"><svg class="nav-ico"><use href="#i-settings"/></svg> Configuration</button>
-        </div>
-
-        <div class="nav-group">
           <div class="nav-group-label">System</div>
           <button data-tab="health" class="tab"><svg class="nav-ico"><use href="#i-health"/></svg> Health</button>
+          <button data-tab="cluster" class="tab"><svg class="nav-ico"><use href="#i-devices"/></svg> Cluster</button>
+          <button data-tab="changes" class="tab"><svg class="nav-ico"><use href="#i-history"/></svg> Changes</button>
           <button data-tab="settings" class="tab"><svg class="nav-ico"><use href="#i-settings"/></svg> Settings</button>
         </div>
       </nav>
@@ -856,18 +854,20 @@
       </div>
     </section>
 
-    <section data-pane="config" class="pane cfg" role="tabpanel" aria-label="Configuration">
+    <section data-pane="lb" class="pane" role="tabpanel" aria-label="Load balancer"></section>
+    <section data-pane="cluster" class="pane" role="tabpanel" aria-label="Cluster"></section>
+    <section data-pane="changes" class="pane" role="tabpanel" aria-label="Changes"></section>
+
+    <!-- The model editor. It is moved into whichever section is editing. -->
+    <div id="cfg-shell" class="cfg" hidden>
+      <div id="cfg-pending" class="cfg-pending" hidden></div>
       <div class="cfg-top">
-        <span class="cfg-note">The configuration model: versioned, reviewed and audited. Subsystems are moved onto it one by one; until then it is not enforced on the running system.</span>
+        <span class="cfg-note">Changes are versioned and audited, and roll back unless confirmed.</span>
         <select id="cfg-draft" aria-label="Where changes go"></select>
       </div>
-      <div id="cfg-pending" class="cfg-pending" hidden></div>
-      <div class="cfg-body">
-        <nav id="cfg-nav" aria-label="Configuration"></nav>
-        <div id="cfg-main"></div>
-      </div>
+      <div id="cfg-main"></div>
       <div id="cfg-toasts" aria-live="polite"></div>
-    </section>
+    </div>
 
     <section data-pane="settings" class="pane" role="tabpanel" aria-label="Settings">
       <div class="card">
