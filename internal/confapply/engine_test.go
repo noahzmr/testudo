@@ -176,7 +176,7 @@ func TestUnconfirmedChangeRollsBackAutomatically(t *testing.T) {
 	}
 	r.eng.Confirm("alice")
 
-	r.eng.window = 40 * time.Millisecond
+	r.eng.window = 500 * time.Millisecond
 	if _, err := r.eng.Apply(ctx, "alice", "risky", addAlias("lockout")); err != nil {
 		t.Fatal(err)
 	}

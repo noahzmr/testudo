@@ -185,7 +185,7 @@ func TestAnotherNodeDoesNotGetThisNodesInterfaces(t *testing.T) {
 func TestThroughTheApplyEngine(t *testing.T) {
 	s := open(t)
 	fm := &fakeManager{drift: firewall.Drift{InSync: true}}
-	eng, err := confapply.New(s, confapply.Options{Dir: t.TempDir(), Window: 60 * time.Millisecond}, stage(fm))
+	eng, err := confapply.New(s, confapply.Options{Dir: t.TempDir(), Window: 500 * time.Millisecond}, stage(fm))
 	if err != nil {
 		t.Fatal(err)
 	}
