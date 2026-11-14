@@ -74,6 +74,8 @@ func run() error {
 		return cmdRoutes(args)
 	case "user":
 		return cmdUser(args)
+	case "config":
+		return cmdConfig(args)
 	case "web":
 		return cmdWeb(args)
 	case "discover":
@@ -109,6 +111,9 @@ func usage() {
 	fmt.Println("  nat list          show Testudo-managed port forwards")
 	fmt.Println("  nat add <proto> <wan> <lan-ip>[:<lan-port>]   add port forward")
 	fmt.Println("  nat del <proto> <wan>                          remove port forward")
+	fmt.Println("  config status | history [-n N] | export        the configuration model (read)")
+	fmt.Println("  config import-legacy [--apply]                 translate firewall.json, users and tunnels into the model")
+	fmt.Println("  config compact [--keep N]                      fold old history into a snapshot")
 	fmt.Println("  firewall status                                policy mode, counts, kernel drift")
 	fmt.Println("  firewall rules                                 render the policy nft-style")
 	fmt.Println("  firewall export | import [--file F]            policy JSON out / in (import applies immediately)")
