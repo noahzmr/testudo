@@ -9,11 +9,17 @@
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 
-pkgs="./internal/capture ./internal/fwbridge"
-pattern='^(TestFlowBaseline|TestModelDrivesTheKernel)$'
+pkgs="./internal/capture ./internal/fwbridge ./internal/fwstage ./cmd/testudo"
+pattern='^(TestFlowBaseline|TestModelDrivesTheKernel|TestRulesetOnARealKernel|TestPrivilegedPathEndToEnd)$'
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+# The end-to-end test drives the real binary with privilege separation.
+CGO_ENABLED=0 go build -o "$tmp/testudo" ./cmd/testudo
 
 if [ "$(id -u)" = 0 ]; then
-	TESTUDO_REQUIRE_NETNS=1 exec go test -count=1 -run "$pattern" $pkgs
+	TESTUDO_REQUIRE_NETNS=1 TESTUDO_E2E_BIN="$tmp/testudo" go test -count=1 -run "$pattern" $pkgs
+	exit
 fi
 
 image=${TESTUDO_NETNS_IMAGE:-$(git config --get testudo.netnsImage 2>/dev/null || echo testudo-netns:12)}
@@ -22,13 +28,11 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
 	echo "  docker build -t testudo-netns:12 scripts/netns-image" >&2
 	exit 1
 fi
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
 for p in $pkgs; do
 	CGO_ENABLED=0 go test -c -o "$tmp/$(basename "$p").test" "$p"
 done
 for bin in "$tmp"/*.test; do
-	docker run --rm --privileged --network none -e TESTUDO_REQUIRE_NETNS=1 -v "$tmp:/t:ro" "$image" \
+	docker run --rm --privileged --network none -e TESTUDO_REQUIRE_NETNS=1 -e TESTUDO_E2E_BIN=/t/testudo -v "$tmp:/t:ro" "$image" \
 		"/t/$(basename "$bin")" -test.run "$pattern" -test.count=1 >"$tmp/log" 2>&1 || {
 		cat "$tmp/log" >&2
 		echo "netns-tests: FAILED in $(basename "$bin")" >&2

@@ -28,9 +28,10 @@ func (s *Server) mountConfig(mux *http.ServeMux) error {
 		return nil
 	}
 	api := &confapi.Server{
-		Store:  s.Engine.ConfigStore(),
-		Engine: s.Engine.ConfigApply(),
-		Done:   s.stopping,
+		Store:   s.Engine.ConfigStore(),
+		Engine:  s.Engine.ConfigApply(),
+		Done:    s.stopping,
+		Runtime: s.Engine.ConfigRuntime,
 		Identify: func(r *http.Request) (confapi.Identity, bool) {
 			rec, ok := r.Context().Value(sessionCtxKey).(*sessionRecord)
 			if !ok || rec == nil {

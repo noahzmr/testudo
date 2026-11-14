@@ -193,11 +193,24 @@ async function listView(form) {
   const g = gen;
   const cols = form.fields.filter(f => !f.group?.match(/^(Meta|Scope)$/) && f.name !== 'description').slice(0, 5);
   await Promise.all([...new Set(cols.filter(c => c.type === 'ref').map(c => c.ref))].map(loadNames));
-  const r = await api('GET', '/' + form.plural);
+  const [r, rt] = await Promise.all([api('GET', '/' + form.plural), api('GET', '/runtime')]);
   if (g !== gen) return;
+  // What the running system says about these objects: traffic matched per
+  // rule, and how fresh a run-time alias is.
+  const counters = rt.data?.counters, feeds = rt.data?.aliases || {};
+  const live = o => {
+    if (form.kind === 'alias') {
+      const st = feeds[o.id];
+      return !st ? '' : st.error ? `${st.entries} entries · ${st.error}` : `${st.entries} entries · ${new Date(st.refreshed).toLocaleTimeString()}`;
+    }
+    const c = counters?.[o.id];
+    return c ? `${c.packets.toLocaleString()} pkts` : '';
+  };
+  const showLiveCol = (form.kind === 'alias' && Object.keys(feeds).length) || (counters && (form.kind === 'filter_rule' || form.kind === 'nat_rule'));
   if (!r.ok) return fill(main, el('p', { class: 'err', text: r.data?.message || 'failed' }));
   const rows = (r.data || []).map(o => el('tr', { onclick: () => { location.hash = `#/${form.plural}/${o.id}`; } },
     cols.map(c => el('td', { text: show(c, o[c.name]) })),
+    showLiveCol ? el('td', { class: feeds[o.id]?.error ? 'err' : '', text: live(o) }) : null,
     el('td', { text: o.scope }), el('td', { class: 'dim', text: `v${o.version} · ${o.updated_by || ''}` })));
   fill(main, 
     el('header', {},
@@ -205,7 +218,7 @@ async function listView(form) {
       can(form, 'write') ? el('button', { class: 'primary', text: 'New', onclick: () => { location.hash = `#/${form.plural}/new`; } }) : null),
     ENFORCED.has(form.kind) ? null : el('p', { class: 'cfg-planned', text: 'Stored, versioned and audited. Not applied to the running system yet; use Running state for what is in effect.' }),
     rows.length ? el('table', { class: 'cfg-table' },
-      el('thead', {}, el('tr', {}, cols.map(c => el('th', { text: c.label })), el('th', { text: 'Scope' }), el('th', { text: 'Version' }))),
+      el('thead', {}, el('tr', {}, cols.map(c => el('th', { text: c.label })), showLiveCol ? el('th', { text: form.kind === 'alias' ? 'Content' : 'Matched' }) : null, el('th', { text: 'Scope' }), el('th', { text: 'Version' }))),
       el('tbody', {}, rows)) : el('p', { class: 'dim', text: 'No objects yet.' }));
 }
 

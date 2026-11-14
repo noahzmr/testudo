@@ -12,6 +12,7 @@ import (
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/events"
 	"github.com/noahzmr/testudo/internal/firewall"
+	"github.com/noahzmr/testudo/internal/fwstage"
 	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/netops"
 )
@@ -78,14 +79,26 @@ func firewallProtectedPorts(cfg config.Config) []uint16 {
 // but not one that should stop the observability engine: it is logged, the
 // firewall subsystem is marked failed, and all firewall mutations are refused
 // until the file is fixed.
-func openFirewall(cfg config.Config, nw *netops.Writer) (*firewall.Manager, error) {
+func openFirewall(cfg config.Config, nw *netops.Writer) (*firewall.Manager, *fwstage.Stage, error) {
 	if nw == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return firewall.Open(firewall.Options{
-		Path:              firewallPolicyPath(cfg),
-		ProtectedTCPPorts: firewallProtectedPorts(cfg),
-	}, nw)
+	opts := firewall.Options{Path: firewallPolicyPath(cfg), ProtectedTCPPorts: firewallProtectedPorts(cfg)}
+	// With nft available on the privileged side, the manager hands its
+	// tables to the nftables stage, which loads them together with the
+	// model's rules as one ruleset. Otherwise it programs the kernel over
+	// netlink as before and the model is enforced through the bridge.
+	if nw.NftAvailable() {
+		stage := &fwstage.Stage{Runner: nw}
+		m, err := firewall.Open(opts, stage)
+		if err != nil {
+			return nil, nil, err
+		}
+		stage.SetManager(m)
+		return m, stage, nil
+	}
+	m, err := firewall.Open(opts, nw)
+	return m, nil, err
 }
 
 // Firewall returns the policy manager (nil when netops is unavailable or the

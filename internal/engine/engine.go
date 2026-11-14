@@ -20,6 +20,7 @@ import (
 	"github.com/noahzmr/testudo/internal/events"
 	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/flows"
+	"github.com/noahzmr/testudo/internal/fwstage"
 	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/incidents"
 	"github.com/noahzmr/testudo/internal/integrations/maxmind"
@@ -59,6 +60,9 @@ type Engine struct {
 	// unreadable (fwErr says why). All firewall/NAT mutations go through it.
 	fw    *firewall.Manager
 	fwErr error
+	// fwNft is the nftables stage when nft can be driven with privileges;
+	// nil means the manager programs the kernel over netlink.
+	fwNft *fwstage.Stage
 	// conf is the configuration model's store and apply engine.
 	conf confCore
 	// pam is the privileged-access manager (JIT grants compiled into firewall
@@ -121,12 +125,13 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 	bus := events.NewBus(2048)
 	dnsCache := flows.NewDNSCache()
 	dnsCache.SetReverseEnabled(cfg.ReverseDNSEnabled)
-	fw, fwErr := openFirewall(cfg, nw)
+	fw, fwNft, fwErr := openFirewall(cfg, nw)
 	if fwErr != nil {
 		log.Printf("firewall: policy unavailable, firewall/NAT management disabled: %v", fwErr)
 	}
 	e := &Engine{
 		fw:        fw,
+		fwNft:     fwNft,
 		fwErr:     fwErr,
 		cfg:       cfg,
 		bus:       bus,

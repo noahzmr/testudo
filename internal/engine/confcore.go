@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/noahzmr/testudo/internal/aliasfeed"
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/confstore"
@@ -27,6 +28,8 @@ type confCore struct {
 	apply  *confapply.Engine
 	err    error
 	notify atomic.Pointer[func(confapply.Notice)]
+	// feed holds the content of URL-table and GeoIP aliases.
+	feed *aliasfeed.Feed
 }
 
 // ConfigDir is where the configuration log and the pending-apply marker live.
@@ -39,14 +42,24 @@ func (e *Engine) openConfig() {
 		log.Printf("config: model store unavailable: %v", c.err)
 		return
 	}
-	// The packet filter is the first subsystem the model drives. A typed nil
-	// must not reach the interface, hence the explicit check.
-	var fw fwbridge.Manager
-	if e.fw != nil {
-		fw = e.fw
+	// The packet filter is the first subsystem the model drives: through
+	// the nftables stage where nft can be run with privileges, through the
+	// bridge into the netlink path otherwise.
+	c.feed = aliasfeed.New(filepath.Join(dir, "alias-cache.json"))
+	c.feed.GeoDBDir = func() string { return e.settings.Snapshot().MaxMindDBDir }
+	var stage confapply.Stage
+	if e.fwNft != nil {
+		e.fwNft.Locate, e.fwNft.Elements = localNode, c.feed.Snapshot
+		stage = e.fwNft
+	} else {
+		// A typed nil must not reach the interface, hence the explicit check.
+		var fw fwbridge.Manager
+		if e.fw != nil {
+			fw = e.fw
+		}
+		stage = &fwbridge.Stage{Manager: fw, Locate: localNode}
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice},
-		&fwbridge.Stage{Manager: fw, Locate: localNode})
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, stage)
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
@@ -97,6 +110,54 @@ func (e *Engine) startConfig(ctx context.Context) {
 	if err := e.conf.apply.Start(ctx); err != nil {
 		log.Printf("config: start: %v", err)
 	}
+	if e.fwNft != nil {
+		go e.aliasFeedLoop(ctx)
+	}
+}
+
+// aliasFeedLoop refreshes run-time aliases and reloads the ruleset when their
+// content changed.
+func (e *Engine) aliasFeedLoop(ctx context.Context) {
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	for {
+		st := e.conf.store.Current()
+		var aliases []*model.Alias
+		for _, a := range st.List(model.KindAlias) {
+			aliases = append(aliases, a.(*model.Alias))
+		}
+		if e.conf.feed.Refresh(ctx, aliases, time.Now()) {
+			if _, pending := e.conf.apply.Pending(); !pending {
+				if err := e.fwNft.Refresh(st); err != nil {
+					log.Printf("config: reload after alias refresh: %v", err)
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// ConfigRuntime reports what the model's objects are doing in the running
+// system: which packet-filter path is in use, per-object counters, and the
+// state of run-time aliases.
+func (e *Engine) ConfigRuntime() map[string]any {
+	out := map[string]any{"packet_filter": "netlink"}
+	if e.fwNft != nil {
+		out["packet_filter"] = "nftables"
+		if c, err := e.fwNft.Counters(); err == nil {
+			out["counters"] = c
+		} else {
+			out["counters_error"] = err.Error()
+		}
+	}
+	if e.conf.feed != nil {
+		out["aliases"] = e.conf.feed.StatusOf()
+	}
+	return out
 }
 
 // localNode finds this machine in the model by host name. Until a node is
