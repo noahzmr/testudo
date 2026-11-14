@@ -1,0 +1,15 @@
+#!/bin/sh
+# Rejects commit messages that carry tooling attribution. Messages describe
+# the change and nothing else; trailers crediting generators are not allowed.
+#
+# Activate once per clone:  git config core.hooksPath scripts/hooks
+set -eu
+
+pattern='claude|anthropic|co-authored-by|generated with'
+
+# Comment lines are stripped by git before the commit is recorded.
+if grep -v '^#' "$1" | grep -inE "$pattern" >&2; then
+	echo >&2
+	echo "commit-msg: message rejected, it matches /$pattern/i (lines above)." >&2
+	exit 1
+fi

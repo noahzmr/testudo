@@ -1,0 +1,32 @@
+#!/bin/sh
+# 1. Rejects staged changes that add tooling attribution.
+# 2. Runs the flow-analysis baseline, which has to stay green at every commit.
+#
+# Activate once per clone:  git config core.hooksPath scripts/hooks
+set -eu
+
+pattern='claude|anthropic|co-authored-by|generated with'
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+# Only lines this commit adds are checked, so touching a file that already
+# contains a match does not block unrelated work. The hooks themselves have to
+# spell the pattern out and are exempt.
+hits=$(git diff --cached --no-color --unified=0 --diff-filter=ACMR -- . ':(exclude)scripts/hooks' |
+	awk '/^\+\+\+ /{file=substr($0,7); next} /^\+/{print file": "substr($0,2)}' |
+	grep -iE "$pattern" || true)
+if [ -n "$hits" ]; then
+	echo "pre-commit: staged changes match /$pattern/i:" >&2
+	echo "$hits" >&2
+	exit 1
+fi
+
+# New file names count too.
+names=$(git diff --cached --name-only --diff-filter=ACR | grep -iE "$pattern" || true)
+if [ -n "$names" ]; then
+	echo "pre-commit: staged file names match /$pattern/i:" >&2
+	echo "$names" >&2
+	exit 1
+fi
+
+exec "$root/scripts/flow-baseline.sh"
