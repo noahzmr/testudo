@@ -1,0 +1,352 @@
+// Package confapply turns a change to the configuration model into a change
+// of the running system, and takes it back unless the operator confirms.
+//
+//	validate -> render -> dry run -> commit -> apply -> health check
+//	         -> wait for confirmation -> keep, or roll back automatically
+//
+// Nothing touches the system before every stage has rendered and passed its
+// dry run. The pending confirmation is written to disk before the first
+// stage is applied, so a crash or reboot inside the window rolls back on the
+// next start instead of leaving an unconfirmed change in place.
+package confapply
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/noahzmr/testudo/internal/confstore"
+)
+
+// Stage renders one part of the system (packet filter, routing daemon, VPN,
+// proxy) from the model and applies it. Render must be pure: the same state
+// always gives the same bytes, which is what golden-file tests pin down.
+type Stage interface {
+	Name() string
+	Render(s *confstore.State) ([]byte, error)
+	// Check is the dry run: it must not change the running system.
+	Check(ctx context.Context, artifact []byte) error
+	// Apply replaces the running configuration atomically.
+	Apply(ctx context.Context, artifact []byte) error
+	// Healthy reports whether the stage works after an apply.
+	Healthy(ctx context.Context) error
+}
+
+// DefaultWindow is how long an applied change waits for confirmation.
+const DefaultWindow = 60 * time.Second
+
+// SystemActor is recorded as the author of automatic rollbacks.
+const SystemActor = "system:rollback"
+
+var (
+	// ErrPending is returned while an applied change awaits confirmation.
+	// No further change is accepted until it is confirmed or rolled back.
+	ErrPending = errors.New("confapply: a change is waiting for confirmation")
+	// ErrNothingPending is returned by Confirm and Rollback when no change
+	// is waiting.
+	ErrNothingPending = errors.New("confapply: no change is waiting for confirmation")
+)
+
+// StageError says which stage failed in which phase.
+type StageError struct {
+	Stage string
+	Phase string // "render", "check", "apply", "health", "rollback"
+	Err   error
+	// RolledBack is set when the failure happened after the commit and the
+	// previous configuration was restored.
+	RolledBack bool
+}
+
+func (e *StageError) Error() string {
+	s := fmt.Sprintf("%s failed in stage %s: %v", e.Phase, e.Stage, e.Err)
+	if e.RolledBack {
+		s += " (previous configuration restored)"
+	}
+	return s
+}
+func (e *StageError) Unwrap() error { return e.Err }
+
+// Pending describes the change that awaits confirmation.
+type Pending struct {
+	Index    int64     `json:"index"`
+	Actor    string    `json:"actor"`
+	Note     string    `json:"note,omitempty"`
+	Deadline time.Time `json:"deadline"`
+}
+
+// Notice is emitted for every outcome so the caller can audit and display it.
+type Notice struct {
+	Event  string // "applied", "confirmed", "rolled_back", "rollback_failed"
+	Index  int64
+	Actor  string
+	Reason string
+	Err    error
+}
+
+// Engine serialises applies for one node.
+type Engine struct {
+	store  *confstore.Store
+	stages []Stage
+	window time.Duration
+	file   string
+	notify func(Notice)
+
+	mu      sync.Mutex
+	pending *Pending
+	prev    map[string][]byte // artifacts in force before the pending change
+	timer   *time.Timer
+}
+
+// Options configures an Engine.
+type Options struct {
+	// Dir holds the pending-confirmation marker (created 0700).
+	Dir string
+	// Window overrides DefaultWindow.
+	Window time.Duration
+	// Notify receives every outcome. It is called with the engine locked
+	// and must not call back into it.
+	Notify func(Notice)
+}
+
+// New builds an engine. Stages are applied in the given order and rolled
+// back in reverse.
+func New(store *confstore.Store, opts Options, stages ...Stage) (*Engine, error) {
+	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
+		return nil, err
+	}
+	e := &Engine{store: store, stages: stages, window: opts.Window, notify: opts.Notify,
+		file: filepath.Join(opts.Dir, "pending-apply.json")}
+	if e.window <= 0 {
+		e.window = DefaultWindow
+	}
+	if e.notify == nil {
+		e.notify = func(Notice) {}
+	}
+	return e, nil
+}
+
+// Pending returns the change that awaits confirmation, if any.
+func (e *Engine) Pending() (Pending, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.pending == nil {
+		return Pending{}, false
+	}
+	return *e.pending, true
+}
+
+// Start brings the running system in line with the model. If the process
+// stopped while a change was unconfirmed, that change is rolled back first.
+// Call it once before serving requests.
+func (e *Engine) Start(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if data, err := os.ReadFile(e.file); err == nil {
+		var p Pending
+		if err := json.Unmarshal(data, &p); err != nil {
+			return fmt.Errorf("confapply: unreadable %s: %w", e.file, err)
+		}
+		e.pending = &p
+		return e.rollbackLocked(ctx, SystemActor, "restart before the change was confirmed")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	arts, err := e.render(e.store.Current())
+	if err != nil {
+		return err
+	}
+	for _, st := range e.stages {
+		if err := st.Apply(ctx, arts[st.Name()]); err != nil {
+			return &StageError{Stage: st.Name(), Phase: "apply", Err: err}
+		}
+	}
+	return nil
+}
+
+func (e *Engine) render(s *confstore.State) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(e.stages))
+	for _, st := range e.stages {
+		a, err := st.Render(s)
+		if err != nil {
+			return nil, &StageError{Stage: st.Name(), Phase: "render", Err: err}
+		}
+		out[st.Name()] = a
+	}
+	return out, nil
+}
+
+// Plan validates ops and renders every stage without committing or changing
+// anything. It returns the artifacts the change would produce.
+func (e *Engine) Plan(ctx context.Context, actor string, ops []confstore.Op) (map[string][]byte, []confstore.Change, error) {
+	cand, changes, err := e.store.Preview(actor, ops)
+	if err != nil {
+		return nil, nil, err
+	}
+	arts, err := e.render(cand)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, st := range e.stages {
+		if err := st.Check(ctx, arts[st.Name()]); err != nil {
+			return nil, nil, &StageError{Stage: st.Name(), Phase: "check", Err: err}
+		}
+	}
+	return arts, changes, nil
+}
+
+// Apply runs the whole pipeline for ops as one transaction. changeSets are
+// consumed by the commit. On success the change is live and waits for
+// Confirm until the returned deadline; without it the previous configuration
+// comes back.
+func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.Op, changeSets ...string) (Pending, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.pending != nil {
+		return Pending{}, ErrPending
+	}
+	prev, err := e.render(e.store.Current())
+	if err != nil {
+		return Pending{}, err
+	}
+	arts, _, err := e.Plan(ctx, actor, ops)
+	if err != nil {
+		return Pending{}, err
+	}
+
+	rec, err := e.store.Commit(ctx, actor, note, ops, changeSets...)
+	if err != nil {
+		return Pending{}, err
+	}
+	p := Pending{Index: rec.Index, Actor: actor, Note: note, Deadline: time.Now().Add(e.window).UTC()}
+	if err := e.writeMarker(p); err != nil {
+		// Without a durable marker a crash could leave the change
+		// unconfirmed forever, so do not start applying.
+		_, rerr := e.store.Revert(ctx, SystemActor, rec.Index, "could not record the pending confirmation")
+		return Pending{}, errors.Join(fmt.Errorf("confapply: write marker: %w", err), rerr)
+	}
+	e.pending, e.prev = &p, prev
+
+	fail := func(stage, phase string, cause error) (Pending, error) {
+		rbErr := e.rollbackLocked(ctx, SystemActor, fmt.Sprintf("%s failed in stage %s: %v", phase, stage, cause))
+		return Pending{}, errors.Join(&StageError{Stage: stage, Phase: phase, Err: cause, RolledBack: rbErr == nil}, rbErr)
+	}
+	for _, st := range e.stages {
+		if err := st.Apply(ctx, arts[st.Name()]); err != nil {
+			return fail(st.Name(), "apply", err)
+		}
+	}
+	for _, st := range e.stages {
+		if err := st.Healthy(ctx); err != nil {
+			return fail(st.Name(), "health", err)
+		}
+	}
+
+	e.timer = time.AfterFunc(e.window, func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		// The timer may fire while Confirm holds the lock.
+		if e.pending != nil && e.pending.Index == p.Index {
+			_ = e.rollbackLocked(context.Background(), SystemActor, "not confirmed in time")
+		}
+	})
+	e.notify(Notice{Event: "applied", Index: p.Index, Actor: actor})
+	return p, nil
+}
+
+// Confirm keeps the pending change.
+func (e *Engine) Confirm(actor string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.pending == nil {
+		return ErrNothingPending
+	}
+	if e.timer != nil {
+		e.timer.Stop()
+	}
+	if err := os.Remove(e.file); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	idx := e.pending.Index
+	e.pending, e.prev, e.timer = nil, nil, nil
+	e.notify(Notice{Event: "confirmed", Index: idx, Actor: actor})
+	return nil
+}
+
+// Rollback takes the pending change back now.
+func (e *Engine) Rollback(ctx context.Context, actor, reason string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.pending == nil {
+		return ErrNothingPending
+	}
+	return e.rollbackLocked(ctx, actor, reason)
+}
+
+// rollbackLocked reverts the pending record in the model and re-applies the
+// previous artifacts to every stage, in reverse order. It keeps going after
+// a failing stage so one broken stage cannot keep the others on the new
+// configuration.
+func (e *Engine) rollbackLocked(ctx context.Context, actor, reason string) error {
+	p := *e.pending
+	if e.timer != nil {
+		e.timer.Stop()
+	}
+	var errs []error
+	if _, err := e.store.Revert(ctx, actor, p.Index, reason); err != nil {
+		errs = append(errs, fmt.Errorf("revert record %d: %w", p.Index, err))
+	}
+	prev := e.prev
+	if prev == nil {
+		// After a restart the previous artifacts are gone; the reverted
+		// model renders to the same thing.
+		var err error
+		if prev, err = e.render(e.store.Current()); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for i := len(e.stages) - 1; i >= 0 && prev != nil; i-- {
+		st := e.stages[i]
+		if err := st.Apply(ctx, prev[st.Name()]); err != nil {
+			errs = append(errs, &StageError{Stage: st.Name(), Phase: "rollback", Err: err})
+		}
+	}
+	if err := os.Remove(e.file); err != nil && !errors.Is(err, os.ErrNotExist) {
+		errs = append(errs, err)
+	}
+	e.pending, e.prev, e.timer = nil, nil, nil
+	if err := errors.Join(errs...); err != nil {
+		e.notify(Notice{Event: "rollback_failed", Index: p.Index, Actor: actor, Reason: reason, Err: err})
+		return fmt.Errorf("confapply: rollback of record %d incomplete: %w", p.Index, err)
+	}
+	e.notify(Notice{Event: "rolled_back", Index: p.Index, Actor: actor, Reason: reason})
+	return nil
+}
+
+func (e *Engine) writeMarker(p Pending) error {
+	data, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	tmp := e.file + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, e.file)
+}
