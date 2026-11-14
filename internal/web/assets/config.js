@@ -1,4 +1,4 @@
-// Configuration page. Every form, table and picker here is built from
+// Configuration pane of the main console. Every form, table and picker here is built from
 // /api/v1/schema/ui.json; nothing is written per entity.
 'use strict';
 
@@ -58,14 +58,14 @@ const can = (form, verb) => (S.who?.permissions || []).some(p => {
 
 function toast(msg, kind = '') {
   const t = el('div', { class: 'cfg-toast ' + kind, text: msg });
-  $('#toasts').append(t);
+  $('#cfg-toasts').append(t);
   setTimeout(() => t.remove(), 6000);
 }
 
 // ---- navigation ----------------------------------------------------------
 
 function renderNav() {
-  const nav = $('#nav');
+  const nav = $('#cfg-nav');
   fill(nav, );
   const groups = {};
   for (const f of S.forms) (groups[f.menu.split('/')[0]] ||= []).push(f);
@@ -85,6 +85,9 @@ function renderNav() {
 // so a slower, older view cannot paint over the one the user moved on to.
 let gen = 0;
 async function route() {
+  // The pane shares the page with the rest of the console; only hashes of
+  // the form #/<kind>/... belong to it.
+  if (!location.hash.startsWith('#/')) return;
   const [, seg, id] = location.hash.split('/');
   const g = ++gen;
   S.editing = null;
@@ -92,7 +95,7 @@ async function route() {
   if (seg === 'history') { S.form = null; renderNav(); return historyView(); }
   S.form = S.forms.find(f => f.plural === seg) || S.forms.find(f => can(f, 'read'));
   renderNav();
-  if (!S.form) return fill($('#main'), el('p', { text: 'Nothing you may read.' }));
+  if (!S.form) return fill($('#cfg-main'), el('p', { text: 'Nothing you may read.' }));
   if (id === 'new') return editView(S.form, null);
   if (id) {
     const r = await api('GET', `/${S.form.plural}/${id}`);
@@ -126,7 +129,7 @@ function show(field, v) {
 }
 
 async function listView(form) {
-  const main = $('#main');
+  const main = $('#cfg-main');
   const g = gen;
   const cols = form.fields.filter(f => !f.group?.match(/^(Meta|Scope)$/) && f.name !== 'description').slice(0, 5);
   await Promise.all([...new Set(cols.filter(c => c.type === 'ref').map(c => c.ref))].map(loadNames));
@@ -303,10 +306,10 @@ async function editView(form, obj, origins) {
   S.editing = obj ? { kind: form.kind, id: obj.id } : null;
   const writable = can(form, 'write');
   const f = buildForm(form, obj, { writable, origins });
-  const status = el('div', { id: 'status' });
+  const status = el('div', { id: 'cfg-status' });
   const ui = { form: f, status, reload: cur => editView(form, cur), done: () => { location.hash = '#/' + form.plural; } };
   const extra = el('div', { class: 'cfg-extra' });
-  fill($('#main'), 
+  fill($('#cfg-main'), 
     el('header', {}, el('h2', { text: obj ? `${form.title}: ${obj.name}` : `New ${form.title}` }),
       el('a', { href: '#/' + form.plural, text: 'Back' })),
     el('form', { class: 'cfg-form', onsubmit: async ev => {
@@ -384,7 +387,7 @@ function afterWrite(r) {
 // that management access survived, so it confirms after a short pause in
 // which the operator can still take the change back.
 function showPending(deadline) {
-  const bar = $('#pending');
+  const bar = $('#cfg-pending');
   clearTimeout(confirmTimer);
   let left = 5;
   const tick = async () => {
@@ -406,7 +409,7 @@ function showPending(deadline) {
 
 async function refreshDrafts() {
   const r = await api('GET', '/changesets');
-  const sel = $('#draft');
+  const sel = $('#cfg-draft');
   const mine = (r.data || []);
   fill(sel, el('option', { value: '', text: 'Apply immediately' }),
     ...mine.map(c => el('option', { value: c.id, text: `Change set: ${c.name} (${c.ops}, ${c.owner})`, selected: c.id === S.draft })));
@@ -425,7 +428,7 @@ function changeRows(changes) {
 }
 
 async function changeSetsView() {
-  const main = $('#main');
+  const main = $('#cfg-main');
   const g = gen;
   const sets = await refreshDrafts();
   const out = el('div');
@@ -470,7 +473,7 @@ async function historyView() {
   const g = gen;
   const r = await api('GET', '/history?limit=50');
   if (g !== gen) return;
-  fill($('#main'), el('header', {}, el('h2', { text: 'History' })),
+  fill($('#cfg-main'), el('header', {}, el('h2', { text: 'History' })),
     ...(r.data || []).map(rec => el('section', { class: 'cfg-card' },
       el('header', {}, el('strong', { text: `#${rec.index} ${rec.type}` }),
         el('span', { class: 'dim', text: ` ${new Date(rec.time).toLocaleString()} · ${rec.actor}${rec.note ? ' · ' + rec.note : ''}` }),
@@ -491,7 +494,7 @@ function onChange(e) {
   for (const c of e.changes || []) {
     toast(`${c.kind} "${c.name}" ${c.type}d by ${e.actor}`);
     if (S.editing && S.editing.kind === c.kind && S.editing.id === c.id) {
-      fill($('#status'), el('p', { class: 'err', text: `This object was just changed by ${e.actor}. Saving will show the differences.` }));
+      fill($('#cfg-status'), el('p', { class: 'err', text: `This object was just changed by ${e.actor}. Saving will show the differences.` }));
     }
   }
   if (!S.editing && !document.querySelector('dialog[open]')) route();
@@ -505,23 +508,29 @@ function listen() {
   });
   es.addEventListener('apply', ev => {
     const e = JSON.parse(ev.data);
-    if (e.event === 'rolled_back') { toast(`Change #${e.index} was rolled back: ${e.reason}`, 'err'); $('#pending').hidden = true; if (!S.editing) route(); }
+    if (e.event === 'rolled_back') { toast(`Change #${e.index} was rolled back: ${e.reason}`, 'err'); $('#cfg-pending').hidden = true; if (!S.editing) route(); }
     if (e.event === 'rollback_failed') toast(`Rollback of #${e.index} is incomplete: ${e.error}`, 'err');
   });
 }
 
 async function main() {
   const [ui, who] = await Promise.all([api('GET', '/schema/ui.json'), api('GET', '/whoami')]);
-  if (!ui.ok) { fill($('#main'), el('p', { class: 'err', text: ui.data?.message || 'The configuration model is unavailable.' })); return; }
+  if (!ui.ok) { fill($('#cfg-main'), el('p', { class: 'err', text: ui.data?.message || 'The configuration model is unavailable.' })); return; }
   S.forms = ui.data.forms; S.mask = ui.data.secret_mask; S.who = who.data;
   for (const f of S.forms) S.byKind[f.kind] = f;
-  $('#who').textContent = S.who.name;
-  $('#draft').addEventListener('change', ev => { S.draft = ev.target.value; route(); });
+  $('#cfg-draft').addEventListener('change', ev => { S.draft = ev.target.value; route(); });
   await refreshDrafts();
   const st = await api('GET', '/apply');
   if (st.data?.pending) showPending(st.data.pending.deadline);
   window.addEventListener('hashchange', route);
   listen();
-  route();
+  // Opening the pane shows the first readable kind; a deep link into the
+  // pane (#/aliases/...) switches the console to it.
+  const tab = document.querySelector('.tab[data-tab="config"]');
+  tab?.addEventListener('click', () => {
+    if (!location.hash.startsWith('#/')) location.hash = '#/' + (S.forms.find(f => can(f, 'read'))?.plural || '');
+    else route();
+  });
+  if (location.hash.startsWith('#/')) tab?.click();
 }
 main();

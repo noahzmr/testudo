@@ -2,34 +2,23 @@ package web
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 
 	"github.com/noahzmr/testudo/internal/confapi"
 )
 
-// mountConfig serves the configuration model: the versioned API below
-// /api/v1/ and the schema-driven page at /config.
+// mountConfig serves the configuration model's versioned API below /api/v1/.
+// Its screens are the Configuration pane of the main console (index.html).
 //
 // The API does its own authorisation per object kind, so it is not wrapped
 // in protect (whose rules are per URL prefix). This wrapper only establishes
 // who is calling and rejects cross-origin writes.
 func (s *Server) mountConfig(mux *http.ServeMux) error {
-	page, err := assetsFS.ReadFile("assets/config.html")
-	if err != nil {
-		return fmt.Errorf("read config.html: %w", err)
-	}
-	configPage := &staticAsset{body: s.static.Version(page), ctype: "text/html; charset=utf-8"}
-	// The hash is the page's ETag. Without it every build would answer a
-	// revalidation with "not modified" and browsers would keep the old page,
-	// and through it the old script.
-	sum := sha256.Sum256(configPage.body)
-	configPage.hash = hex.EncodeToString(sum[:])[:12]
+	// The configuration screens are a pane of the main console. The old
+	// address keeps working.
 	mux.HandleFunc("/config", s.protect(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "private, no-cache")
-		configPage.write(w, r)
+		http.Redirect(w, r, "/#/", http.StatusFound)
 	}))
 
 	if s.Engine.ConfigStore() == nil {

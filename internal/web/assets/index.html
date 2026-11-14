@@ -9,6 +9,7 @@
   <meta name="theme-color" content="#0b0f14">
   <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/config.css">
 </head>
 <body>
   <a href="#main" class="skip-link">Skip to content</a>
@@ -83,6 +84,11 @@
           <div class="nav-group-label">Forensics</div>
           <button data-tab="tcpdump" class="tab"><svg class="nav-ico"><use href="#i-tcpdump"/></svg> TCPDump</button>
           <button data-tab="history" class="tab"><svg class="nav-ico"><use href="#i-history"/></svg> History</button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">Policy</div>
+          <button data-tab="config" class="tab"><svg class="nav-ico"><use href="#i-settings"/></svg> Configuration</button>
         </div>
 
         <div class="nav-group">
@@ -850,6 +856,19 @@
       </div>
     </section>
 
+    <section data-pane="config" class="pane cfg" role="tabpanel" aria-label="Configuration">
+      <div class="cfg-top">
+        <span class="cfg-note">The configuration model: versioned, reviewed and audited. Subsystems are moved onto it one by one; until then it is not enforced on the running system.</span>
+        <select id="cfg-draft" aria-label="Where changes go"></select>
+      </div>
+      <div id="cfg-pending" class="cfg-pending" hidden></div>
+      <div class="cfg-body">
+        <nav id="cfg-nav" aria-label="Configuration"></nav>
+        <div id="cfg-main"></div>
+      </div>
+      <div id="cfg-toasts" aria-live="polite"></div>
+    </section>
+
     <section data-pane="settings" class="pane" role="tabpanel" aria-label="Settings">
       <div class="card">
         <h2>Thresholds</h2>
@@ -949,5 +968,6 @@
   <meta name="lazy-script" data-lib="sankey" content="/static/vendor/d3-sankey.min.js">
   <meta name="lazy-script" data-lib="qr" content="/static/vendor/qrcode.js">
   <script src="/static/app.js" defer></script>
+  <script src="/static/config.js" defer></script>
 </body>
 </html>

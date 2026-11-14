@@ -1,18 +1,17 @@
-/* Configuration page. Colours come from app.css. */
-body.cfg { margin: 0; background: var(--bg); color: var(--fg); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 14px; }
-.cfg-top { display: flex; gap: 16px; align-items: center; padding: 10px 16px; background: var(--bg-sidebar); border-bottom: 1px solid var(--border); }
-.cfg-top a { color: var(--brand); text-decoration: none; }
+/* Configuration pane. Colours come from app.css. */
+.cfg-top { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+.cfg-top select { width: auto; max-width: 340px; }
 .cfg-note { color: var(--fg-dim); flex: 1; }
-.cfg-pending { padding: 10px 16px; background: #3a2f12; border-bottom: 1px solid #6b5518; }
-.cfg-body { display: flex; min-height: calc(100vh - 44px); }
-#nav { width: 210px; flex: none; padding: 8px 0; background: var(--bg-sidebar); border-right: 1px solid var(--border); }
-#nav h3 { margin: 14px 16px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-faint); }
-#nav a { display: block; padding: 5px 16px; color: var(--fg-muted); text-decoration: none; }
-#nav a:hover { background: var(--bg-hover); }
-#nav a.active { color: var(--brand); background: var(--bg-card); }
-#main { flex: 1; padding: 16px 24px; max-width: 1100px; }
-#main > header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
-#main h2 { margin: 0; font-size: 18px; flex: 1; }
+.cfg-pending { padding: 10px 16px; margin-bottom: 12px; background: #3a2f12; border: 1px solid #6b5518; border-radius: 6px; }
+.cfg-body { display: flex; gap: 20px; align-items: flex-start; }
+#cfg-nav { width: 200px; flex: none; padding: 4px 0 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; }
+#cfg-nav h3 { margin: 14px 16px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-faint); }
+#cfg-nav a { display: block; padding: 5px 16px; color: var(--fg-muted); text-decoration: none; }
+#cfg-nav a:hover { background: var(--bg-hover); }
+#cfg-nav a.active { color: var(--brand); background: var(--bg-card); }
+#cfg-main { flex: 1; min-width: 0; max-width: 1100px; }
+#cfg-main > header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+#cfg-main h2 { margin: 0; font-size: 18px; flex: 1; }
 .cfg-table { width: 100%; border-collapse: collapse; }
 .cfg-table th { text-align: left; font-weight: 500; color: var(--fg-dim); padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .cfg-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
@@ -50,6 +49,6 @@ body.cfg { margin: 0; background: var(--bg); color: var(--fg); font-family: "IBM
 .cfg-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .cfg-extra h3 { font-size: 13px; color: var(--fg-dim); margin: 18px 0 6px; }
 .cfg pre { background: var(--bg-sunken); padding: 8px; border-radius: 4px; overflow: auto; }
-#toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+#cfg-toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
 .cfg-toast { background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 12px; max-width: 360px; }
 .cfg-toast.err { border-color: #8e3b36; }

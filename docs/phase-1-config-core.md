@@ -145,9 +145,9 @@ everything.
 committed record (kind, id, name, actor; no content) and `apply` per apply
 outcome.
 
-## Page
+## Console pane
 
-`/config` is built from `ui.json` at run time: menus, tables, forms and
+The Configuration pane of the console is built from `ui.json` at run time: menus, tables, forms and
 pickers, with no per-entity code and no build step (plain JavaScript, same
 as the existing pages). A reference picker has a "+ new" button that
 creates the target through the target's own endpoint and selects it. A
