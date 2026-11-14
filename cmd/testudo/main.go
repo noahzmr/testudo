@@ -202,7 +202,7 @@ func cmdLive(args []string) error {
 	// wiring anything else, so the web server / TUI / collectors run unprivileged.
 	nw, helperClient, helperState := setupNetops(ctx, cfg, cfg.Thresholds.AllowNetopsWrite, *usePrivsep)
 
-	// Hook Sentry from persisted Settings (CLAUDE.md: "The Sentry DSN is
+	// Hook Sentry from persisted Settings (specification: "The Sentry DSN is
 	// configured in Settings"). Empty DSN is a no-op; the Settings tab can
 	// rotate the DSN at runtime via afterApplyString.
 	_ = sentryx.Init(cfg.Thresholds.SentryDSN, "testudo")

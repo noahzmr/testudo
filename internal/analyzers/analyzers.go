@@ -2,7 +2,7 @@
 // Detectors come in two flavours:
 //
 //   - threshold detectors fire on a single metric crossing a configured
-//     ceiling (default thresholds from CLAUDE.md);
+//     ceiling (default thresholds from the project specification);
 //   - pattern detectors fire on rolling-window aggregates that catch
 //     degradations a single sample wouldn't.
 //
@@ -105,7 +105,7 @@ func (d *HighRTTDetector) Run(ctx context.Context, in <-chan events.Event, bus *
 }
 
 // HighDNSLatencyDetector fires when a single DNS query exceeds the
-// configured threshold. Matches CLAUDE.md "DNS Latency 120ms" default.
+// configured threshold. Matches the project specification "DNS Latency 120ms" default.
 type HighDNSLatencyDetector struct {
 	Settings *config.SettingsStore
 	CoolDown time.Duration

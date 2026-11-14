@@ -112,5 +112,5 @@ the grant.
 ## Out of scope (by design)
 
 Password vaulting and rotation, endpoint privilege elevation. See
-[.claude/todos/pam.md](../.claude/todos/pam.md) for what is still open
+[GAP-ANALYSIS.md](GAP-ANALYSIS.md) for what is still open
 (OIDC, export/replay, enrollment links, approvals notifications).

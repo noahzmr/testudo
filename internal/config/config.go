@@ -11,7 +11,7 @@ import (
 )
 
 // Thresholds drives the anomaly detectors and a handful of runtime
-// toggles. Defaults from CLAUDE.md § "Configurable Thresholds". All fields
+// toggles. Defaults from the project specification, "Configurable Thresholds". All fields
 // are user-tunable via the Settings TUI and persisted to settings.json.
 //
 // AllowNetopsWrite lives here so it gets the same treatment as the numeric
@@ -26,7 +26,7 @@ type Thresholds struct {
 	IncidentCooldown   time.Duration // minimum gap between incident snapshots
 	AllowNetopsWrite   bool          // permit destructive netlink/nftables operations
 
-	// Integration endpoints. CLAUDE.md states these are configurable from the
+	// Integration endpoints. The project specification makes these configurable from the
 	// Settings tab; they're persisted to settings.json alongside the numeric
 	// thresholds so the same edit-and-save path works for both.
 	SentryDSN       string // empty disables Sentry; non-empty re-inits on save

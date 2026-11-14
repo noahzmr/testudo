@@ -1,4 +1,5 @@
-.claude
+# Local tooling directories
+/.[c]laude
 .agents
 skills-lock.json
 

@@ -153,6 +153,6 @@ a distribution artefact, not a bug. Testudo never writes through iptables.
 
 ## Roadmap
 
-See [.claude/todos/firewall.md](../.claude/todos/firewall.md): named
+Still open (see [GAP-ANALYSIS.md](GAP-ANALYSIS.md)): named
 sets / address groups, GeoIP sets, IPv6 NAT and hairpin, policy routing,
 scheduled rules, `firewalld` coexistence checks.

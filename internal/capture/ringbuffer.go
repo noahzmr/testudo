@@ -14,7 +14,7 @@ type PacketRecord struct {
 	Payload   []byte
 }
 
-// RingBuffer is the Layer-1 live storage from CLAUDE.md: a short-lived,
+// RingBuffer is the Layer-1 live storage from the project specification: a short-lived,
 // fixed-capacity in-memory buffer of the most recent packets. When full,
 // new writes overwrite the oldest entries. Used by anomaly analyzers and
 // instant replay to look "just behind now" without touching disk.

@@ -5,8 +5,8 @@ things work by accident (AF_PACKET capture, interface-health polls, flow scope
 labels, routes over the tunnel). The dedicated subsystem described here adds the
 part that doesn't live in normal link-state.
 
-The build checklist and ordering live in
-[.claude/todos/wireguard.md](../.claude/todos/wireguard.md); this document is the
+What is still open is tracked in
+[GAP-ANALYSIS.md](GAP-ANALYSIS.md); this document is the
 design rationale behind it.
 
 ## Why a dedicated subsystem

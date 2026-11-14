@@ -87,7 +87,7 @@ func (s FlowTCPStats) RTTms() float64 { return float64(s.RTTus) / 1000.0 }
 // projection of a FlowStats with both directions of byte counters separated
 // into BytesIn / BytesOut relative to the local endpoint (Endpoint A).
 //
-// This matches the schema documented in CLAUDE.md and is what the storage
+// This matches the schema documented in the project specification and is what the storage
 // and replay layers serialise.
 type FlowSummary struct {
 	Interface string

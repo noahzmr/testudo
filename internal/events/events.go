@@ -61,7 +61,7 @@ const (
 	KindWiFiMetric Kind = "wifi_metric"
 )
 
-// Severity is the canonical 4-level alert ladder defined in CLAUDE.md.
+// Severity is the canonical 4-level alert ladder defined in the project specification.
 // Use these as the AnomalyPayload.Severity value.
 type Severity string
 
