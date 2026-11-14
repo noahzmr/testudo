@@ -88,7 +88,8 @@ func opts() Options {
 	return Options{SiteID: id(site), NodeID: id(node), ProtectedTCPPorts: []int{22, 8080}}
 }
 
-func TestRenderGolden(t *testing.T) {
+// full is the fixture behind the golden file: every feature the renderer has.
+func full(t *testing.T) *fixture {
 	f := base(t)
 	f.add(
 		&model.FirewallPolicy{Meta: meta(40, "default"), DefaultDeny: true, AllowEstablished: true, DropInvalid: true,
@@ -120,6 +121,11 @@ func TestRenderGolden(t *testing.T) {
 		&model.NATRule{Meta: meta(64, "one-to-one"), Enabled: true, Sequence: 50, Type: "one_to_one", Zone: zone(wan), Protocol: "any",
 			Destination: "203.0.113.7", TranslateTo: "10.0.0.7"},
 	)
+	return f
+}
+
+func TestRenderGolden(t *testing.T) {
+	f := full(t)
 	out := f.render(opts())
 	golden.Assert(t, "site.nft", []byte(out))
 

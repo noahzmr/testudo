@@ -3,11 +3,9 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 and 1 complete. Phase 2 in progress
-([phase-2-packet-filter.md](phase-2-packet-filter.md)): the model now drives
-the running packet filter for zones, aliases, filter rules, port forwards,
-masquerade and the default policy, proven against a real kernel. The
-features that need the nftables text renderer are written but not applied.**
+**Status: Phases 0, 1 and 2 complete. The packet filter and NAT are driven by
+the model ([phase-2-packet-filter.md](phase-2-packet-filter.md)), verified
+against a real kernel. Routing (Phase 3) is next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -18,7 +16,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | # | Area | Today | Effort | Risk |
 | --- | --- | --- | --- | --- |
 | 1 | Data model, generation, config core | done | - | - |
-| 2 | Stateful packet filter and NAT | about 65 % | 2–3 weeks left | high |
+| 2 | Stateful packet filter and NAT | done | - | - |
 | 3 | Routing (FRR), multi-WAN, PBR | about 5 % | 6–8 weeks | medium |
 | 4 | WireGuard and identity-aware access | about 45 % | 5–6 weeks | medium |
 | 5 | Load balancing, SNI, certificates | nothing | 7–9 weeks | medium |
@@ -92,21 +90,11 @@ operators already have.
 
 ## 2. Stateful packet filter (nftables)
 
-| Target | Today |
-| --- | --- |
-| Ordered rules, per-rule logging, default deny, counters, rate limits | present |
-| IPv4 and IPv6 in one inet filter table | present |
-| Zones, aliases (host, network, port, URL table, GeoIP) as named sets | absent |
-| Invalid-state drop, conntrack timeouts | baseline option only; no timeout management |
-| Anti-spoofing (fib), SYN-flood guard | absent |
-| SNAT, 1:1 NAT, reflection, outbound NAT per interface | absent (DNAT and masquerade only) |
-| IPv6 NAT / NPT | absent (`ip` family table) |
-| Rollback on every ruleset change | only when enabling default-deny |
-| Dry run before apply | absent |
-
-The existing whole-table atomic rebuild stays; it grows named sets and a
-second chain layer per zone. Risk is high because this is where lock-outs
-happen.
+Done; see [phase-2-packet-filter.md](phase-2-packet-filter.md) for what is
+enforced, how, and the three things that are not verified (the runner
+without root, GeoIP against a real database, reflection and one-to-one NAT
+under traffic). WireGuard presets and access grants are still rules of the
+firewall manager and move into the model in Phases 4 and 6.
 
 ## 3. Routing
 

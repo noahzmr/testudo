@@ -9,8 +9,8 @@
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 
-pkgs="./internal/capture ./internal/fwbridge ./internal/fwstage ./cmd/testudo"
-pattern='^(TestFlowBaseline|TestModelDrivesTheKernel|TestRulesetOnARealKernel|TestPrivilegedPathEndToEnd)$'
+pkgs="./internal/capture ./internal/fwrender ./internal/fwbridge ./internal/fwstage ./cmd/testudo"
+pattern='^(TestFlowBaseline|TestModelDrivesTheKernel|TestGoldenRulesetLoadsIntoAKernel|TestRulesetOnARealKernel|TestPrivilegedPathEndToEnd)$'
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

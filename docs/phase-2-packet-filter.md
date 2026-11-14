@@ -15,95 +15,136 @@ balancer, Cluster and Changes as sections of their own.
 "Running state" is the existing live view: what the kernel has loaded, with
 counters and drift, including rules that do not come from the model.
 
-## Two renderers, one of them applied
+## How the ruleset reaches the kernel
 
-| | `internal/fwbridge` | `internal/fwrender` |
+There are two paths. The engine picks one at start.
+
+| | nftables stage (`internal/fwstage`) | bridge (`internal/fwbridge`) |
 | --- | --- | --- |
-| Output | rules for the existing firewall manager | an nftables ruleset as text |
-| Applied by | the manager: atomic netlink apply through the privileged helper | `nft -f` (with `nft -c` as dry run) |
-| State | **in use**: registered as the first apply stage | written and pinned by a golden file; **not applied yet** |
-| Named sets, zone sets | no: zones and aliases expand into rules | yes |
-| IPv4 and IPv6 | filter yes, NAT IPv4 only | both, one inet table |
+| Used when | `nft` can be run with network privileges | it cannot (no helper, no `nft`, an unprivileged run) |
+| Renderer | `internal/fwrender`: one `inet` table as text | rules in the firewall manager's format |
+| Applied by | `nft -f`, one transaction, dry run with `nft -c` | the manager's netlink path |
+| Named sets, run-time aliases | yes | no: zones and aliases expand into rules |
+| NAT | destination, source, masquerade, one-to-one, reflection; IPv4 and IPv6 | port forward and masquerade, IPv4 |
+| Anti-spoofing, SYN flood guard, conntrack timeouts, marks | yes | refused, naming the object |
 
-`fwrender` is the target. It is not applied because the privileged helper
-may not execute programs (its seccomp filter denies `execve`), and the
-engine itself has dropped its capabilities. Driving `nft` needs a dedicated
-runner on the privileged side; until it exists the bridge enforces what the
-running packet filter can express.
+`/api/v1/runtime` reports which one is in use (`packet_filter`).
 
-### What the bridge does
+### Running nft
 
-A model change goes through the apply engine like any other: render, dry
-run, commit, apply, health check, 60 seconds to confirm. The bridge renders
-the model into rules owned by `model` and replaces that block in the running
-policy in one atomic apply (`firewall.Manager.ReplaceOwned`). Rules of other
-owners are untouched and stay ahead of the model's rules:
+The privileged helper denies itself `execve`, and the engine has dropped its
+capabilities. So the helper starts a **runner** process before it installs
+that restriction. The runner does three things and nothing else: check a
+ruleset, load a ruleset, list one table as JSON. Requests arrive over a pipe
+that only the helper holds; the ruleset is passed on standard input and the
+argument vector is fixed per request. To let `nft` (a program without file
+capabilities) use the network capability, the runner raises it into its
+ambient set.
 
-* `user`: rules made directly (Running state, terminal UI, command line),
-* `wg-peer:<key>`: WireGuard peer presets,
-* `pam-grant:<id>`: just-in-time access grants.
+A load is a mutation: it goes through the write gate and is audited with the
+ruleset's size and hash, not its text.
 
-So WireGuard provisioning and access grants keep working unchanged.
+### One table, two authors
 
-Translation:
+The firewall manager still owns default deny, the baseline with the
+protected ports, and the rules of three owners that are not the model:
+direct edits (`user`), WireGuard peer presets (`wg-peer:<key>`) and access
+grants (`pam-grant:<id>`). On the nftables path it no longer programs the
+kernel itself. The stage is its backend: whenever the manager changes, the
+stage assembles **one** ruleset from the manager's tables and the model's
+fragments and loads it. Chain order:
 
-* A zone is the set of this node's interfaces (and enabled tunnels) assigned
-  to it. A rule that names a zone becomes one rule per interface.
-* An alias expands to its addresses; nested aliases are flattened. A rule
-  becomes one kernel rule per combination of interface, address, port range
-  and protocol, at most 256 per model rule.
-* A firewall policy sets default deny and the baseline. The protected ports
-  (SSH, the web UI) are added by the manager whatever the model says.
-* A port forward comes with the forward-accept rule for the translated
-  connection, and loses it when it is removed.
-* A zone with "allow traffic inside the zone" gets accept rules between its
-  interfaces.
+1. connection-tracking timeouts,
+2. the manager's baseline (established, invalid, loopback, ICMP, open ports),
+3. the model's guards (reverse-path check, SYN flood guard),
+4. the manager's rules of other owners,
+5. the model's rules in sequence order,
+6. traffic inside a zone, zone defaults, the final log rule.
 
-Refused in the dry run, naming the object (nothing is dropped silently):
-aliases filled at run time (URL table, GeoIP), firewall marks, source NAT,
-one-to-one NAT, reflection, IPv6 NAT, port ranges in forwards, the
-reverse-path check and the SYN flood guard. A disabled object of such a kind
-is accepted, so they can be prepared.
+The model's firewall policy, when there is one, is handed to the manager, so
+there is one owner of the defaults. The first load removes the two tables
+of the netlink path in the same transaction.
+
+Every kernel rule carries a comment: the manager's rule id or the model
+object's UUID. That is how counters are reported per object and how the
+manager's drift check works. A marker set named after a hash of the ruleset
+tells whether the kernel still holds what was loaded; if someone flushes or
+edits the table, the next check (every 30 s) reloads it.
+
+### Run-time aliases
+
+`internal/aliasfeed` keeps the content of URL-table aliases (one address or
+network per line, fetched over HTTP at the alias's interval, at least one
+minute) and GeoIP aliases (the networks of the listed countries, read from
+the MaxMind country or city database once a day). Content is cached on disk
+and rendered into the named sets, so a restart or reload does not empty
+them. A source that fails keeps its previous content and shows the error in
+the Aliases tab. A page that is not a list is an error, not an empty set.
+
+When content changes, the ruleset is reloaded without a confirmation
+window: the rules are the ones already confirmed, only set content moved.
 
 ### Which node
 
 The stage finds the local node in the model by host name on every render.
 Until a cluster node with this host name exists, only objects with global
-scope apply; zones then have no interfaces, and a rule naming one is refused
-with that reason.
+scope apply and zones have no interfaces.
+
+## Moving existing rules into the model
+
+`testudo config import-legacy --apply` (daemon stopped, empty model) turns
+the rules made directly into model objects and removes them from
+`firewall.json`; the original is kept as `firewall.json.before-import`.
+Rules it cannot translate faithfully (log-only rules, rules matching traffic
+over a rate) and rules of WireGuard peers and access grants stay where they
+are and keep working.
 
 ## Tests
 
-* `internal/fwbridge`: golden file of the generated policy, every refusal by
-  name, a run through the apply engine with a fake manager.
-* `TestModelDrivesTheKernel`: a router between two network namespaces with
-  the real manager and nftables. It checks with real connections that
-  default deny blocks, an alias-based rule allows, masquerade rewrites the
-  source, a port forward reaches its target, an unconfirmed change is taken
-  back by itself, and a rule made outside the model survives it all.
-* `internal/fwrender`: golden ruleset, policy selection by scope, overrides
-  per node, protected ports, determinism.
-* `scripts/netns-tests.sh` runs the real-kernel tests (and fails when they
-  cannot run); `scripts/netns-image/Dockerfile` is the Debian 12 image for
-  hosts that forbid unprivileged user namespaces.
+Real kernel (`scripts/netns-tests.sh`; root or the Debian 12 image from
+`scripts/netns-image/`, which has `nft` 1.0.6):
+
+* `TestGoldenRulesetLoadsIntoAKernel`: the ruleset behind the golden file,
+  with every feature, is checked and loaded by `nft`.
+* `TestRulesetOnARealKernel`: a router between two namespaces. With real
+  connections: the switch from the old tables, default deny for IPv4 and
+  IPv6, an alias-based allow, a run-time block list taking effect, counters
+  per object, source NAT, a port forward, connection-tracking timeouts, a
+  rule added through the manager, automatic rollback of an unconfirmed
+  change, and the reload after the table was flushed.
+* `TestPrivilegedPathEndToEnd`: the real binary with privilege separation;
+  a change made through the HTTP API reaches the kernel through helper and
+  runner.
+* `TestModelDrivesTheKernel`: the same idea for the bridge path.
+
+Without a kernel: golden files for both renderers, every refusal of the
+bridge by name, the manager's owner-scoped replacement, the alias feed
+against a local HTTP server, and the runner's request validation.
 
 ## Status
 
-Enforced through the model today: zones, aliases (static), ordered filter
-rules for IPv4 and IPv6 with logging, connection states and rate limits,
-default deny with the baseline, port forwards, masquerade.
+Phase 2 is complete on the nftables path: zones, aliases (static, URL
+table, GeoIP), ordered rules with logging, default deny, connection
+tracking with timeouts, invalid-state drop, anti-spoofing, rate limits, SYN
+flood guard, destination and source NAT, masquerade, one-to-one, reflection,
+IPv4 and IPv6 in one `inet` table, transactional apply with rollback.
 
-Still owed in this phase:
+Not verified, and why:
 
-* A privileged `nft` runner, then `fwrender` as the stage: named sets, URL
-  tables and GeoIP with an updater, marks, source NAT, one-to-one,
-  reflection, IPv6 NAT, anti-spoofing, SYN flood guard, conntrack timeouts.
-* The golden ruleset has not been loaded into a kernel: `nft -c` needs
-  network privileges even for a check, so its syntax is unverified until
-  the runner exists.
-* Moving the remaining owners onto the model: importing rules made directly
-  (`testudo config import-legacy` translates them but does not yet remove
-  the originals), then WireGuard presets and access grants as model objects.
-* Running state still lets an operator add rules directly, and the terminal
-  UI edits the manager, not the model.
-* Per-rule counters joined onto the model's rules in the Rules tab.
+* **The runner as a non-root user with file capabilities.** Every privileged
+  test here runs as root, where capabilities survive an exec anyway. The
+  code that raises the ambient capability has not run in a test.
+* **GeoIP aliases against a real database.** No MaxMind database was
+  available; the code path that walks the database is untested.
+* **Reflection and one-to-one NAT with traffic.** They load into the kernel;
+  no test sends packets through them.
+
+Left for later phases, deliberately:
+
+* WireGuard presets and access grants stay rules of the firewall manager
+  until Phases 4 and 6 make them model objects.
+* Running state still allows direct edits, and the terminal UI and
+  `testudo firewall` edit the manager, not the model.
+* Flow attribution for NAT (pre/post addresses) is Phase 9.
+* A full reload resets rule counters; run-time alias refreshes reload the
+  whole table instead of only the set.

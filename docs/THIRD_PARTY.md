@@ -22,6 +22,7 @@ been copied from any of them.**
 | hashicorp/raft, raft-boltdb | MPL-2.0 | planned Go dependency ([ADR 0002](adr/0002-raft-library.md)) | as a module |
 | etcd-io/raft | Apache-2.0 | evaluated alternative | as a module |
 | etcd-io/bbolt | MIT | planned, through the Raft log store | as a module |
+| nftables (`nft`) | GPL-2.0 | runtime dependency: executed by the nft runner to check and load rulesets | no. Run as a separate program only |
 | keepalived | GPL-2.0 | planned runtime dependency: separate daemon | no |
 | conntrack-tools (conntrackd) | GPL-2.0 | planned runtime dependency: separate daemon | no |
 | Siemens Software-Defined Systems | not software; published material | principle only | not applicable |
@@ -52,6 +53,7 @@ or copied, so their terms do not extend to Testudo's source.
 | `github.com/mdlayher/netlink` | v1.8.0 | MIT |
 | `github.com/mdlayher/wifi` | v0.7.2 | MIT |
 | `github.com/oschwald/geoip2-golang` | v1.13.0 | ISC |
+| `github.com/oschwald/maxminddb-golang` | v1.13.0 | ISC |
 | `github.com/vishvananda/netlink` | v1.3.1 | Apache-2.0 |
 | `golang.org/x/crypto` | v0.52.0 | BSD-3-Clause |
 | `golang.org/x/net` | v0.54.0 | BSD-3-Clause |
