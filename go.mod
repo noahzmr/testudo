@@ -15,6 +15,7 @@ require (
 	github.com/mdlayher/netlink v1.8.0
 	github.com/mdlayher/wifi v0.7.2
 	github.com/oschwald/geoip2-golang v1.13.0
+	github.com/oschwald/maxminddb-golang v1.13.0
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.52.0
 	golang.org/x/net v0.54.0
@@ -47,7 +48,6 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/oschwald/maxminddb-golang v1.13.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
