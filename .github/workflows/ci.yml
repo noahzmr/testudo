@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Commit messages carry no tooling attribution
+        if: github.event_name == 'pull_request'
+        run: |
+          for c in $(git rev-list "origin/${{ github.base_ref }}..HEAD"); do
+            git log -1 --format=%B "$c" > /tmp/msg
+            sh scripts/hooks/commit-msg /tmp/msg || { echo "in commit $c"; exit 1; }
+          done
+
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: Unit tests
+        run: go test -count=1 ./...
+
+      # Hosted runners restrict unprivileged user namespaces, so the namespace
+      # tests run as root. TESTUDO_REQUIRE_NETNS turns a skip into a failure.
+      - name: Flow-analysis baseline (network namespaces)
+        run: |
+          sudo env "PATH=$PATH" "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" \
+            TESTUDO_REQUIRE_NETNS=1 go test -count=1 -v -run 'TestFlowBaseline' ./internal/capture
