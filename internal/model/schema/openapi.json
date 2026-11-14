@@ -169,6 +169,326 @@
       }
     },
     "schemas": {
+      "AccessPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "everyone": {
+            "title": "Every authenticated user",
+            "type": "boolean"
+          },
+          "groups": {
+            "items": {
+              "format": "uuid",
+              "type": "string",
+              "x-ref": "group"
+            },
+            "maxItems": 64,
+            "title": "Groups",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "max_duration": {
+            "description": "For example 4h",
+            "minLength": 1,
+            "pattern": "^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$",
+            "title": "Longest grant",
+            "type": "string",
+            "x-rule": "duration"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "requires_approval": {
+            "title": "Needs approval",
+            "type": "boolean"
+          },
+          "requires_mfa": {
+            "title": "Needs a second factor",
+            "type": "boolean"
+          },
+          "resource": {
+            "format": "uuid",
+            "title": "Resource",
+            "type": "string",
+            "x-ref": "access_resource"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "users": {
+            "items": {
+              "format": "uuid",
+              "type": "string",
+              "x-ref": "user"
+            },
+            "maxItems": 256,
+            "title": "Users",
+            "type": "array"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "max_duration",
+          "name",
+          "resource",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "access_policy",
+        "x-menu": "access/policies",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
+      "AccessResource": {
+        "additionalProperties": false,
+        "properties": {
+          "broker_ref": {
+            "description": "The broker holds the credentials; none are stored here",
+            "maxLength": 128,
+            "title": "Broker connection",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "login": {
+            "maxLength": 64,
+            "title": "Login name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "ports": {
+            "description": "port or port range, 1-65535",
+            "pattern": "^[0-9]{1,5}(-[0-9]{1,5})?$",
+            "title": "Ports",
+            "type": "string",
+            "x-rule": "portrange"
+          },
+          "protocol": {
+            "enum": [
+              "any",
+              "tcp",
+              "udp"
+            ],
+            "minLength": 1,
+            "title": "Protocol",
+            "type": "string"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "target": {
+            "description": "Address or network",
+            "minLength": 1,
+            "title": "Target",
+            "type": "string",
+            "x-rule": "cidr_or_ip"
+          },
+          "type": {
+            "enum": [
+              "network",
+              "ssh",
+              "rdp"
+            ],
+            "minLength": 1,
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "protocol",
+          "scope",
+          "target",
+          "type"
+        ],
+        "type": "object",
+        "x-kind": "access_resource",
+        "x-menu": "access/resources",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
       "Alias": {
         "additionalProperties": false,
         "properties": {
@@ -1129,6 +1449,174 @@
         "type": "object",
         "x-kind": "filter_rule",
         "x-menu": "firewall/rules",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
+      "FirewallPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_established": {
+            "title": "Allow established and related",
+            "type": "boolean"
+          },
+          "allow_icmp": {
+            "title": "Allow ICMP and ICMPv6",
+            "type": "boolean"
+          },
+          "allow_loopback": {
+            "title": "Allow loopback",
+            "type": "boolean"
+          },
+          "allow_tcp_ports": {
+            "description": "Management access such as SSH and the web UI",
+            "items": {
+              "description": "port or port range, 1-65535",
+              "pattern": "^[0-9]{1,5}(-[0-9]{1,5})?$",
+              "type": "string",
+              "x-rule": "portrange"
+            },
+            "maxItems": 64,
+            "title": "Always-open TCP ports",
+            "type": "array"
+          },
+          "allow_udp_ports": {
+            "items": {
+              "description": "port or port range, 1-65535",
+              "pattern": "^[0-9]{1,5}(-[0-9]{1,5})?$",
+              "type": "string",
+              "x-rule": "portrange"
+            },
+            "maxItems": 64,
+            "title": "Always-open UDP ports",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "default_deny": {
+            "title": "Drop unmatched traffic",
+            "type": "boolean"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "drop_invalid": {
+            "title": "Drop invalid state",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "log_drops": {
+            "title": "Log dropped packets",
+            "type": "boolean"
+          },
+          "log_prefix": {
+            "maxLength": 32,
+            "title": "Log prefix",
+            "type": "string"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "syn_flood_guard": {
+            "title": "SYN flood guard",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "firewall_policy",
+        "x-menu": "firewall/policy",
         "x-scopes": [
           "global",
           "site",
@@ -3890,6 +4378,418 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/access-policies": {
+      "get": {
+        "operationId": "list_access_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccessPolicy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Access policy objects",
+        "tags": [
+          "access"
+        ]
+      },
+      "post": {
+        "operationId": "create_access_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessPolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessPolicy"
+                }
+              }
+            },
+            "description": "Access policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Access policy",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access-policies/{id}": {
+      "delete": {
+        "operationId": "delete_access_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Access policy",
+        "tags": [
+          "access"
+        ]
+      },
+      "get": {
+        "operationId": "get_access_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessPolicy"
+                }
+              }
+            },
+            "description": "Access policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Access policy",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_access_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessPolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessPolicy"
+                }
+              }
+            },
+            "description": "Access policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Access policy",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access-policies/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_access_policy",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Access policy",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/access-resources": {
+      "get": {
+        "operationId": "list_access_resource",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccessResource"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Access resource objects",
+        "tags": [
+          "access"
+        ]
+      },
+      "post": {
+        "operationId": "create_access_resource",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessResource"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessResource"
+                }
+              }
+            },
+            "description": "Access resource",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Access resource",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access-resources/{id}": {
+      "delete": {
+        "operationId": "delete_access_resource",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Access resource",
+        "tags": [
+          "access"
+        ]
+      },
+      "get": {
+        "operationId": "get_access_resource",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessResource"
+                }
+              }
+            },
+            "description": "Access resource",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Access resource",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_access_resource",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessResource"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessResource"
+                }
+              }
+            },
+            "description": "Access resource",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Access resource",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access-resources/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_access_resource",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Access resource",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
     "/api/v1/aliases": {
       "get": {
         "operationId": "list_alias",
@@ -4910,6 +5810,212 @@
           }
         },
         "summary": "List the objects that reference this Filter rule",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/firewall-policies": {
+      "get": {
+        "operationId": "list_firewall_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FirewallPolicy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Firewall policy objects",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "post": {
+        "operationId": "create_firewall_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirewallPolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirewallPolicy"
+                }
+              }
+            },
+            "description": "Firewall policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Firewall policy",
+        "tags": [
+          "firewall"
+        ]
+      }
+    },
+    "/api/v1/firewall-policies/{id}": {
+      "delete": {
+        "operationId": "delete_firewall_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Firewall policy",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "get": {
+        "operationId": "get_firewall_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirewallPolicy"
+                }
+              }
+            },
+            "description": "Firewall policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Firewall policy",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_firewall_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirewallPolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirewallPolicy"
+                }
+              }
+            },
+            "description": "Firewall policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Firewall policy",
+        "tags": [
+          "firewall"
+        ]
+      }
+    },
+    "/api/v1/firewall-policies/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_firewall_policy",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Firewall policy",
         "tags": [
           "firewall"
         ]

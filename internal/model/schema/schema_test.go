@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,8 +18,9 @@ func TestGeneratedFilesAreCurrent(t *testing.T) {
 		gen       func() ([]byte, error)
 		committed []byte
 	}{
-		"openapi.json": {OpenAPI, OpenAPIJSON},
-		"ui.json":      {UI, UIJSON},
+		"openapi.json":      {OpenAPI, OpenAPIJSON},
+		"ui.json":           {UI, UIJSON},
+		"fingerprints.json": {Fingerprints, FingerprintsJSON},
 	} {
 		want, err := c.gen()
 		if err != nil {
@@ -144,5 +146,47 @@ func TestUnknownValidateRuleIsAnError(t *testing.T) {
 	_, err := applyRules(map[string]any{}, []rule{{name: "iscolor"}}, reflect.TypeOf(""))
 	if err == nil || !strings.Contains(err.Error(), "iscolor") {
 		t.Errorf("unknown rule: err = %v", err)
+	}
+}
+
+// TestReleasedSchemaIsFrozen fails when the wire format of a released schema
+// version changes. The fix is to bump model.SchemaVersion and register a
+// migration in internal/confstore, not to edit released.json.
+func TestReleasedSchemaIsFrozen(t *testing.T) {
+	var released map[string]map[string]string
+	if err := json.Unmarshal(ReleasedJSON, &released); err != nil {
+		t.Fatalf("released.json: %v", err)
+	}
+	var current struct {
+		Version int               `json:"schema_version"`
+		Kinds   map[string]string `json:"kinds"`
+	}
+	data, err := Fingerprints()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &current); err != nil {
+		t.Fatal(err)
+	}
+	frozen, ok := released[strconv.Itoa(current.Version)]
+	if !ok {
+		return // the current version has not been released yet
+	}
+	for kind, want := range frozen {
+		if got := current.Kinds[kind]; got != want {
+			t.Errorf("%s: wire format changed in released schema version %d; bump model.SchemaVersion and add a migration", kind, current.Version)
+		}
+	}
+}
+
+func TestFingerprintIgnoresLabelsButSeesFields(t *testing.T) {
+	a := map[string]any{"type": "object", "title": "A", "properties": map[string]any{"x": map[string]any{"type": "string", "description": "d"}}}
+	b := map[string]any{"type": "object", "title": "B", "properties": map[string]any{"x": map[string]any{"type": "string"}}}
+	c := map[string]any{"type": "object", "properties": map[string]any{"y": map[string]any{"type": "string"}}}
+	ja, _ := json.Marshal(stripPresentation(a))
+	jb, _ := json.Marshal(stripPresentation(b))
+	jc, _ := json.Marshal(stripPresentation(c))
+	if string(ja) != string(jb) || string(ja) == string(jc) {
+		t.Errorf("a=%s b=%s c=%s", ja, jb, jc)
 	}
 }

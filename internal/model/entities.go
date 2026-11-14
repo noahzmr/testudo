@@ -27,6 +27,10 @@ const (
 	KindMiddleware    Kind = "middleware"
 	KindSite          Kind = "site"
 	KindClusterNode   Kind = "cluster_node"
+
+	KindFirewallPolicy Kind = "firewall_policy"
+	KindAccessResource Kind = "access_resource"
+	KindAccessPolicy   Kind = "access_policy"
 )
 
 func init() {
@@ -52,6 +56,9 @@ func init() {
 	register("middlewares", "Middleware", "loadbalancer/middlewares", allLevels, func() Entity { return &Middleware{} })
 	register("sites", "Site", "cluster/sites", globalOny, func() Entity { return &Site{} })
 	register("cluster-nodes", "Cluster node", "cluster/nodes", globalOny, func() Entity { return &ClusterNode{} })
+	register("firewall-policies", "Firewall policy", "firewall/policy", allLevels, func() Entity { return &FirewallPolicy{} })
+	register("access-resources", "Access resource", "access/resources", allLevels, func() Entity { return &AccessResource{} })
+	register("access-policies", "Access policy", "access/policies", allLevels, func() Entity { return &AccessPolicy{} })
 }
 
 // Interface binds a kernel network device on one node to a zone.
@@ -378,3 +385,51 @@ type ClusterNode struct {
 }
 
 func (ClusterNode) Kind() Kind { return KindClusterNode }
+
+// FirewallPolicy holds the packet filter's defaults: whether unmatched
+// traffic is dropped and which baseline traffic is always let through so the
+// operator cannot be locked out.
+type FirewallPolicy struct {
+	Meta             `yaml:",inline"`
+	DefaultDeny      bool     `json:"default_deny" yaml:"default_deny" validate:"-" ui:"label=Drop unmatched traffic,order=10"`
+	AllowEstablished bool     `json:"allow_established" yaml:"allow_established" validate:"-" ui:"label=Allow established and related,group=Baseline,order=20"`
+	DropInvalid      bool     `json:"drop_invalid" yaml:"drop_invalid" validate:"-" ui:"label=Drop invalid state,group=Baseline,order=30"`
+	AllowLoopback    bool     `json:"allow_loopback" yaml:"allow_loopback" validate:"-" ui:"label=Allow loopback,group=Baseline,order=40"`
+	AllowICMP        bool     `json:"allow_icmp" yaml:"allow_icmp" validate:"-" ui:"label=Allow ICMP and ICMPv6,group=Baseline,order=50"`
+	AllowTCPPorts    []string `json:"allow_tcp_ports,omitempty" yaml:"allow_tcp_ports,omitempty" validate:"max=64,dive,portrange" ui:"label=Always-open TCP ports,widget=list,group=Baseline,order=60,help=Management access such as SSH and the web UI"`
+	AllowUDPPorts    []string `json:"allow_udp_ports,omitempty" yaml:"allow_udp_ports,omitempty" validate:"max=64,dive,portrange" ui:"label=Always-open UDP ports,widget=list,group=Baseline,order=70"`
+	SynFloodGuard    bool     `json:"syn_flood_guard,omitempty" yaml:"syn_flood_guard,omitempty" validate:"-" ui:"label=SYN flood guard,group=Hardening,order=80"`
+	LogDrops         bool     `json:"log_drops,omitempty" yaml:"log_drops,omitempty" validate:"-" ui:"label=Log dropped packets,group=Logging,order=90"`
+	LogPrefix        string   `json:"log_prefix,omitempty" yaml:"log_prefix,omitempty" validate:"max=32" ui:"label=Log prefix,group=Logging,order=100"`
+}
+
+func (FirewallPolicy) Kind() Kind { return KindFirewallPolicy }
+
+// AccessResource is something a just-in-time grant can open: a network
+// target, optionally reached through a brokered ssh or rdp session.
+type AccessResource struct {
+	Meta      `yaml:",inline"`
+	Type      string `json:"type" yaml:"type" validate:"required,oneof=network ssh rdp" ui:"label=Type,widget=select,order=10"`
+	Target    string `json:"target" yaml:"target" validate:"required,cidr_or_ip" ui:"label=Target,order=20,help=Address or network"`
+	Protocol  string `json:"protocol" yaml:"protocol" validate:"required,oneof=any tcp udp" ui:"label=Protocol,widget=select,order=30"`
+	Ports     string `json:"ports,omitempty" yaml:"ports,omitempty" validate:"omitempty,portrange" ui:"label=Ports,order=40"`
+	Login     string `json:"login,omitempty" yaml:"login,omitempty" validate:"max=64" ui:"label=Login name,order=50"`
+	BrokerRef string `json:"broker_ref,omitempty" yaml:"broker_ref,omitempty" validate:"max=128" ui:"label=Broker connection,order=60,help=The broker holds the credentials; none are stored here"`
+}
+
+func (AccessResource) Kind() Kind { return KindAccessResource }
+
+// AccessPolicy says who may request access to a resource and under which
+// conditions.
+type AccessPolicy struct {
+	Meta             `yaml:",inline"`
+	Resource         Ref[AccessResource] `json:"resource" yaml:"resource" validate:"required" ui:"label=Resource,widget=ref-picker,ref=access_resource,order=10"`
+	Users            []Ref[User]         `json:"users,omitempty" yaml:"users,omitempty" validate:"max=256" ui:"label=Users,widget=ref-picker,ref=user,order=20"`
+	Groups           []Ref[Group]        `json:"groups,omitempty" yaml:"groups,omitempty" validate:"max=64" ui:"label=Groups,widget=ref-picker,ref=group,order=30"`
+	Everyone         bool                `json:"everyone,omitempty" yaml:"everyone,omitempty" validate:"-" ui:"label=Every authenticated user,order=40"`
+	MaxDuration      string              `json:"max_duration" yaml:"max_duration" validate:"required,duration" ui:"label=Longest grant,order=50,help=For example 4h"`
+	RequiresApproval bool                `json:"requires_approval,omitempty" yaml:"requires_approval,omitempty" validate:"-" ui:"label=Needs approval,order=60"`
+	RequiresMFA      bool                `json:"requires_mfa,omitempty" yaml:"requires_mfa,omitempty" validate:"-" ui:"label=Needs a second factor,order=70"`
+}
+
+func (AccessPolicy) Kind() Kind { return KindAccessPolicy }

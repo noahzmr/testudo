@@ -7,7 +7,9 @@ package schema
 
 import (
 	"bytes"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -25,6 +27,57 @@ var OpenAPIJSON []byte
 
 //go:embed ui.json
 var UIJSON []byte
+
+//go:embed fingerprints.json
+var FingerprintsJSON []byte
+
+// ReleasedJSON maps a released schema version to the fingerprints it shipped
+// with. It is maintained by hand: copy fingerprints.json into it when a
+// release is cut. From then on that version's wire format is frozen.
+//
+//go:embed released.json
+var ReleasedJSON []byte
+
+// Fingerprints renders fingerprints.json: one hash per kind over its JSON
+// Schema. A changed hash means the wire format of that kind changed.
+func Fingerprints() ([]byte, error) {
+	kinds := map[string]string{}
+	for _, info := range model.Kinds() {
+		s, _, err := build(reflect.TypeOf(info.New()).Elem())
+		if err != nil {
+			return nil, err
+		}
+		// Presentation does not affect the wire format.
+		raw, err := json.Marshal(stripPresentation(s))
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(raw)
+		kinds[string(info.Kind)] = hex.EncodeToString(sum[:])
+	}
+	return marshal(map[string]any{"schema_version": model.SchemaVersion, "kinds": kinds})
+}
+
+func stripPresentation(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			if k == "title" || k == "description" {
+				continue
+			}
+			out[k] = stripPresentation(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i := range t {
+			out[i] = stripPresentation(t[i])
+		}
+		return out
+	}
+	return v
+}
 
 var (
 	anyRefType = reflect.TypeOf((*model.AnyRef)(nil)).Elem()

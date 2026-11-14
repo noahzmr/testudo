@@ -1,0 +1,30 @@
+{
+  "kinds": {
+    "access_policy": "900c0389880af802819c241b46bb55ad4e34f565988dacba5c61adaa538c05e0",
+    "access_resource": "e91374f2463abed00cc2adc9692768a2cbe94cb2ba3c3aeacf1ae868cb1fb302",
+    "alias": "a188c7c3bcb367bb87d32201ecdf89b48ba49ce97e22b9395d84f2a8541e9fad",
+    "bgp_neighbor": "c638b0736922909d3263c45448062441672ebce0bf4ccf79f6512104350f170c",
+    "certificate": "a6d7367de63ca0eee8f04d2bcc2b5eefdfef51a66ecd33ce9d3343d427a87d77",
+    "cluster_node": "65b337acc1eb07c0b19d15b42280e106d3373daa3c9d1891b709336bbff0e96d",
+    "filter_rule": "2a8637ef8520e1b214729c66047bc3c12150a35c146b64ad119fd9bc3b10d911",
+    "firewall_policy": "084a94505ee309bc3b23c832ac44e190af06b6e7d2c93b2c66a2817c96befa22",
+    "gateway": "4f62b050e8608b038f127aab5b734d7a0e11112bbdb6c56ab42e3e71900c2d11",
+    "group": "c3c2d7aef9813decafb692d937cc42730f801dd16b3c752d4bb91001c5cddb8f",
+    "interface": "3112b7d069cefb12725811818f68967a5a5b872a671a057ad92f8473176d7c62",
+    "lb_backend_pool": "48a69348c9a44cc8018a4b36d007c556d3b615cd34f22174ee5125983d5eb626",
+    "lb_router": "aab1598be08bb396b0869f6a4f7aa512b92c479cfdc305dc80324dd3332f6168",
+    "lb_service": "2fa946a7aeb5baa01a3c792b85220a635478fd6c673a6edd0a04a7950d68f169",
+    "middleware": "ef9e5ec1b7112a4a3255d7123368b1cb48ee879d05176fec52d489768fc2dc2a",
+    "nat_rule": "2985bdca9f20edd779677bdb17b8743f1acd7c2130a7f6d1b7c79c0e6d4952f9",
+    "ospf_area": "570649e6acae9b4a05d7c6e5bf878f1fc5439f78420240da78b2fb7a9cf19ef9",
+    "role": "1c0d02c5ecde1b5978f31ace19db7c5deda9095dee72d019ff7bf42dc1415056",
+    "route": "16486997c9dd41fe9ce9eecb11b01fb112240b425b5118e5f07e376c35b2f4fb",
+    "site": "e42b0b68413384037f1ce02b0a907bde28950c50b6dd88d3cad3a6161d934e20",
+    "user": "f6fdb3de059be05ab5bd669854d16abc995c37fdde73eb14d5f382eb89b90273",
+    "vrf": "15a5b80ffaea527d740d5df94dc96b6dcb5eabf70db4e726e6ac3b57e7a9dfa6",
+    "wg_peer": "5d5abef63d3dd79534fbe95f49f6fb1bda9f63428dd7a7305d80ebce0cf8bcb2",
+    "wg_tunnel": "4b2508237c98eb7e7fe6d73c286303f3a6863ce609c4577686705da52fad230f",
+    "zone": "099ddca539a3563bdaaaa6dbf2a4d8bd450daf4a2146596ba3c41c097fd3cc34"
+  },
+  "schema_version": 1
+}

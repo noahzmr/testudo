@@ -4247,6 +4247,594 @@
           "order": 906
         }
       ]
+    },
+    {
+      "kind": "firewall_policy",
+      "plural": "firewall-policies",
+      "title": "Firewall policy",
+      "menu": "firewall/policy",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "default_deny",
+          "label": "Drop unmatched traffic",
+          "type": "boolean",
+          "order": 10
+        },
+        {
+          "name": "allow_established",
+          "label": "Allow established and related",
+          "type": "boolean",
+          "group": "Baseline",
+          "order": 20
+        },
+        {
+          "name": "drop_invalid",
+          "label": "Drop invalid state",
+          "type": "boolean",
+          "group": "Baseline",
+          "order": 30
+        },
+        {
+          "name": "allow_loopback",
+          "label": "Allow loopback",
+          "type": "boolean",
+          "group": "Baseline",
+          "order": 40
+        },
+        {
+          "name": "allow_icmp",
+          "label": "Allow ICMP and ICMPv6",
+          "type": "boolean",
+          "group": "Baseline",
+          "order": 50
+        },
+        {
+          "name": "allow_tcp_ports",
+          "label": "Always-open TCP ports",
+          "type": "string",
+          "widget": "list",
+          "group": "Baseline",
+          "order": 60,
+          "help": "Management access such as SSH and the web UI",
+          "list": true,
+          "rules": [
+            "portrange"
+          ]
+        },
+        {
+          "name": "allow_udp_ports",
+          "label": "Always-open UDP ports",
+          "type": "string",
+          "widget": "list",
+          "group": "Baseline",
+          "order": 70,
+          "list": true,
+          "rules": [
+            "portrange"
+          ]
+        },
+        {
+          "name": "syn_flood_guard",
+          "label": "SYN flood guard",
+          "type": "boolean",
+          "group": "Hardening",
+          "order": 80
+        },
+        {
+          "name": "log_drops",
+          "label": "Log dropped packets",
+          "type": "boolean",
+          "group": "Logging",
+          "order": 90
+        },
+        {
+          "name": "log_prefix",
+          "label": "Log prefix",
+          "type": "string",
+          "group": "Logging",
+          "order": 100
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "access_resource",
+      "plural": "access-resources",
+      "title": "Access resource",
+      "menu": "access/resources",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "type",
+          "label": "Type",
+          "type": "string",
+          "widget": "select",
+          "order": 10,
+          "required": true,
+          "enum": [
+            "network",
+            "ssh",
+            "rdp"
+          ]
+        },
+        {
+          "name": "target",
+          "label": "Target",
+          "type": "string",
+          "order": 20,
+          "help": "Address or network",
+          "required": true,
+          "rules": [
+            "cidr_or_ip"
+          ]
+        },
+        {
+          "name": "protocol",
+          "label": "Protocol",
+          "type": "string",
+          "widget": "select",
+          "order": 30,
+          "required": true,
+          "enum": [
+            "any",
+            "tcp",
+            "udp"
+          ]
+        },
+        {
+          "name": "ports",
+          "label": "Ports",
+          "type": "string",
+          "order": 40,
+          "rules": [
+            "portrange"
+          ]
+        },
+        {
+          "name": "login",
+          "label": "Login name",
+          "type": "string",
+          "order": 50
+        },
+        {
+          "name": "broker_ref",
+          "label": "Broker connection",
+          "type": "string",
+          "order": 60,
+          "help": "The broker holds the credentials; none are stored here"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "access_policy",
+      "plural": "access-policies",
+      "title": "Access policy",
+      "menu": "access/policies",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "resource",
+          "label": "Resource",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "access_resource",
+          "order": 10,
+          "required": true
+        },
+        {
+          "name": "users",
+          "label": "Users",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "user",
+          "order": 20,
+          "list": true
+        },
+        {
+          "name": "groups",
+          "label": "Groups",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "group",
+          "order": 30,
+          "list": true
+        },
+        {
+          "name": "everyone",
+          "label": "Every authenticated user",
+          "type": "boolean",
+          "order": 40
+        },
+        {
+          "name": "max_duration",
+          "label": "Longest grant",
+          "type": "string",
+          "order": 50,
+          "help": "For example 4h",
+          "required": true,
+          "rules": [
+            "duration"
+          ]
+        },
+        {
+          "name": "requires_approval",
+          "label": "Needs approval",
+          "type": "boolean",
+          "order": 60
+        },
+        {
+          "name": "requires_mfa",
+          "label": "Needs a second factor",
+          "type": "boolean",
+          "order": 70
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
     }
   ],
   "secret_mask": "********"

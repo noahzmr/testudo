@@ -17,6 +17,11 @@ import (
 
 //go:generate go run ./gen
 
+// SchemaVersion is the version of the wire format of the entities. Bump it
+// together with a migration registered in internal/confstore whenever a
+// change is not purely additive (a field renamed, removed or reinterpreted).
+const SchemaVersion = 1
+
 // Kind names an entity type on the wire, in URLs and in references.
 type Kind string
 

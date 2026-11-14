@@ -18,8 +18,9 @@ func main() {
 		dir = os.Args[1]
 	}
 	for name, fn := range map[string]func() ([]byte, error){
-		"openapi.json": schema.OpenAPI,
-		"ui.json":      schema.UI,
+		"openapi.json":      schema.OpenAPI,
+		"ui.json":           schema.UI,
+		"fingerprints.json": schema.Fingerprints,
 	} {
 		data, err := fn()
 		if err != nil {
