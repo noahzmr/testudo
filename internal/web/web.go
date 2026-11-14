@@ -51,6 +51,10 @@ type Server struct {
 
 	mu       sync.RWMutex
 	sessions map[string]*sessionRecord
+
+	// stopping is closed when the server shuts down; long-lived responses
+	// (the configuration event stream) end on it.
+	stopping <-chan struct{}
 }
 
 // sessionRecord is one logged-in browser. The role is captured at login so a
@@ -245,6 +249,10 @@ func (s *Server) buildMux() error {
 	// MaxMind GeoIP enrichment lookup: GET /api/ip/{addr}
 	mux.HandleFunc("/api/ip/", s.protect(s.handleIPLookup))
 
+	if err := s.mountConfig(mux); err != nil {
+		return err
+	}
+
 	mux.HandleFunc("/", s.protect(s.handleRoot))
 
 	s.mux = mux
@@ -256,6 +264,7 @@ func (s *Server) buildMux() error {
 // generated on first use when TLS.Auto is set and its fingerprint logged so
 // the operator can pin it.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	s.stopping = ctx.Done()
 	if err := s.buildMux(); err != nil {
 		return err
 	}

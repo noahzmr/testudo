@@ -187,6 +187,9 @@ func acceptsGzip(r *http.Request) bool {
 func compressible(ctype string) bool {
 	ct, _, _ := strings.Cut(ctype, ";")
 	ct = strings.TrimSpace(ct)
+	if ct == "text/event-stream" {
+		return false // a compressor would hold events back until its buffer fills
+	}
 	return strings.HasPrefix(ct, "text/") || ct == "application/json" ||
 		ct == "application/javascript" || ct == "text/javascript" || ct == "image/svg+xml"
 }

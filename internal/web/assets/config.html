@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Testudo - Configuration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/config.css">
+</head>
+<body class="cfg">
+  <div class="cfg-top">
+    <a href="/">Testudo</a>
+    <strong>Configuration model</strong>
+    <span class="cfg-note">Stored, versioned and audited. Not yet enforced on the running system.</span>
+    <select id="draft" aria-label="Where changes go"></select>
+    <span id="who"></span>
+  </div>
+  <div id="pending" class="cfg-pending" hidden></div>
+  <div class="cfg-body">
+    <nav id="nav" aria-label="Configuration"></nav>
+    <main id="main"></main>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+  <script src="/static/config.js" defer></script>
+</body>
+</html>
