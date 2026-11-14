@@ -38,7 +38,7 @@ jobs:
 
       # Hosted runners restrict unprivileged user namespaces, so the namespace
       # tests run as root. TESTUDO_REQUIRE_NETNS turns a skip into a failure.
-      - name: Flow-analysis baseline (network namespaces)
+      - name: Real-kernel tests (network namespaces, nftables)
         run: |
           sudo env "PATH=$PATH" "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" \
-            TESTUDO_REQUIRE_NETNS=1 go test -count=1 -v -run 'TestFlowBaseline' ./internal/capture
+            sh scripts/netns-tests.sh
