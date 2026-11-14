@@ -153,3 +153,17 @@ func TestOneFirewallPolicyPerScope(t *testing.T) {
 		t.Errorf("second global firewall policy: %v", err)
 	}
 }
+
+func TestSecondWriterIsRefusedButReadersWork(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	defer s.Close()
+	mustCreate(t, s, "a", alias("one"))
+	if _, err := Open(dir); err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Fatalf("second writer: %v", err)
+	}
+	st, err := ReadState(dir)
+	if err != nil || st.Index() != 1 || len(st.List(model.KindAlias)) != 1 {
+		t.Fatalf("ReadState: %v", err)
+	}
+}

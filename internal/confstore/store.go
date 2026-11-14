@@ -46,8 +46,14 @@ type subscriber struct {
 	dropped bool
 }
 
-// Open replays the log in dir (created with mode 0700 when missing).
-func Open(dir string) (*Store, error) {
+// Open replays the log in dir (created with mode 0700 when missing). It
+// fails with ErrLocked at once when another process has the store open.
+func Open(dir string) (*Store, error) { return OpenWait(dir, 0) }
+
+// OpenWait is Open, but waits up to wait for another process to release the
+// store. A daemon restarting right after its predecessor uses this so the
+// handover does not leave it without a configuration model.
+func OpenWait(dir string, wait time.Duration) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -55,6 +61,17 @@ func Open(dir string) (*Store, error) {
 	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
+	}
+	// One writer per log. A second process (a CLI command while the daemon
+	// runs) is refused instead of interleaving records.
+	for deadline := time.Now().Add(wait); ; time.Sleep(50 * time.Millisecond) {
+		if err := lockFile(f); err == nil {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			f.Close()
+			return nil, fmt.Errorf("%w: %s", ErrLocked, s.path)
+		}
 	}
 	st, err := loadSnapshot(filepath.Join(dir, snapshotFile))
 	if err != nil {
@@ -105,6 +122,41 @@ func Open(dir string) (*Store, error) {
 	s.log = f
 	s.state.Store(st)
 	return s, nil
+}
+
+// ErrLocked means another process has the store open for writing.
+var ErrLocked = errors.New("confstore: the configuration store is in use by another process")
+
+// ReadState replays the store in dir without locking or modifying it, for
+// read-only tools that may run next to the daemon.
+func ReadState(dir string) (*State, error) {
+	st, err := loadSnapshot(filepath.Join(dir, snapshotFile))
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(filepath.Join(dir, "config.log"))
+	if errors.Is(err, os.ErrNotExist) {
+		return st, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	for sc.Scan() {
+		var r Record
+		if json.Unmarshal(sc.Bytes(), &r) != nil {
+			break // a record being written right now
+		}
+		if r.Index != st.index+1 {
+			continue
+		}
+		if st, err = st.apply(r); err != nil {
+			return nil, err
+		}
+	}
+	return st, sc.Err()
 }
 
 // Close releases the log file.
