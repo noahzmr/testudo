@@ -1,0 +1,125 @@
+table inet testudo
+delete table inet testudo
+table inet testudo {
+	set z_lan_000000 {
+		type ifname
+		elements = { "lan0", "lan1" }
+	}
+	set z_vpn_000000 {
+		type ifname
+		elements = { "wg0" }
+	}
+	set z_wan_000000 {
+		type ifname
+		elements = { "wan0" }
+	}
+	set a4_blocklist_000000 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+	}
+	set a6_blocklist_000000 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+	}
+	set a4_branch_nets_000000 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+		elements = { 10.20.0.0/16 }
+	}
+	set a6_branch_nets_000000 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+		elements = { 2001:db8:20::/48 }
+	}
+	set a4_internal_000000 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+		elements = { 10.0.0.0/8, 10.20.0.0/16 }
+	}
+	set a6_internal_000000 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+		elements = { 2001:db8:20::/48 }
+	}
+	set a4_v4_only_000000 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+		elements = { 198.51.100.7 }
+	}
+	set a6_v4_only_000000 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+	}
+	set p_web_ports_000000 {
+		type inet_service
+		flags interval
+		auto-merge
+		elements = { 443, 80, 8000-8099 }
+	}
+	set a4_web_servers_000000 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+		elements = { 192.0.2.10 }
+	}
+	set a6_web_servers_000000 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+		elements = { 2001:db8::10 }
+	}
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		ct state invalid drop
+		iifname "lo" accept
+		iifname @z_wan_000000 fib saddr . iif oif missing counter drop
+		tcp flags & (fin | syn | rst | ack) == syn limit rate over 200/second burst 400 packets counter drop
+		meta l4proto { icmp, ipv6-icmp } accept
+		tcp dport { 22, 443, 8080 } accept
+		udp dport { 51820 } accept
+		iifname @z_lan_000000 meta l4proto tcp th dport { 9090 } meta mark set 0x10 counter accept comment "00000000-0000-4000-8000-000000000054"
+		limit rate 10/second log prefix "testudo drop input: "
+	}
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		ct state established,related accept
+		ct state invalid drop
+		iifname @z_wan_000000 fib saddr . iif oif missing counter drop
+		ct status dnat accept
+		ip saddr @a4_blocklist_000000 log prefix "testudo block-listed: " counter drop comment "00000000-0000-4000-8000-000000000050"
+		ip6 saddr @a6_blocklist_000000 log prefix "testudo block-listed: " counter drop comment "00000000-0000-4000-8000-000000000050"
+		iifname @z_lan_000000 oifname @z_wan_000000 ip daddr { 192.0.2.10 } meta l4proto tcp th dport { 443, 80, 8000-8099 } ct state { new } counter accept comment "00000000-0000-4000-8000-000000000051"
+		iifname @z_lan_000000 oifname @z_wan_000000 ip6 daddr { 2001:db8::10 } meta l4proto tcp th dport { 443, 80, 8000-8099 } ct state { new } counter accept comment "00000000-0000-4000-8000-000000000051"
+		iifname @z_vpn_000000 ip saddr { 10.8.0.0/24 } ip daddr { 10.0.0.53 } meta l4proto { tcp, udp } th dport { 53 } limit rate 100/second counter accept comment "00000000-0000-4000-8000-000000000052"
+		ip saddr { 198.51.100.7 } ip daddr { 10.0.0.0/8, 10.20.0.0/16 } meta l4proto tcp th dport { 22 } counter accept comment "00000000-0000-4000-8000-000000000053"
+		iifname @z_lan_000000 oifname @z_lan_000000 accept
+		limit rate 10/second log prefix "testudo drop forward: "
+	}
+	chain output {
+		type filter hook output priority filter; policy accept;
+		oifname @z_wan_000000 meta l4proto tcp th dport { 25 } counter reject comment "00000000-0000-4000-8000-000000000055"
+	}
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		iifname @z_wan_000000 ip daddr 203.0.113.5 meta l4proto tcp th dport 443 counter dnat ip to 192.0.2.10:8443 comment "00000000-0000-4000-8000-000000000060"
+		iifname != @z_wan_000000 ip daddr 203.0.113.5 meta l4proto tcp th dport 443 counter dnat ip to 192.0.2.10:8443 comment "00000000-0000-4000-8000-000000000060"
+		iifname @z_wan_000000 meta l4proto tcp th dport 443 counter dnat ip6 to [2001:db8::10]:8443 comment "00000000-0000-4000-8000-000000000061"
+		ip daddr 203.0.113.7 counter dnat ip to 10.0.0.7 comment "00000000-0000-4000-8000-000000000064"
+	}
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		iifname != @z_wan_000000 ct status dnat ip daddr 192.0.2.10 meta l4proto tcp th dport 8443 counter masquerade comment "00000000-0000-4000-8000-000000000060"
+		oifname @z_wan_000000 ip saddr { 10.0.0.0/8, 10.8.0.0/24 } counter masquerade comment "00000000-0000-4000-8000-000000000062"
+		oifname @z_wan_000000 ip saddr { 10.0.0.25 } meta l4proto tcp th dport 25 counter snat ip to 203.0.113.6 comment "00000000-0000-4000-8000-000000000063"
+		oifname @z_wan_000000 ip saddr 10.0.0.7 counter snat ip to 203.0.113.7 comment "00000000-0000-4000-8000-000000000064"
+	}
+}
