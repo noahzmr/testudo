@@ -1,0 +1,146 @@
+package main
+
+import (
+	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"runtime"
+	"sync"
+
+	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/privsep"
+)
+
+// nftRunnerArg selects the nft runner: a child of the privileged helper whose
+// only job is to run the nft program on rulesets the helper hands it.
+//
+// The helper denies itself execve, so it cannot run nft. The runner is
+// started before that restriction is installed, holds the same network
+// capability, and accepts exactly three kinds of request (check, load, list
+// one table) over a pipe that only the helper holds.
+const nftRunnerArg = "__nft-runner"
+
+const maxNftMessage = 64 << 20
+
+// runNftRunner serves requests, one JSON document per line, until the helper
+// closes the pipe.
+func runNftRunner() error {
+	// nft is a separate program without capabilities of its own. Raising
+	// CAP_NET_ADMIN into the ambient set lets it inherit ours. Capabilities
+	// belong to a thread, and the child is forked from the thread that runs
+	// this loop, so the loop stays on it.
+	runtime.LockOSThread()
+	if err := privsep.RaiseAmbientNetAdmin(); err != nil {
+		// As root this is not needed; otherwise loads will fail and say why.
+		fmt.Fprintf(os.Stderr, "nft runner: cannot pass on the network capability: %v\n", err)
+	}
+	in := bufio.NewReaderSize(os.Stdin, 1<<20)
+	out := json.NewEncoder(os.Stdout)
+	for {
+		line, err := readLine(in)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var req netops.NftRequest
+		if err := json.Unmarshal(line, &req); err != nil {
+			_ = out.Encode(netops.NftResult{Error: "bad request"})
+			continue
+		}
+		if err := out.Encode(netops.RunNft(req)); err != nil {
+			return err
+		}
+	}
+}
+
+func readLine(r *bufio.Reader) ([]byte, error) {
+	var buf []byte
+	for {
+		part, err := r.ReadSlice('\n')
+		buf = append(buf, part...)
+		if len(buf) > maxNftMessage {
+			return nil, errors.New("message too large")
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return buf, err
+	}
+}
+
+// nftRunnerProc is the helper's handle on its runner.
+type nftRunnerProc struct {
+	mu  sync.Mutex
+	cmd *exec.Cmd
+	in  io.WriteCloser
+	out *bufio.Reader
+}
+
+func startNftRunner() (*nftRunnerProc, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(exe, nftRunnerArg)
+	cmd.Stderr = os.Stderr
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &nftRunnerProc{cmd: cmd, in: in, out: bufio.NewReaderSize(out, 1<<20)}, nil
+}
+
+// Run sends one request and waits for its answer. Requests are serialised.
+func (p *nftRunnerProc) Run(req netops.NftRequest) netops.NftResult {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	msg, err := json.Marshal(req)
+	if err != nil {
+		return netops.NftResult{Error: err.Error()}
+	}
+	if _, err := p.in.Write(append(msg, '\n')); err != nil {
+		return netops.NftResult{Error: "nft runner is gone: " + err.Error()}
+	}
+	line, err := readLine(p.out)
+	if err != nil {
+		return netops.NftResult{Error: "nft runner is gone: " + err.Error()}
+	}
+	var res netops.NftResult
+	if err := json.Unmarshal(line, &res); err != nil {
+		return netops.NftResult{Error: "nft runner: bad answer"}
+	}
+	return res
+}
+
+func (p *nftRunnerProc) Close() {
+	p.in.Close()
+	_ = p.cmd.Wait()
+}
+
+// auditArgs keeps rulesets out of the audit log: a ruleset is tens of
+// kilobytes and is fully derivable from the configuration history, so the
+// row records its size and hash.
+func auditArgs(o netops.Op, body []byte) string {
+	if o.Nft == "" {
+		return string(body)
+	}
+	sum := sha256.Sum256([]byte(o.Nft))
+	out, _ := json.Marshal(map[string]any{"kind": o.Kind, "actor": o.Actor,
+		"ruleset_bytes": len(o.Nft), "ruleset_sha256": hex.EncodeToString(sum[:])})
+	return string(out)
+}

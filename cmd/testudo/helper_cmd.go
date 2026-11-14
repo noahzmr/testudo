@@ -154,7 +154,7 @@ func runHelper() error {
 			o, _ := netops.DecodeOp(body)
 			_ = store.InsertAudit(context.Background(), storage.AuditEntry{
 				Op:      string(o.Kind),
-				Args:    string(body),
+				Args:    auditArgs(o, body),
 				PeerUID: peerUID,
 				Actor:   o.Actor, // the human the engine stamped on the request, if any
 				Result:  result,
@@ -168,6 +168,15 @@ func runHelper() error {
 				Result:  result,
 			})
 		}
+	}
+
+	// The runner has to exist before RunHelper forbids this process to
+	// execute programs. Without it the engine keeps using the netlink path.
+	if runner, err := startNftRunner(); err != nil {
+		fmt.Fprintf(os.Stderr, "helper: nft runner unavailable: %v\n", err)
+	} else {
+		netops.SetNftRunner(runner.Run)
+		defer runner.Close()
 	}
 
 	return privsep.RunHelper(handler, audit)

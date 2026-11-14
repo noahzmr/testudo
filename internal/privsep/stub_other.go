@@ -32,3 +32,6 @@ func DropPrivileges() error                             { return errUnsupported 
 func InstallSeccomp() error                             { return errUnsupported }
 func NoNewPrivs() (bool, error)                         { return false, errUnsupported }
 func EffectiveCaps() (uint64, error)                    { return 0, errUnsupported }
+
+// RaiseAmbientNetAdmin is only meaningful on Linux.
+func RaiseAmbientNetAdmin() error { return errUnsupported }

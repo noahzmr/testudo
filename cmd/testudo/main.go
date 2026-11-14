@@ -50,6 +50,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == privsep.HelperArg {
 		return runHelper()
 	}
+	if len(os.Args) > 1 && os.Args[1] == nftRunnerArg {
+		return runNftRunner()
+	}
 
 	cmd := "live"
 	args := os.Args[1:]
