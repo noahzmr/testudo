@@ -1674,6 +1674,20 @@
             "title": "SYN flood guard",
             "type": "boolean"
           },
+          "tcp_established_timeout": {
+            "description": "Kernel default is 5 days; for example 2h",
+            "pattern": "^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$",
+            "title": "Idle timeout for established TCP",
+            "type": "string",
+            "x-rule": "duration"
+          },
+          "udp_timeout": {
+            "description": "Kernel default is 2 minutes",
+            "pattern": "^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$",
+            "title": "Idle timeout for UDP streams",
+            "type": "string",
+            "x-rule": "duration"
+          },
           "updated_at": {
             "format": "date-time",
             "readOnly": true,
@@ -10196,6 +10210,27 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/runtime": {
+      "get": {
+        "operationId": "runtime",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Runtime state"
+          }
+        },
+        "summary": "What the model's objects do in the running system: packet-filter path, per-object counters, state of run-time aliases",
+        "tags": [
+          "changes"
+        ]
+      }
     },
     "/api/v1/schema/openapi.json": {
       "get": {

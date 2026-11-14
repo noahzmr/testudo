@@ -4337,6 +4337,28 @@
           ]
         },
         {
+          "name": "tcp_established_timeout",
+          "label": "Idle timeout for established TCP",
+          "type": "string",
+          "group": "Connection tracking",
+          "order": 74,
+          "help": "Kernel default is 5 days; for example 2h",
+          "rules": [
+            "duration"
+          ]
+        },
+        {
+          "name": "udp_timeout",
+          "label": "Idle timeout for UDP streams",
+          "type": "string",
+          "group": "Connection tracking",
+          "order": 75,
+          "help": "Kernel default is 2 minutes",
+          "rules": [
+            "duration"
+          ]
+        },
+        {
           "name": "syn_flood_guard",
           "label": "SYN flood guard",
           "type": "boolean",

@@ -76,6 +76,9 @@ type Server struct {
 	Engine *confapply.Engine
 	// Identify returns the caller. A false result is answered with 401.
 	Identify func(*http.Request) (Identity, bool)
+	// Runtime, when set, reports what the model's objects are doing in the
+	// running system (counters, alias refresh state). Served at /runtime.
+	Runtime func() map[string]any
 	// Heartbeat is the interval of keep-alive comments on the event stream.
 	Heartbeat time.Duration
 	// Done, when closed, ends every open event stream. Set it to the
@@ -219,6 +222,13 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/schema/ui.json", static("application/json", schema.UIJSON))
 	m.HandleFunc("GET /api/v1/whoami", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, who(r)) })
 	m.HandleFunc("GET /api/v1/events", s.events)
+	m.HandleFunc("GET /api/v1/runtime", func(w http.ResponseWriter, r *http.Request) {
+		out := map[string]any{}
+		if s.Runtime != nil && who(r).Can("firewall", "read") {
+			out = s.Runtime()
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 
 	m.HandleFunc("GET /api/v1/changesets", s.listChangeSets)
 	m.HandleFunc("POST /api/v1/changesets", s.createChangeSet)

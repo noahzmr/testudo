@@ -398,6 +398,8 @@ type FirewallPolicy struct {
 	AllowICMP        bool     `json:"allow_icmp" yaml:"allow_icmp" validate:"-" ui:"label=Allow ICMP and ICMPv6,group=Baseline,order=50"`
 	AllowTCPPorts    []string `json:"allow_tcp_ports,omitempty" yaml:"allow_tcp_ports,omitempty" validate:"max=64,dive,portrange" ui:"label=Always-open TCP ports,widget=list,group=Baseline,order=60,help=Management access such as SSH and the web UI"`
 	AllowUDPPorts    []string `json:"allow_udp_ports,omitempty" yaml:"allow_udp_ports,omitempty" validate:"max=64,dive,portrange" ui:"label=Always-open UDP ports,widget=list,group=Baseline,order=70"`
+	TCPEstablished   string   `json:"tcp_established_timeout,omitempty" yaml:"tcp_established_timeout,omitempty" validate:"omitempty,duration" ui:"label=Idle timeout for established TCP,group=Connection tracking,order=74,help=Kernel default is 5 days; for example 2h"`
+	UDPTimeout       string   `json:"udp_timeout,omitempty" yaml:"udp_timeout,omitempty" validate:"omitempty,duration" ui:"label=Idle timeout for UDP streams,group=Connection tracking,order=75,help=Kernel default is 2 minutes"`
 	SynFloodGuard    bool     `json:"syn_flood_guard,omitempty" yaml:"syn_flood_guard,omitempty" validate:"-" ui:"label=SYN flood guard,group=Hardening,order=80"`
 	LogDrops         bool     `json:"log_drops,omitempty" yaml:"log_drops,omitempty" validate:"-" ui:"label=Log dropped packets,group=Logging,order=90"`
 	LogPrefix        string   `json:"log_prefix,omitempty" yaml:"log_prefix,omitempty" validate:"max=32" ui:"label=Log prefix,group=Logging,order=100"`

@@ -572,6 +572,7 @@ func OpenAPI() ([]byte, error) {
 	paths["/api/v1/schema/ui.json"] = map[string]any{"get": op("schema_ui", "Form descriptions for every kind", ok("UI schema", map[string]any{"type": "object"}))}
 	paths["/api/v1/events"] = map[string]any{"get": op("events", "Server-sent events: 'change' per committed record, 'apply' per apply outcome",
 		map[string]any{"200": map[string]any{"description": "Event stream", "content": map[string]any{"text/event-stream": map[string]any{"schema": map[string]any{"type": "string"}}}}})}
+	paths["/api/v1/runtime"] = map[string]any{"get": op("runtime", "What the model's objects do in the running system: packet-filter path, per-object counters, state of run-time aliases", ok("Runtime state", map[string]any{"type": "object"}))}
 	paths["/api/v1/changesets"] = map[string]any{
 		"get": op("list_changesets", "List change sets", ok("Change sets", map[string]any{"type": "array", "items": map[string]any{"type": "object"}})),
 		"post": op("create_changeset", "Create an empty change set", map[string]any{"201": resp("Change set", map[string]any{"type": "object"})},
