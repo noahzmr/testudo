@@ -144,6 +144,28 @@
         },
         "description": "Not found."
       },
+      "Pending": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "properties": {
+                    "pending": {
+                      "$ref": "#/components/schemas/Pending"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Another change is waiting for confirmation."
+      },
       "PreconditionRequired": {
         "content": {
           "application/json": {
@@ -153,6 +175,34 @@
           }
         },
         "description": "If-Match is missing."
+      },
+      "StageFailed": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "type": "string"
+                    },
+                    "rolled_back": {
+                      "type": "boolean"
+                    },
+                    "stage": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          }
+        },
+        "description": "A stage refused the change (422) or failed while applying it (502)."
       },
       "UsedBy": {
         "content": {
@@ -1010,6 +1060,39 @@
           "site",
           "node"
         ]
+      },
+      "Change": {
+        "properties": {
+          "after": {
+            "type": "object"
+          },
+          "before": {
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "create",
+              "update",
+              "delete"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "type"
+        ],
+        "type": "object"
       },
       "ClusterNode": {
         "additionalProperties": false,
@@ -3132,6 +3215,29 @@
           "node"
         ]
       },
+      "Pending": {
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "deadline": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "deadline",
+          "index"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "properties": {
           "error": {
@@ -4565,6 +4671,72 @@
         ]
       }
     },
+    "/api/v1/access-policies/{id}/effective": {
+      "get": {
+        "operationId": "effective_access_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/AccessPolicy"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Access policy as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/access-policies/{id}/used-by": {
       "get": {
         "operationId": "used_by_access_policy",
@@ -4770,6 +4942,72 @@
           "access"
         ]
       }
+    },
+    "/api/v1/access-resources/{id}/effective": {
+      "get": {
+        "operationId": "effective_access_resource",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/AccessResource"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Access resource as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/access-resources/{id}/used-by": {
       "get": {
@@ -4977,6 +5215,72 @@
         ]
       }
     },
+    "/api/v1/aliases/{id}/effective": {
+      "get": {
+        "operationId": "effective_alias",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Alias"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Alias as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/aliases/{id}/used-by": {
       "get": {
         "operationId": "used_by_alias",
@@ -4995,6 +5299,172 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/apply": {
+      "get": {
+        "operationId": "apply_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "index": {
+                      "type": "integer"
+                    },
+                    "pending": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/Pending"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "pending"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Status"
+          }
+        },
+        "summary": "The change waiting for confirmation, if any",
+        "tags": [
+          "changes"
+        ]
+      },
+      "post": {
+        "operationId": "apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "changesets": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changesets"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "pending": {
+                      "$ref": "#/components/schemas/Pending"
+                    }
+                  },
+                  "required": [
+                    "pending"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The change is live and waits for confirmation until the deadline."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "423": {
+            "$ref": "#/components/responses/Pending"
+          },
+          "502": {
+            "$ref": "#/components/responses/StageFailed"
+          }
+        },
+        "summary": "Commit and apply several change sets as one transaction",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
+    "/api/v1/apply/confirm": {
+      "post": {
+        "operationId": "confirm",
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Nothing is waiting for confirmation."
+          }
+        },
+        "summary": "Keep the pending change",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
+    "/api/v1/apply/rollback": {
+      "post": {
+        "operationId": "rollback",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": null,
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Nothing is waiting for confirmation."
+          }
+        },
+        "summary": "Take the pending change back now",
+        "tags": [
+          "changes"
+        ]
+      }
     },
     "/api/v1/bgp-neighbors": {
       "get": {
@@ -5182,6 +5652,72 @@
           "routing"
         ]
       }
+    },
+    "/api/v1/bgp-neighbors/{id}/effective": {
+      "get": {
+        "operationId": "effective_bgp_neighbor",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/BGPNeighbor"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The BGP neighbor as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/bgp-neighbors/{id}/used-by": {
       "get": {
@@ -5389,6 +5925,72 @@
         ]
       }
     },
+    "/api/v1/certificates/{id}/effective": {
+      "get": {
+        "operationId": "effective_certificate",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Certificate"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Certificate as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/certificates/{id}/used-by": {
       "get": {
         "operationId": "used_by_certificate",
@@ -5400,6 +6002,124 @@
         "summary": "List the objects that reference this Certificate",
         "tags": [
           "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/changesets": {
+      "get": {
+        "operationId": "list_changesets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Change sets"
+          }
+        },
+        "summary": "List change sets",
+        "tags": [
+          "changes"
+        ]
+      },
+      "post": {
+        "operationId": "create_changeset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Change set"
+          }
+        },
+        "summary": "Create an empty change set",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
+    "/api/v1/changesets/{id}": {
+      "delete": {
+        "operationId": "delete_changeset",
+        "responses": {
+          "204": {
+            "description": "Discarded"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Discard a change set",
+        "tags": [
+          "changes"
+        ]
+      },
+      "get": {
+        "operationId": "get_changeset",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "changes": {
+                      "items": {
+                        "$ref": "#/components/schemas/Change"
+                      },
+                      "type": "array"
+                    },
+                    "problem": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "changes"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Change set"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "A change set with the diff it would produce now",
+        "tags": [
+          "changes"
         ]
       },
       "parameters": [
@@ -5595,6 +6315,72 @@
         ]
       }
     },
+    "/api/v1/cluster-nodes/{id}/effective": {
+      "get": {
+        "operationId": "effective_cluster_node",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/ClusterNode"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Cluster node as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/cluster-nodes/{id}/used-by": {
       "get": {
         "operationId": "used_by_cluster_node",
@@ -5613,6 +6399,48 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "events",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Event stream"
+          }
+        },
+        "summary": "Server-sent events: 'change' per committed record, 'apply' per apply outcome",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
+    "/api/v1/export": {
+      "get": {
+        "operationId": "export",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Snapshot"
+          }
+        },
+        "summary": "The whole model including secrets (backup); needs system:write",
+        "tags": [
+          "changes"
+        ]
+      }
     },
     "/api/v1/filter-rules": {
       "get": {
@@ -5800,6 +6628,72 @@
           "firewall"
         ]
       }
+    },
+    "/api/v1/filter-rules/{id}/effective": {
+      "get": {
+        "operationId": "effective_filter_rule",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/FilterRule"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Filter rule as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/filter-rules/{id}/used-by": {
       "get": {
@@ -6007,6 +6901,72 @@
         ]
       }
     },
+    "/api/v1/firewall-policies/{id}/effective": {
+      "get": {
+        "operationId": "effective_firewall_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/FirewallPolicy"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Firewall policy as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/firewall-policies/{id}/used-by": {
       "get": {
         "operationId": "used_by_firewall_policy",
@@ -6212,6 +7172,72 @@
           "routing"
         ]
       }
+    },
+    "/api/v1/gateways/{id}/effective": {
+      "get": {
+        "operationId": "effective_gateway",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Gateway"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Gateway as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/gateways/{id}/used-by": {
       "get": {
@@ -6419,6 +7445,72 @@
         ]
       }
     },
+    "/api/v1/groups/{id}/effective": {
+      "get": {
+        "operationId": "effective_group",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Group"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Group as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/groups/{id}/used-by": {
       "get": {
         "operationId": "used_by_group",
@@ -6437,6 +7529,156 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/history": {
+      "get": {
+        "operationId": "history",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Records"
+          }
+        },
+        "summary": "Committed records, newest first, with before and after per object",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
+    "/api/v1/history/{index}/revert": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "index",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "revert",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "pending": {
+                      "$ref": "#/components/schemas/Pending"
+                    }
+                  },
+                  "required": [
+                    "pending"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The change is live and waits for confirmation until the deadline."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "423": {
+            "$ref": "#/components/responses/Pending"
+          },
+          "502": {
+            "$ref": "#/components/responses/StageFailed"
+          }
+        },
+        "summary": "Undo one record through the normal apply path",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
+    "/api/v1/import": {
+      "post": {
+        "operationId": "import",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dry_run",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "pending": {
+                      "$ref": "#/components/schemas/Pending"
+                    }
+                  },
+                  "required": [
+                    "pending"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The change is live and waits for confirmation until the deadline."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "423": {
+            "$ref": "#/components/responses/Pending"
+          },
+          "502": {
+            "$ref": "#/components/responses/StageFailed"
+          }
+        },
+        "summary": "Replace the model with a snapshot as one transaction; dry_run=1 only reports the diff",
+        "tags": [
+          "changes"
+        ]
+      }
     },
     "/api/v1/interfaces": {
       "get": {
@@ -6624,6 +7866,72 @@
           "interfaces"
         ]
       }
+    },
+    "/api/v1/interfaces/{id}/effective": {
+      "get": {
+        "operationId": "effective_interface",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Interface"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Interface as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/interfaces/{id}/used-by": {
       "get": {
@@ -6831,6 +8139,72 @@
         ]
       }
     },
+    "/api/v1/lb-backend-pools/{id}/effective": {
+      "get": {
+        "operationId": "effective_lb_backend_pool",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/LBBackendPool"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Backend pool as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "loadbalancer"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/lb-backend-pools/{id}/used-by": {
       "get": {
         "operationId": "used_by_lb_backend_pool",
@@ -7036,6 +8410,72 @@
           "loadbalancer"
         ]
       }
+    },
+    "/api/v1/lb-routers/{id}/effective": {
+      "get": {
+        "operationId": "effective_lb_router",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/LBRouter"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Router as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "loadbalancer"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/lb-routers/{id}/used-by": {
       "get": {
@@ -7243,6 +8683,72 @@
         ]
       }
     },
+    "/api/v1/lb-services/{id}/effective": {
+      "get": {
+        "operationId": "effective_lb_service",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/LBService"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Load balancer service as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "loadbalancer"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/lb-services/{id}/used-by": {
       "get": {
         "operationId": "used_by_lb_service",
@@ -7448,6 +8954,72 @@
           "loadbalancer"
         ]
       }
+    },
+    "/api/v1/middlewares/{id}/effective": {
+      "get": {
+        "operationId": "effective_middleware",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Middleware"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Middleware as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "loadbalancer"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/middlewares/{id}/used-by": {
       "get": {
@@ -7655,6 +9227,72 @@
         ]
       }
     },
+    "/api/v1/nat-rules/{id}/effective": {
+      "get": {
+        "operationId": "effective_nat_rule",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/NATRule"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The NAT rule as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/nat-rules/{id}/used-by": {
       "get": {
         "operationId": "used_by_nat_rule",
@@ -7861,6 +9499,72 @@
         ]
       }
     },
+    "/api/v1/ospf-areas/{id}/effective": {
+      "get": {
+        "operationId": "effective_ospf_area",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/OSPFArea"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The OSPF area as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/ospf-areas/{id}/used-by": {
       "get": {
         "operationId": "used_by_ospf_area",
@@ -7879,6 +9583,75 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/plan": {
+      "post": {
+        "operationId": "plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "changesets": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changesets"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "changes": {
+                      "items": {
+                        "$ref": "#/components/schemas/Change"
+                      },
+                      "type": "array"
+                    },
+                    "rendered": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "changes",
+                    "rendered"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Plan"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Combined diff and rendered output of several change sets, without committing",
+        "tags": [
+          "changes"
+        ]
+      }
     },
     "/api/v1/roles": {
       "get": {
@@ -8066,6 +9839,72 @@
           "system"
         ]
       }
+    },
+    "/api/v1/roles/{id}/effective": {
+      "get": {
+        "operationId": "effective_role",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Role"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Role as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/roles/{id}/used-by": {
       "get": {
@@ -8273,6 +10112,72 @@
         ]
       }
     },
+    "/api/v1/routes/{id}/effective": {
+      "get": {
+        "operationId": "effective_route",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Route"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Static route as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/routes/{id}/used-by": {
       "get": {
         "operationId": "used_by_route",
@@ -8291,6 +10196,48 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/schema/openapi.json": {
+      "get": {
+        "operationId": "schema_openapi",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OpenAPI document"
+          }
+        },
+        "summary": "This document",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
+    "/api/v1/schema/ui.json": {
+      "get": {
+        "operationId": "schema_ui",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "UI schema"
+          }
+        },
+        "summary": "Form descriptions for every kind",
+        "tags": [
+          "changes"
+        ]
+      }
     },
     "/api/v1/sites": {
       "get": {
@@ -8478,6 +10425,72 @@
           "cluster"
         ]
       }
+    },
+    "/api/v1/sites/{id}/effective": {
+      "get": {
+        "operationId": "effective_site",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Site"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Site as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/sites/{id}/used-by": {
       "get": {
@@ -8685,6 +10698,72 @@
         ]
       }
     },
+    "/api/v1/users/{id}/effective": {
+      "get": {
+        "operationId": "effective_user",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The User as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/users/{id}/used-by": {
       "get": {
         "operationId": "used_by_user",
@@ -8890,6 +10969,72 @@
           "routing"
         ]
       }
+    },
+    "/api/v1/vrfs/{id}/effective": {
+      "get": {
+        "operationId": "effective_vrf",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/VRF"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The VRF as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/vrfs/{id}/used-by": {
       "get": {
@@ -9097,6 +11242,72 @@
         ]
       }
     },
+    "/api/v1/wg-peers/{id}/effective": {
+      "get": {
+        "operationId": "effective_wg_peer",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/WGPeer"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The WireGuard peer as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "vpn"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/wg-peers/{id}/used-by": {
       "get": {
         "operationId": "used_by_wg_peer",
@@ -9303,6 +11514,72 @@
         ]
       }
     },
+    "/api/v1/wg-tunnels/{id}/effective": {
+      "get": {
+        "operationId": "effective_wg_tunnel",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/WGTunnel"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The WireGuard tunnel as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "vpn"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
     "/api/v1/wg-tunnels/{id}/used-by": {
       "get": {
         "operationId": "used_by_wg_tunnel",
@@ -9321,6 +11598,42 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/whoami": {
+      "get": {
+        "operationId": "whoami",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "permissions": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "permissions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Identity"
+          }
+        },
+        "summary": "The caller and their permissions",
+        "tags": [
+          "changes"
+        ]
+      }
     },
     "/api/v1/zones": {
       "get": {
@@ -9508,6 +11821,72 @@
           "firewall"
         ]
       }
+    },
+    "/api/v1/zones/{id}/effective": {
+      "get": {
+        "operationId": "effective_zone",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Zone"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Zone as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "firewall"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/api/v1/zones/{id}/used-by": {
       "get": {

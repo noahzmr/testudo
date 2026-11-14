@@ -83,8 +83,9 @@ type Server struct {
 	// and an event stream never finishes by itself.
 	Done <-chan struct{}
 
-	once sync.Once
-	mux  *http.ServeMux
+	once     sync.Once
+	mux      *http.ServeMux
+	patterns []string
 
 	mu      sync.Mutex
 	notices map[chan confapply.Notice]struct{}
@@ -206,7 +207,7 @@ func (s *Server) routes() {
 		s.Heartbeat = 20 * time.Second
 	}
 	s.notices = map[chan confapply.Notice]struct{}{}
-	m := http.NewServeMux()
+	m := &recordingMux{ServeMux: http.NewServeMux()}
 	static := func(ctype string, body []byte) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", ctype)
@@ -240,7 +241,19 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/v1/{plural}/{id}", s.kind(s.remove, "write"))
 	m.HandleFunc("GET /api/v1/{plural}/{id}/used-by", s.kind(s.usedBy, "read"))
 	m.HandleFunc("GET /api/v1/{plural}/{id}/effective", s.kind(s.effective, "read"))
-	s.mux = m
+	s.mux, s.patterns = m.ServeMux, m.patterns
+}
+
+// recordingMux remembers what was registered so a test can hold the
+// generated OpenAPI document against the routes that really exist.
+type recordingMux struct {
+	*http.ServeMux
+	patterns []string
+}
+
+func (m *recordingMux) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
+	m.patterns = append(m.patterns, pattern)
+	m.ServeMux.HandleFunc(pattern, h)
 }
 
 // kind resolves the URL segment and enforces the permission for its area.

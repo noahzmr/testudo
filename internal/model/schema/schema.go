@@ -515,6 +515,19 @@ func OpenAPI() ([]byte, error) {
 				"responses": map[string]any{"204": resp("Deleted", nil), "404": rr("NotFound"),
 					"409": rr("ConflictOrInUse"), "428": rr("PreconditionRequired")}},
 		}
+		paths["/api/v1/"+info.Plural+"/{id}/effective"] = map[string]any{
+			"parameters": []any{pr("id"),
+				map[string]any{"name": "site", "in": "query", "schema": map[string]any{"type": "string", "format": "uuid"}},
+				map[string]any{"name": "node", "in": "query", "schema": map[string]any{"type": "string", "format": "uuid"}}},
+			"get": map[string]any{"operationId": "effective_" + string(info.Kind), "tags": tag,
+				"summary": "The " + info.Title + " as one site or node sees it, with the origin of every overridden field",
+				"responses": map[string]any{"200": resp("Effective object", obj(map[string]any{
+					"object":     ref(name),
+					"origins":    map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+					"base_scope": map[string]any{"type": "string"},
+					"applies":    map[string]any{"type": "boolean"},
+				}, "object", "origins")), "404": rr("NotFound")}},
+		}
 		paths["/api/v1/"+info.Plural+"/{id}/used-by"] = map[string]any{
 			"parameters": []any{pr("id")},
 			"get": map[string]any{"operationId": "used_by_" + string(info.Kind), "tags": tag,
@@ -522,6 +535,74 @@ func OpenAPI() ([]byte, error) {
 				"responses": map[string]any{"200": rr("UsedBy")}},
 		}
 	}
+	// Operations that are not about one kind.
+	schemas["Change"] = obj(map[string]any{
+		"type": map[string]any{"enum": []string{"create", "update", "delete"}}, "kind": map[string]any{"type": "string"},
+		"id": map[string]any{"type": "string"}, "name": map[string]any{"type": "string"},
+		"before": map[string]any{"type": "object"}, "after": map[string]any{"type": "object"},
+	}, "type", "kind", "id", "name")
+	schemas["Pending"] = obj(map[string]any{
+		"index": map[string]any{"type": "integer"}, "actor": map[string]any{"type": "string"},
+		"note": map[string]any{"type": "string"}, "deadline": map[string]any{"type": "string", "format": "date-time"},
+	}, "index", "actor", "deadline")
+	changes := map[string]any{"type": "array", "items": ref("Change")}
+	pending := resp("The change is live and waits for confirmation until the deadline.",
+		obj(map[string]any{"pending": ref("Pending")}, "pending"))
+	responses["Pending"] = problem("Another change is waiting for confirmation.", map[string]any{"pending": ref("Pending")})
+	responses["StageFailed"] = problem("A stage refused the change (422) or failed while applying it (502).", map[string]any{
+		"stage": map[string]any{"type": "string"}, "phase": map[string]any{"type": "string"}, "rolled_back": map[string]any{"type": "boolean"}})
+	sets := jsonBody(obj(map[string]any{
+		"changesets": map[string]any{"type": "array", "items": map[string]any{"type": "string", "format": "uuid"}},
+		"note":       map[string]any{"type": "string"}}, "changesets"))
+	op := func(id, summary string, responses map[string]any, extra ...map[string]any) map[string]any {
+		o := map[string]any{"operationId": id, "tags": []string{"changes"}, "summary": summary, "responses": responses}
+		for _, e := range extra {
+			for k, v := range e {
+				o[k] = v
+			}
+		}
+		return o
+	}
+	ok := func(desc string, s map[string]any) map[string]any { return map[string]any{"200": resp(desc, s)} }
+	none := map[string]any{"204": resp("Done", nil), "409": problem("Nothing is waiting for confirmation.", nil)}
+	applied := map[string]any{"200": pending, "409": rr("Conflict"), "422": rr("Invalid"), "423": rr("Pending"), "502": rr("StageFailed")}
+	paths["/api/v1/whoami"] = map[string]any{"get": op("whoami", "The caller and their permissions", ok("Identity", obj(map[string]any{
+		"name": map[string]any{"type": "string"}, "permissions": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "name", "permissions")))}
+	paths["/api/v1/schema/openapi.json"] = map[string]any{"get": op("schema_openapi", "This document", ok("OpenAPI document", map[string]any{"type": "object"}))}
+	paths["/api/v1/schema/ui.json"] = map[string]any{"get": op("schema_ui", "Form descriptions for every kind", ok("UI schema", map[string]any{"type": "object"}))}
+	paths["/api/v1/events"] = map[string]any{"get": op("events", "Server-sent events: 'change' per committed record, 'apply' per apply outcome",
+		map[string]any{"200": map[string]any{"description": "Event stream", "content": map[string]any{"text/event-stream": map[string]any{"schema": map[string]any{"type": "string"}}}}})}
+	paths["/api/v1/changesets"] = map[string]any{
+		"get": op("list_changesets", "List change sets", ok("Change sets", map[string]any{"type": "array", "items": map[string]any{"type": "object"}})),
+		"post": op("create_changeset", "Create an empty change set", map[string]any{"201": resp("Change set", map[string]any{"type": "object"})},
+			map[string]any{"requestBody": jsonBody(obj(map[string]any{"name": map[string]any{"type": "string"}}, "name"))}),
+	}
+	paths["/api/v1/changesets/{id}"] = map[string]any{"parameters": []any{pr("id")},
+		"get":    op("get_changeset", "A change set with the diff it would produce now", map[string]any{"200": resp("Change set", obj(map[string]any{"changes": changes, "problem": map[string]any{"type": "string"}}, "changes")), "404": rr("NotFound")}),
+		"delete": op("delete_changeset", "Discard a change set", map[string]any{"204": resp("Discarded", nil), "404": rr("NotFound")}),
+	}
+	paths["/api/v1/plan"] = map[string]any{"post": op("plan", "Combined diff and rendered output of several change sets, without committing",
+		map[string]any{"200": resp("Plan", obj(map[string]any{"changes": changes, "rendered": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}}, "changes", "rendered")),
+			"409": rr("Conflict"), "422": rr("Invalid")}, map[string]any{"requestBody": sets})}
+	paths["/api/v1/apply"] = map[string]any{
+		"get":  op("apply_status", "The change waiting for confirmation, if any", ok("Status", obj(map[string]any{"pending": map[string]any{"oneOf": []any{ref("Pending"), map[string]any{"type": "null"}}}, "index": map[string]any{"type": "integer"}}, "index", "pending"))),
+		"post": op("apply", "Commit and apply several change sets as one transaction", applied, map[string]any{"requestBody": sets}),
+	}
+	paths["/api/v1/apply/confirm"] = map[string]any{"post": op("confirm", "Keep the pending change", none)}
+	paths["/api/v1/apply/rollback"] = map[string]any{"post": op("rollback", "Take the pending change back now", none,
+		map[string]any{"requestBody": jsonBody(obj(map[string]any{"reason": map[string]any{"type": "string"}}))})}
+	paths["/api/v1/history"] = map[string]any{"get": op("history", "Committed records, newest first, with before and after per object",
+		ok("Records", map[string]any{"type": "array", "items": map[string]any{"type": "object"}}), map[string]any{"parameters": []any{
+			map[string]any{"name": "before", "in": "query", "schema": map[string]any{"type": "integer"}},
+			map[string]any{"name": "limit", "in": "query", "schema": map[string]any{"type": "integer"}}}})}
+	paths["/api/v1/history/{index}/revert"] = map[string]any{
+		"parameters": []any{map[string]any{"name": "index", "in": "path", "required": true, "schema": map[string]any{"type": "integer"}}},
+		"post":       op("revert", "Undo one record through the normal apply path", applied)}
+	paths["/api/v1/export"] = map[string]any{"get": op("export", "The whole model including secrets (backup); needs system:write", ok("Snapshot", map[string]any{"type": "object"}))}
+	paths["/api/v1/import"] = map[string]any{"post": op("import", "Replace the model with a snapshot as one transaction; dry_run=1 only reports the diff", applied,
+		map[string]any{"requestBody": jsonBody(map[string]any{"type": "object"}),
+			"parameters": []any{map[string]any{"name": "dry_run", "in": "query", "schema": map[string]any{"type": "string"}}}})}
+
 	return marshal(map[string]any{
 		"openapi": "3.1.0",
 		"info": map[string]any{"title": "Testudo configuration API", "version": "1",

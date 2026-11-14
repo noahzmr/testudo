@@ -15,6 +15,7 @@ import (
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/model/schema"
 )
 
 type rig struct {
@@ -506,5 +507,47 @@ func TestEventStreamEndsOnShutdown(t *testing.T) {
 	case <-ended:
 	case <-time.After(2 * time.Second):
 		t.Fatal("the event stream stayed open after shutdown was signalled")
+	}
+}
+
+// TestOpenAPIDescribesEveryRoute fails when a route is added to the server
+// without being described in the generated document, or the other way round.
+func TestOpenAPIDescribesEveryRoute(t *testing.T) {
+	s := &Server{}
+	s.routes()
+	var doc struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal(schema.OpenAPIJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	served := map[string]bool{}
+	for _, p := range s.patterns {
+		method, path, _ := strings.Cut(p, " ")
+		if !strings.Contains(path, "{plural}") {
+			served[strings.ToLower(method)+" "+path] = true
+			continue
+		}
+		for _, info := range model.Kinds() {
+			served[strings.ToLower(method)+" "+strings.Replace(path, "{plural}", info.Plural, 1)] = true
+		}
+	}
+	described := map[string]bool{}
+	for path, ops := range doc.Paths {
+		for method := range ops {
+			if method != "parameters" {
+				described[method+" "+path] = true
+			}
+		}
+	}
+	for r := range served {
+		if !described[r] {
+			t.Errorf("route %q is served but missing from openapi.json", r)
+		}
+	}
+	for r := range described {
+		if !served[r] {
+			t.Errorf("openapi.json describes %q, which the server does not serve", r)
+		}
 	}
 }
