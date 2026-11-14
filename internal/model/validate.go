@@ -169,7 +169,7 @@ func Validate(e Entity) error {
 				msg += "=" + fe.Param()
 			}
 			if r, ok := CustomRules[fe.Tag()]; ok {
-				msg = "must be a " + r.Description
+				msg = "expected " + r.Description
 			}
 			out.Fields = append(out.Fields, FieldError{Field: path, Rule: fe.Tag(), Message: msg})
 		}
