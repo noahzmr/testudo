@@ -366,6 +366,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.Done:
+			return
 		case ev := <-changes:
 			// Only name the objects the caller may read.
 			visible := ev.Changes[:0:0]

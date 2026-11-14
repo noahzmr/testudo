@@ -482,3 +482,29 @@ func TestEventStream(t *testing.T) {
 		t.Errorf("event names an object outside the subscriber's areas: %v", ev)
 	}
 }
+
+func TestEventStreamEndsOnShutdown(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := confstore.Open(dir)
+	defer store.Close()
+	done := make(chan struct{})
+	api := &Server{Store: store, Done: done,
+		Identify: func(*http.Request) (Identity, bool) { return users["admin"], true }}
+	api.Engine, _ = confapply.New(store, confapply.Options{Dir: dir})
+	srv := httptest.NewServer(api)
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "/api/v1/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	ended := make(chan struct{})
+	go func() { io.Copy(io.Discard, res.Body); close(ended) }()
+	close(done)
+	select {
+	case <-ended:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the event stream stayed open after shutdown was signalled")
+	}
+}

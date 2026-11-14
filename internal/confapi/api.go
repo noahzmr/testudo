@@ -78,6 +78,10 @@ type Server struct {
 	Identify func(*http.Request) (Identity, bool)
 	// Heartbeat is the interval of keep-alive comments on the event stream.
 	Heartbeat time.Duration
+	// Done, when closed, ends every open event stream. Set it to the
+	// server's shutdown signal: a graceful shutdown waits for open requests
+	// and an event stream never finishes by itself.
+	Done <-chan struct{}
 
 	once sync.Once
 	mux  *http.ServeMux
