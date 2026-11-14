@@ -51,6 +51,22 @@ func Area(info model.KindInfo) string {
 	return area
 }
 
+// RolePermissions maps the four built-in roles of the existing user store
+// onto permissions. Operators manage the network but not identities or the
+// cluster; approvers decide on access requests.
+func RolePermissions(role string) []string {
+	switch role {
+	case "admin":
+		return []string{"*:write"}
+	case "operator":
+		return []string{"*:read", "firewall:write", "routing:write", "vpn:write", "loadbalancer:write",
+			"interfaces:write", "access:write"}
+	case "approver":
+		return []string{"*:read", "access:write"}
+	}
+	return []string{"*:read"}
+}
+
 // SystemArea guards history revert, export and import.
 const SystemArea = "system"
 
