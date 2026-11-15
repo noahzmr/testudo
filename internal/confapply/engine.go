@@ -37,6 +37,28 @@ type Stage interface {
 	Healthy(ctx context.Context) error
 }
 
+// Redactor is implemented by stages whose artifact can contain secrets. Its
+// result is what a person is shown instead of the artifact.
+type Redactor interface {
+	Redact(artifact []byte) []byte
+}
+
+// Display returns the artifacts in the form a person may see.
+func (e *Engine) Display(arts map[string][]byte) map[string]string {
+	out := make(map[string]string, len(arts))
+	for _, st := range e.stages {
+		a, ok := arts[st.Name()]
+		if !ok {
+			continue
+		}
+		if r, ok := st.(Redactor); ok {
+			a = r.Redact(a)
+		}
+		out[st.Name()] = string(a)
+	}
+	return out
+}
+
 // DefaultWindow is how long an applied change waits for confirmation.
 const DefaultWindow = 60 * time.Second
 

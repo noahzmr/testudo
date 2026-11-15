@@ -143,11 +143,8 @@ func (s *Server) plan(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, err)
 		return
 	}
-	rendered := map[string]string{}
-	for stage, a := range arts {
-		rendered[stage] = string(a)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"changes": masked(changes), "rendered": rendered})
+	// Stages hide what must not be shown (session passwords).
+	writeJSON(w, http.StatusOK, map[string]any{"changes": masked(changes), "rendered": s.Engine.Display(arts)})
 }
 
 // apply commits and applies the change sets as one transaction.
