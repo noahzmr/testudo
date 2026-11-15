@@ -3,10 +3,10 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 3 complete. The packet filter, NAT and routing are
-driven by the model ([phase-2-packet-filter.md](phase-2-packet-filter.md),
-[phase-3-routing.md](phase-3-routing.md)), verified against a real kernel
-and real FRR. WireGuard and identity-aware access (Phase 4) are next.**
+**Status: Phases 0 to 4 complete. Packet filter, NAT, routing and WireGuard
+with identity-aware access are driven by the model and verified against a
+real kernel ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
+[phase-4](phase-4-vpn.md)). Load balancing (Phase 5) is next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -19,7 +19,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 1 | Data model, generation, config core | done | - | - |
 | 2 | Stateful packet filter and NAT | done | - | - |
 | 3 | Routing (FRR), multi-WAN, PBR | done | - | - |
-| 4 | WireGuard and identity-aware access | about 45 % | 5–6 weeks | medium |
+| 4 | WireGuard and identity-aware access | done | - | - |
 | 5 | Load balancing, SNI, certificates | nothing | 7–9 weeks | medium |
 | 6 | Linux-PAM, OIDC, RBAC, audit | about 25 % | 5–6 weeks | high |
 | 7 | Raft cluster core | nothing | 10–12 weeks | very high |
@@ -106,18 +106,9 @@ routes, IPv6 routes).
 
 ## 4. VPN (WireGuard)
 
-| Target | Today |
-| --- | --- |
-| Kernel WireGuard, monitoring, anomaly detection | present |
-| Peer create with rollback, client config, QR | present |
-| Full and split tunnel presets | present |
-| Multiple tunnels, site-to-site model | interfaces can be created; provisioning uses one device; no site model |
-| Preshared keys, rotation, expiry, revoke with history | absent |
-| IPv6 inside the tunnel | absent (IPAM and masquerade are IPv4-only, yet the full-tunnel client config announces `::/0`) |
-| Zone per tunnel | absent |
-| Routes distributed through FRR | absent |
-| Peers and resources bound to identity with per-resource policy | present for local users through grants; no groups, no OIDC identity |
-| Management reachable over the VPN, tested end to end | works in practice, not tested |
+Done; see [phase-4-vpn.md](phase-4-vpn.md). Open by design: approval-gated
+access still runs through the existing access manager, and identities
+become login identities with Phase 6.
 
 ## 5. Load balancing and SNI
 

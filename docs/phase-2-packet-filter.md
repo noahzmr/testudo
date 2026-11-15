@@ -141,8 +141,9 @@ Not verified, and why:
 
 Left for later phases, deliberately:
 
-* WireGuard presets and access grants stay rules of the firewall manager
-  until Phases 4 and 6 make them model objects.
+* Access grants that need approval stay rules of the firewall manager until
+  Phase 6; standing access policies and tunnels are model objects since
+  Phase 4.
 * Running state still allows direct edits, and the terminal UI and
   `testudo firewall` edit the manager, not the model.
 * Flow attribution for NAT (pre/post addresses) is Phase 9.
