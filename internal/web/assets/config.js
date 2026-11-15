@@ -73,7 +73,7 @@ const PANE = {
   route: 'routes', gateway: 'routes', policy_route: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
   wg_tunnel: 'wireguard', wg_peer: 'wireguard',
   access_resource: 'access', access_policy: 'access',
-  user: 'settings', group: 'settings', role: 'settings', certificate: 'settings',
+  user: 'settings', group: 'settings', role: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
   site: 'cluster', cluster_node: 'cluster',
 };
@@ -81,7 +81,7 @@ const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
   interface: 'Zone assignment', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies',
-  user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates',
+  user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
   site: 'Sites', cluster_node: 'Nodes',
 };
@@ -94,10 +94,11 @@ const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 
 const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'nat_rule', 'interface',
   'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf',
   'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy',
-  'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate']);
+  'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate',
+  'user', 'group', 'role', 'oidc_provider', 'api_token']);
 // Sections that open on the model instead of their live view.
 const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'sites', changes: 'changesets' };
-const paneOf = seg => seg === 'changesets' || seg === 'history' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
+const paneOf = seg => seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
 const paneEl = name => document.querySelector(`.pane[data-pane="${name}"]`);
 
 // buildBars gives every section its row of tabs.
@@ -107,7 +108,7 @@ function buildBars() {
     const f = S.byKind[kind];
     if (f && can(f, 'read')) (byPane[pane] ||= []).push(f);
   }
-  byPane.changes = [{ plural: 'changesets', label: 'Change sets' }, { plural: 'history', label: 'History' }];
+  byPane.changes = [{ plural: 'changesets', label: 'Change sets' }, { plural: 'history', label: 'History' }, { plural: 'audit', label: 'Audit log' }];
   for (const [pane, forms] of Object.entries(byPane)) {
     const host = paneEl(pane);
     if (!host || host.querySelector('.cfg-bar')) continue;
@@ -161,9 +162,10 @@ async function route() {
   if (!pane || !mount(pane, seg)) return;
   if (seg === 'changesets') { S.form = null; return changeSetsView(); }
   if (seg === 'history') { S.form = null; return historyView(); }
+  if (seg === 'audit') { S.form = null; return auditView(); }
   S.form = S.forms.find(f => f.plural === seg);
   if (!S.form || !can(S.form, 'read')) return fill($('#cfg-main'), el('p', { text: 'Nothing you may read here.' }));
-  if (id === 'new') return editView(S.form, null);
+  if (id === 'new') return S.form.kind === 'api_token' ? tokenView() : editView(S.form, null);
   if (id) {
     const r = await api('GET', `/${S.form.plural}/${id}`);
     if (g !== gen) return;
@@ -445,7 +447,8 @@ async function editView(form, obj, origins) {
   const extra = el('div', { class: 'cfg-extra' });
   // Values a helper sets that the form has no editable field for.
   const extras = {};
-  const helper = writable && !origins ? (form.kind === 'certificate' ? certHelpers(obj, f, extras) : wgHelpers(form, obj, f, extras, ui)) : null;
+  const helper = !writable || origins ? null : form.kind === 'certificate' ? certHelpers(obj, f, extras)
+    : form.kind === 'oidc_provider' ? oidcHelpers(obj, extras) : wgHelpers(form, obj, f, extras, ui);
   fill($('#cfg-main'), 
     el('header', {}, el('h2', { text: obj ? `${form.title}: ${obj.name}` : `New ${form.title}` }),
       el('a', { href: '#/' + form.plural, text: 'Back' })),
@@ -762,6 +765,75 @@ async function historyView() {
           if (x.ok) { afterWrite(x); historyView(); } else toast(x.data?.message || 'failed', 'err');
         } }) : null),
       changeRows(rec.changes))));
+}
+
+// auditView lists who did what: logins with their source, configuration
+// changes with what they changed, applies, rollbacks, privileged operations.
+async function auditView() {
+  const g = gen;
+  const r = await api('GET', '/audit?limit=300');
+  if (g !== gen) return;
+  const main = $('#cfg-main');
+  if (!r.ok) return fill(main, el('header', {}, el('h2', { text: 'Audit log' })), el('p', { class: 'err', text: r.data?.message || 'failed' }));
+  const detail = row => {
+    let d;
+    try { d = JSON.parse(row.detail); } catch { return row.detail; }
+    if (d === null || typeof d !== 'object') return row.detail;
+    return Object.entries(d).filter(([, v]) => v !== '' && v != null)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · ');
+  };
+  fill(main, el('header', {}, el('h2', { text: 'Audit log' })),
+    el('p', { class: 'dim', text: 'Newest first. The values before and after a configuration change are in History, under the record number.' }),
+    el('table', { class: 'cfg-table' },
+      el('thead', {}, el('tr', {}, ['Time', 'Who', 'What', 'Detail', 'Result'].map(h => el('th', { text: h })))),
+      el('tbody', {}, (r.data || []).map(row => el('tr', {},
+        el('td', { text: new Date(row.time).toLocaleString() }), el('td', { text: row.actor || '-' }), el('td', { text: row.op }),
+        el('td', { text: detail(row) }), el('td', { class: row.result === 'ok' ? '' : 'err', text: row.result }))))));
+}
+
+// tokenView creates an API token. A token carries some of its creator's
+// own permissions and is shown once.
+function tokenView() {
+  const main = $('#cfg-main');
+  const name = el('input', { placeholder: 'ci-deploy', required: true });
+  const ttl = el('input', { type: 'number', min: 0, max: 8784, value: 720 });
+  const perms = (S.who?.permissions || []).flatMap(p => p.endsWith(':write') ? [p.replace(':write', ':read'), p] : [p]);
+  const boxes = [...new Set(perms)].sort().map(p => el('label', { class: 'check' }, el('input', { type: 'checkbox', value: p }), el('span', { text: ' ' + p })));
+  const status = el('div');
+  fill(main, el('header', {}, el('h2', { text: 'New API token' }), el('a', { href: '#/api-tokens', text: 'Back' })),
+    el('form', { class: 'cfg-form', onsubmit: async ev => {
+      ev.preventDefault();
+      const chosen = boxes.map(b => b.querySelector('input')).filter(i => i.checked).map(i => i.value);
+      if (!chosen.length) return fill(status, el('p', { class: 'err', text: 'Choose at least one permission.' }));
+      const r = await api('POST', '/tokens', { name: name.value, permissions: chosen, ttl_hours: Number(ttl.value) || 0 });
+      if (!r.ok) return fill(status, el('p', { class: 'err', text: r.data?.message || 'failed' }));
+      fill(main, el('header', {}, el('h2', { text: `Token ${r.data.name}` }), el('a', { href: '#/api-tokens', text: 'Done' })),
+        el('p', { text: 'Copy the token now. It is not stored and cannot be shown again.' }),
+        el('pre', { class: 'cfg-secret', text: r.data.token }),
+        el('p', { class: 'dim', text: 'Send it as "Authorization: Bearer <token>". ' + (r.data.expires_at ? `It expires ${new Date(r.data.expires_at).toLocaleString()}.` : 'It does not expire; disable it when it is no longer needed.') }));
+    } },
+      el('label', {}, el('span', { text: 'Name *' }), name),
+      el('label', {}, el('span', { text: 'Valid for (hours, 0 = no expiry)' }), ttl),
+      el('fieldset', {}, el('legend', { text: 'Permissions (yours, or fewer)' }), boxes),
+      status, el('div', { class: 'actions' }, el('button', { class: 'primary', text: 'Create token' }))));
+}
+
+// oidcHelpers stores the provider's client secret on the node. The form
+// only receives the name of the entry.
+function oidcHelpers(obj, extras) {
+  const secret = el('input', { type: 'password', autocomplete: 'off', placeholder: obj ? 'leave empty to keep the stored secret' : 'client secret' });
+  const note = el('span', { class: 'dim' });
+  return el('div', { class: 'cfg-extra' },
+    el('label', {}, el('span', { text: 'Client secret' }), secret),
+    el('div', { class: 'actions' }, el('button', { type: 'button', text: 'Store the secret on this node', onclick: async () => {
+      if (!secret.value) return toast('Enter the secret first', 'err');
+      const r = await api('POST', '/oidc/client-secret', { secret: secret.value });
+      if (!r.ok) return toast(r.data?.message || 'failed', 'err');
+      secret.value = '';
+      extras.client_secret_ref = r.data.client_secret_ref;
+      note.textContent = 'Stored. Save to use it.';
+    } }), note),
+    el('p', { class: 'dim', text: 'Register this console at the provider with the redirect URL above and, for logout by the provider, the back-channel logout URL <console address>/auth/oidc/backchannel-logout. Local and host accounts keep working when the provider is unreachable.' }));
 }
 
 // ---- live updates ---------------------------------------------------------

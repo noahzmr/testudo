@@ -58,3 +58,5 @@
 .cfg-toast.err { border-color: #8e3b36; }
 .cfg-qr { margin: 12px 0; padding: 12px; background: #fff; display: inline-block; border-radius: 6px; }
 .cfg a.btn { display: inline-block; padding: 5px 12px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--fg); text-decoration: none; }
+.cfg-secret { padding: 12px; border: 1px solid var(--border); border-radius: 6px; user-select: all; word-break: break-all; white-space: pre-wrap; }
+.cfg-form fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 8px 0; display: grid; gap: 4px; }
