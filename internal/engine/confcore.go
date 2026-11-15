@@ -105,6 +105,18 @@ func (e *Engine) openConfig() {
 	// WireGuard devices come first: the packet filter names them and the
 	// routing daemon routes through them.
 	c.secrets = secrets.Store{Dir: filepath.Join(e.cfg.StorageDir, "secrets")}
+	// On a cluster member a secret has to reach the other members too. The
+	// hook is installed now because the stages below copy the store.
+	local := c.secrets
+	c.secrets.Replicate = func(name string, value []byte, remove bool) error {
+		if mgr := e.cluster.mgr; mgr != nil && mgr.Node() != nil {
+			return mgr.PutSecret(name, value, remove)
+		}
+		if remove {
+			return local.Delete(name)
+		}
+		return local.Put(name, value)
+	}
 	c.wg = &wgstage.Stage{Locate: localNode, Secrets: c.secrets}
 	if e.netops != nil {
 		c.wg.Runner = e.netops

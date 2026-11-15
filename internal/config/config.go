@@ -347,6 +347,16 @@ type Config struct {
 	// (e.g. 127.0.0.1:8080) to restrict it to loopback.
 	WebListen string
 
+	// Cluster membership. ClusterRaft and ClusterAPI are the listen
+	// addresses of the consensus transport and the member API; empty
+	// ClusterRaft means this node never joins a cluster. Bind them to the
+	// site-mesh address, never to a WAN interface. The advertise addresses
+	// are what other members connect to (default: the listen addresses).
+	// NodeName identifies the member (default: the host name).
+	ClusterRaft, ClusterAPI                   string
+	ClusterAdvertiseRaft, ClusterAdvertiseAPI string
+	NodeName                                  string
+
 	// SnapshotInterval is the cadence for per-session firewall/route/NAT/topology
 	// snapshots. Lower = finer replay resolution, higher = less storage churn.
 	SnapshotInterval time.Duration

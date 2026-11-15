@@ -65,6 +65,8 @@ type Engine struct {
 	fwNft *fwstage.Stage
 	// conf is the configuration model's store and apply engine.
 	conf confCore
+	// cluster is this node's place in a cluster, if it has one.
+	cluster clusterCore
 	// pam is the privileged-access manager (JIT grants compiled into firewall
 	// rules for the requester's WireGuard peers); nil when disabled.
 	pam *pam.Manager
@@ -151,6 +153,7 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 		baselines: make(map[string]quality.Rollup),
 	}
 	e.openConfig()
+	e.openCluster()
 	return e
 }
 
@@ -268,6 +271,7 @@ func (e *Engine) Start(parent context.Context) error {
 
 	e.incidents = incidents.New(e.store, e.flowAgg, e.cfg.StorageDir, e.cfg.Thresholds.IncidentCooldown)
 	e.startConfig(ctx)
+	go e.clusterLoop(ctx)
 
 	e.startMetricsAndStorageConsumer(ctx)
 	e.startAnalyzers(ctx)
