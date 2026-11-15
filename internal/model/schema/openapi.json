@@ -6300,6 +6300,58 @@
         ]
       }
     },
+    "/api/v1/audit": {
+      "get": {
+        "operationId": "audit",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "actor": {
+                        "type": "string"
+                      },
+                      "detail": {
+                        "type": "string"
+                      },
+                      "op": {
+                        "type": "string"
+                      },
+                      "peer_uid": {
+                        "type": "integer"
+                      },
+                      "result": {
+                        "type": "string"
+                      },
+                      "time": {
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "actor",
+                      "detail",
+                      "op",
+                      "result",
+                      "time"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Rows"
+          }
+        },
+        "summary": "The newest audit rows: logins, configuration changes, applies, rollbacks and privileged operations. Query: limit, op (prefix)",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
     "/api/v1/bgp-neighbors": {
       "get": {
         "operationId": "list_bgp_neighbor",
@@ -10461,6 +10513,52 @@
         }
       ]
     },
+    "/api/v1/oidc/client-secret": {
+      "post": {
+        "operationId": "oidc_client_secret",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "client_secret_ref": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "client_secret_ref"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Entry name"
+          }
+        },
+        "summary": "Store the identity provider's client secret on the node; returns the entry name for the provider object",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
     "/api/v1/ospf-areas": {
       "get": {
         "operationId": "list_ospf_area",
@@ -12116,6 +12214,91 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/tokens": {
+      "post": {
+        "operationId": "create_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "permissions": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "ttl_hours": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "permissions"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "expires_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "permissions": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "permissions",
+                    "token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The token would carry a permission the caller does not hold."
+          }
+        },
+        "summary": "Create an API token for the caller with some of the caller's own permissions; the token is returned this one time",
+        "tags": [
+          "identity"
+        ]
+      }
     },
     "/api/v1/users": {
       "get": {

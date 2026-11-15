@@ -32,6 +32,8 @@ import (
 type Identity struct {
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`
+	// Token is set when the caller presented an API token, not a login.
+	Token bool `json:"token,omitempty"`
 }
 
 // Can reports whether the identity may read or write the area.
@@ -85,6 +87,11 @@ type Server struct {
 	// Certs issues and imports certificates on the node; nil disables the
 	// certificate endpoints.
 	Certs CertMaker
+	// Secrets stores secrets on the node; nil disables the endpoints that
+	// take one.
+	Secrets SecretKeeper
+	// Audit reads the audit log; nil disables the endpoint.
+	Audit AuditReader
 	// Heartbeat is the interval of keep-alive comments on the event stream.
 	Heartbeat time.Duration
 	// Done, when closed, ends every open event stream. Set it to the
@@ -244,6 +251,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/v1/pki/import", s.pkiImport)
 	m.HandleFunc("GET /api/v1/pki/ca", s.pkiCA)
 	m.HandleFunc("GET /api/v1/lb/firewall-hints", s.lbFirewallHints)
+	m.HandleFunc("POST /api/v1/oidc/client-secret", s.oidcClientSecret)
+	m.HandleFunc("POST /api/v1/tokens", s.createToken)
+	m.HandleFunc("GET /api/v1/audit", s.audit)
 	m.HandleFunc("GET /api/v1/changesets", s.listChangeSets)
 	m.HandleFunc("POST /api/v1/changesets", s.createChangeSet)
 	m.HandleFunc("GET /api/v1/changesets/{id}", s.getChangeSet)

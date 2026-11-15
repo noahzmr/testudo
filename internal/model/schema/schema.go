@@ -608,6 +608,18 @@ func OpenAPI() ([]byte, error) {
 	paths["/api/v1/lb/firewall-hints"] = map[string]any{"get": tagged(op("lb_firewall_hints", "Per load-balancer service: whether a filter rule lets clients in, and the rule that would; nothing is created",
 		ok("Hints", map[string]any{"type": "array", "items": obj(map[string]any{"service": map[string]any{"type": "string"}, "name": map[string]any{"type": "string"},
 			"covered": map[string]any{"type": "boolean"}, "rule": map[string]any{"type": "object"}}, "service", "name", "covered")})), "loadbalancer")}
+	paths["/api/v1/oidc/client-secret"] = map[string]any{"post": tagged(op("oidc_client_secret", "Store the identity provider's client secret on the node; returns the entry name for the provider object",
+		map[string]any{"201": resp("Entry name", strs("client_secret_ref"))}, map[string]any{"requestBody": jsonBody(strs("secret"))}), "identity")}
+	paths["/api/v1/audit"] = map[string]any{"get": tagged(op("audit", "The newest audit rows: logins, configuration changes, applies, rollbacks and privileged operations. Query: limit, op (prefix)",
+		ok("Rows", map[string]any{"type": "array", "items": obj(map[string]any{"time": map[string]any{"type": "string", "format": "date-time"},
+			"actor": map[string]any{"type": "string"}, "op": map[string]any{"type": "string"}, "detail": map[string]any{"type": "string"},
+			"result": map[string]any{"type": "string"}, "peer_uid": map[string]any{"type": "integer"}}, "time", "actor", "op", "detail", "result")})), "identity")}
+	paths["/api/v1/tokens"] = map[string]any{"post": tagged(op("create_token", "Create an API token for the caller with some of the caller's own permissions; the token is returned this one time",
+		map[string]any{"201": resp("Token", obj(map[string]any{"id": map[string]any{"type": "string"}, "name": map[string]any{"type": "string"}, "token": map[string]any{"type": "string"},
+			"permissions": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "expires_at": map[string]any{"type": "string", "format": "date-time"}}, "id", "name", "token", "permissions")),
+			"403": problem("The token would carry a permission the caller does not hold.", nil)},
+		map[string]any{"requestBody": jsonBody(obj(map[string]any{"name": map[string]any{"type": "string"}, "ttl_hours": map[string]any{"type": "integer"},
+			"permissions": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "name", "permissions"))}), "identity")}
 	paths["/api/v1/changesets"] = map[string]any{
 		"get": op("list_changesets", "List change sets", ok("Change sets", map[string]any{"type": "array", "items": map[string]any{"type": "object"}})),
 		"post": op("create_changeset", "Create an empty change set", map[string]any{"201": resp("Change set", map[string]any{"type": "object"})},

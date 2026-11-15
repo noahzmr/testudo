@@ -649,3 +649,82 @@ func TestFirewallHintsProposeAndCreateNothing(t *testing.T) {
 		t.Errorf("hints without loadbalancer:read: %d", res.status)
 	}
 }
+
+type fakeSecrets struct{ stored map[string]string }
+
+func (f *fakeSecrets) StoreSecret(prefix string, value []byte) (string, error) {
+	ref := prefix + "-1"
+	f.stored[ref] = string(value)
+	return ref, nil
+}
+
+func TestClientSecretGoesToTheNodeAndStaysThere(t *testing.T) {
+	r := newRig(t)
+	sec := &fakeSecrets{stored: map[string]string{}}
+	r.srv.Config.Handler.(*Server).Secrets = sec
+	if res := r.do("alice", "POST", "/api/v1/oidc/client-secret", map[string]string{"secret": "s3cret"}); res.status != 403 {
+		t.Errorf("without system:write: %d", res.status)
+	}
+	res := r.do("admin", "POST", "/api/v1/oidc/client-secret", map[string]string{"secret": " s3cret "})
+	if res.status != 201 || res.json(t)["client_secret_ref"] != "oidc-1" || strings.Contains(string(res.body), "s3cret") {
+		t.Fatalf("store: %d %s", res.status, res.body)
+	}
+	if sec.stored["oidc-1"] != "s3cret\n" {
+		t.Errorf("stored %q", sec.stored["oidc-1"])
+	}
+	// The provider object keeps the entry name and never shows it.
+	created := r.mustCreate("admin", "oidc-providers", map[string]any{"name": "corp", "enabled": true, "issuer": "https://id.example.com/realms/corp",
+		"client_id": "testudo", "client_secret_ref": "oidc-1", "redirect_url": "https://fw.example.com/auth/oidc/callback"})
+	if created["client_secret_ref"] == "oidc-1" {
+		t.Error("the entry name is shown when the provider is read back")
+	}
+	e, _ := r.store.Current().Get(model.KindOIDCProvider, created["id"].(string))
+	if e.(*model.OIDCProvider).ClientSecretRef != "oidc-1" {
+		t.Error("the entry name was not stored")
+	}
+}
+
+func TestTokensCarryNoMoreThanTheirCreator(t *testing.T) {
+	r := newRig(t)
+	// alice holds firewall:write but not system:write.
+	if res := r.do("alice", "POST", "/api/v1/tokens", map[string]any{"name": "ci", "permissions": []string{"system:write"}}); res.status != 403 {
+		t.Errorf("a token beyond the creator's permissions: %d %s", res.status, res.body)
+	}
+	res := r.do("alice", "POST", "/api/v1/tokens", map[string]any{"name": "ci", "permissions": []string{"firewall:write", "routing:read"}, "ttl_hours": 1})
+	if res.status != 201 {
+		t.Fatalf("create: %d %s", res.status, res.body)
+	}
+	token := res.json(t)["token"].(string)
+	if !strings.HasPrefix(token, TokenPrefix) || len(token) < 40 {
+		t.Fatalf("token %q", token)
+	}
+	st := r.store.Current()
+	obj, ok := FindToken(st, token, time.Now())
+	if !ok || obj.Owner != "alice" || obj.Hash == token || strings.Join(obj.Permissions, ",") != "firewall:write,routing:read" {
+		t.Fatalf("stored token: %+v %v", obj, ok)
+	}
+	// The token itself is nowhere in the configuration log.
+	if exp := r.do("admin", "GET", "/api/v1/export", nil); exp.status != 200 || strings.Contains(string(exp.body), token) {
+		t.Error("the token is in the configuration")
+	}
+	if _, ok := FindToken(st, token+"x", time.Now()); ok {
+		t.Error("a different token was accepted")
+	}
+	if _, ok := FindToken(st, token, time.Now().Add(2*time.Hour)); ok {
+		t.Error("an expired token was accepted")
+	}
+	// Disabling it is an ordinary change by someone who may.
+	cur, _ := st.Get(model.KindAPIToken, obj.ID)
+	js, _ := json.Marshal(cur)
+	var m map[string]any
+	json.Unmarshal(js, &m)
+	m["disabled"] = true
+	m["hash"] = obj.Hash
+	if res := r.do("admin", "PUT", "/api/v1/api-tokens/"+obj.ID, m, "If-Match: "+etag(cur.GetMeta().Version)); res.status != 200 {
+		t.Fatalf("disable: %d %s", res.status, res.body)
+	}
+	r.settle()
+	if _, ok := FindToken(r.store.Current(), token, time.Now()); ok {
+		t.Error("a disabled token was accepted")
+	}
+}
