@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/noahzmr/testudo/internal/fwbridge"
 	"github.com/noahzmr/testudo/internal/fwrender"
 	"github.com/noahzmr/testudo/internal/gwmon"
+	"github.com/noahzmr/testudo/internal/identity"
 	"github.com/noahzmr/testudo/internal/lbhealth"
 	"github.com/noahzmr/testudo/internal/lbstage"
 	"github.com/noahzmr/testudo/internal/model"
@@ -134,7 +136,23 @@ func (e *Engine) configNotice(n confapply.Notice) {
 	if n.Err != nil {
 		result = n.Err.Error()
 	}
-	args, _ := json.Marshal(map[string]any{"record": n.Index, "reason": n.Reason})
+	detail := map[string]any{"record": n.Index, "reason": n.Reason}
+	// Say what changed. The values before and after are in the history
+	// record the row names (GET /api/v1/history), with secrets masked.
+	if n.Event == "applied" && e.conf.store != nil {
+		if recs, err := e.conf.store.History(n.Index+1, 1); err == nil && len(recs) == 1 && recs[0].Index == n.Index {
+			var changes []string
+			for i, c := range recs[0].Changes {
+				if i == 20 {
+					changes = append(changes, fmt.Sprintf("and %d more", len(recs[0].Changes)-i))
+					break
+				}
+				changes = append(changes, fmt.Sprintf("%s %s %s", c.Type, c.Kind, c.Name))
+			}
+			detail["changes"] = changes
+		}
+	}
+	args, _ := json.Marshal(detail)
 	// The engine lock is held by the caller; write the audit row off it.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -170,6 +188,7 @@ func (e *Engine) startConfig(ctx context.Context) {
 	if err := e.conf.apply.Start(ctx); err != nil {
 		log.Printf("config: start: %v", err)
 	}
+	e.seedRoles(ctx)
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)
 		go e.backendHealthLoop(ctx)
@@ -266,6 +285,34 @@ func (e *Engine) proxyRuntime() map[string]any {
 	return c.proxyState
 }
 
+// seedRoles creates the built-in roles the model does not have yet, so they
+// can be assigned to users and groups from the first start. Roles change
+// nothing in the running system, so the change is confirmed right away.
+func (e *Engine) seedRoles(ctx context.Context) {
+	if _, pending := e.conf.apply.Pending(); pending {
+		return
+	}
+	var ops []confstore.Op
+	for _, r := range identity.MissingBuiltinRoles(e.conf.store.Current()) {
+		r.ID = confstore.NewID()
+		obj, err := json.Marshal(r)
+		if err != nil {
+			return
+		}
+		ops = append(ops, confstore.Op{Type: confstore.OpCreate, Kind: model.KindRole, ID: r.ID, Object: obj})
+	}
+	if len(ops) == 0 {
+		return
+	}
+	if _, err := e.conf.apply.Apply(ctx, "system", "built-in roles", ops); err != nil {
+		log.Printf("config: create the built-in roles: %v", err)
+		return
+	}
+	if err := e.conf.apply.Confirm("system"); err != nil {
+		log.Printf("config: confirm the built-in roles: %v", err)
+	}
+}
+
 // peerExpiryLoop removes peers from their devices when they expire.
 func (e *Engine) peerExpiryLoop(ctx context.Context) {
 	tick := time.NewTicker(30 * time.Second)
@@ -293,6 +340,16 @@ func (e *Engine) peerExpiryLoop(ctx context.Context) {
 			log.Printf("config: routes after peer expiry: %v", err)
 		}
 	}
+}
+
+// Secret reads an entry of the node's secret store.
+func (e *Engine) Secret(ref string) ([]byte, error) { return e.conf.secrets.Get(ref) }
+
+// StoreSecret puts a value into the node's secret store under a new name
+// that starts with prefix, and returns the name.
+func (e *Engine) StoreSecret(prefix string, value []byte) (string, error) {
+	ref := prefix + "-" + confstore.NewID()
+	return ref, e.conf.secrets.Put(ref, value)
 }
 
 // IssueCertificate issues a server certificate from the internal authority
