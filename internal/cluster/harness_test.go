@@ -315,3 +315,16 @@ func (c *cluster) same(ids ...string) {
 		}
 	}
 }
+
+// leaderErr returns the current leader without waiting.
+func (c *cluster) leaderErr() (*member, error) {
+	for _, m := range c.running() {
+		if m.node.IsLeader() {
+			c.mu.Lock()
+			real := c.members[m.id]
+			c.mu.Unlock()
+			return real, nil
+		}
+	}
+	return nil, ErrNoQuorum
+}

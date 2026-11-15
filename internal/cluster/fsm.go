@@ -25,6 +25,13 @@ type fsm struct {
 	halted string // why this member stopped applying; empty when it has not
 	// applied is the index of the last Raft entry applied here.
 	applied uint64
+	// seen is the highest record index met in the log so far. The model is
+	// on disk and survives a restart; the state next to it is rebuilt from
+	// the log. So a record the model already has is either a replay, whose
+	// attachments have to take effect again, or a proposal that lost the
+	// race for its index, whose attachments never did. The first entry for
+	// an index is the record; any later one lost.
+	seen int64
 
 	changed func() // called, without locks, after every applied entry
 }
@@ -83,17 +90,21 @@ func (f *fsm) apply(l *raft.Log) error {
 	}
 	switch c.Type {
 	case CmdRecord:
-		var r confstore.Record
-		if err := decode(&r); err != nil {
+		var e RecordEntry
+		if err := decode(&e); err != nil {
 			return err
 		}
-		err := f.store.ApplyReplicated(r)
-		// A duplicate is a replay after a restart, or a proposal that lost
-		// the race for its index. Either way every member sees the same.
+		first := e.Record.Index > f.seen
+		err := f.store.ApplyReplicated(e.Record)
 		if err != nil && !errors.Is(err, confstore.ErrDuplicate) {
-			return f.halt("record %d: %v", r.Index, err)
+			return f.halt("record %d: %v", e.Record.Index, err)
 		}
-		return err
+		if first {
+			f.seen = e.Record.Index
+			f.setAttached(e)
+			return nil // also for a replay: the record is in the model
+		}
+		return confstore.ErrDuplicate
 	case CmdSeed:
 		var snap confstore.Snapshot
 		if err := decode(&snap); err != nil {
@@ -101,6 +112,9 @@ func (f *fsm) apply(l *raft.Log) error {
 		}
 		if err := f.store.RestoreSnapshot(snap); err != nil {
 			return f.halt("seed: %v", err)
+		}
+		if snap.Index > f.seen {
+			f.seen = snap.Index
 		}
 	case CmdResult:
 		var r Result
@@ -155,6 +169,18 @@ func (f *fsm) apply(l *raft.Log) error {
 		return f.materialize(op.Name, op.Sealed)
 	}
 	return nil
+}
+
+func (f *fsm) setAttached(e RecordEntry) {
+	if e.SetPending {
+		f.state.Pending = e.Pending
+		if e.Pending == nil {
+			f.state.Rollout = nil
+		}
+	}
+	if e.SetRollout {
+		f.state.Rollout = e.Rollout
+	}
 }
 
 // materialize writes a sealed secret into this member's own secret store,
@@ -213,7 +239,7 @@ func (f *fsm) Restore(rc io.ReadCloser) error {
 	}
 	fresh.Pending, fresh.Rollout = snap.Cluster.Pending, snap.Cluster.Rollout
 	f.mu.Lock()
-	f.state = fresh
+	f.state, f.seen = fresh, snap.Model.Index
 	f.mu.Unlock()
 	for name, sealed := range fresh.Secrets {
 		_ = f.materialize(name, sealed)

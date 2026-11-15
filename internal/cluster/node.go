@@ -83,6 +83,18 @@ type Node struct {
 	snaps raft.SnapshotStore
 
 	closeOnce sync.Once
+
+	attachMu sync.Mutex
+	attach   *RecordEntry // what the next record carries with it
+}
+
+// Attach makes the next record this member proposes carry a pending
+// confirmation and a rollout, in the same log entry. It is used up by that
+// record, whether the record is agreed on or refused.
+func (n *Node) Attach(pending *Pending, setPending bool, rollout *Rollout, setRollout bool) {
+	n.attachMu.Lock()
+	n.attach = &RecordEntry{Pending: pending, SetPending: setPending, Rollout: rollout, SetRollout: setRollout}
+	n.attachMu.Unlock()
 }
 
 var (
@@ -370,14 +382,38 @@ func (n *Node) Propose(_ context.Context, c Command) error {
 
 // Replicate implements confstore.Replicator.
 func (n *Node) Replicate(_ context.Context, r confstore.Record) error {
-	c, err := command(CmdRecord, r.Actor, r)
+	entry := RecordEntry{Record: r}
+	n.attachMu.Lock()
+	if a := n.attach; a != nil {
+		entry.Pending, entry.SetPending, entry.Rollout, entry.SetRollout = a.Pending, a.SetPending, a.Rollout, a.SetRollout
+		if entry.Pending != nil {
+			p := *entry.Pending
+			p.Index = r.Index
+			entry.Pending = &p
+		}
+		if entry.Rollout != nil {
+			ro := *entry.Rollout
+			ro.Index = r.Index
+			entry.Rollout = &ro
+		}
+	}
+	n.attachMu.Unlock()
+	c, err := command(CmdRecord, r.Actor, entry)
 	if err != nil {
 		return err
 	}
 	if err := n.gate(c, r.Schema); err != nil {
 		return err
 	}
-	return n.propose(c)
+	err = n.propose(c)
+	if !errors.Is(err, confstore.ErrDuplicate) {
+		// Used up, unless the record lost the race for its index: then the
+		// store prepares it again and the attachments go with that one.
+		n.attachMu.Lock()
+		n.attach = nil
+		n.attachMu.Unlock()
+	}
+	return err
 }
 
 // PutSecret replicates a secret, sealed with the cluster key.

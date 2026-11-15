@@ -27,7 +27,7 @@ type Command struct {
 
 // Command types.
 const (
-	CmdRecord  = "record"       // a configuration record (confstore.Record)
+	CmdRecord  = "record"       // a configuration record and what travels with it (RecordEntry)
 	CmdSeed    = "seed"         // the whole model, for a cluster started from an existing node
 	CmdResult  = "apply_result" // a member reports how applying a record went
 	CmdPending = "pending"      // a change waits for confirmation, or no longer does
@@ -91,6 +91,22 @@ type Rollout struct {
 	Index  int64  `json:"index"`
 	Canary string `json:"canary"`
 	Phase  string `json:"phase"`
+}
+
+// RecordEntry is a configuration record together with the state of its
+// rollout. They are one log entry on purpose: a record must never become
+// effective without the deadline by which someone has to confirm it. That
+// includes a record whose proposal failed on a leader that was cut off and
+// which is agreed on later after all; it arrives with a deadline that has
+// passed, and is rolled back.
+type RecordEntry struct {
+	Record confstore.Record `json:"record"`
+	// Pending and Rollout replace the current ones when SetPending or
+	// SetRollout is set; a nil value then clears.
+	Pending    *Pending `json:"pending,omitempty"`
+	SetPending bool     `json:"set_pending,omitempty"`
+	Rollout    *Rollout `json:"rollout,omitempty"`
+	SetRollout bool     `json:"set_rollout,omitempty"`
 }
 
 // SecretOp stores or removes one sealed secret.
