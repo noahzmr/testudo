@@ -198,6 +198,9 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 			}
 		}
 		c.Rules = r.takeLines()
+		if chain == "forward" {
+			c.Rules = append(c.Rules, r.access()...)
+		}
 		if chain != "output" {
 			for _, id := range zoneIDs {
 				z := r.zones[id]
@@ -768,4 +771,110 @@ func (r *renderer) nat(rules []*model.NATRule) (pre, post []string) {
 		}
 	}
 	return pre, post
+}
+
+// access renders the standing access policies: a peer bound to a user may
+// reach a resource when a policy names that user, one of the user's or the
+// peer's groups, or everyone. The source is the peer's own tunnel address,
+// so the permission follows the identity, not a network.
+//
+// Policies that need an approval or a second factor grant nothing by
+// themselves; access under them is given for a limited time by the access
+// manager when a request is approved.
+func (r *renderer) access() []string {
+	resources := map[string]*model.AccessResource{}
+	for _, res := range effective[*model.AccessResource](r, model.KindAccessResource) {
+		resources[res.ID] = res
+	}
+	userGroups := map[string]map[string]bool{}
+	for _, u := range effective[*model.User](r, model.KindUser) {
+		if u.Disabled {
+			continue
+		}
+		userGroups[u.ID] = map[string]bool{}
+		for _, g := range u.Groups {
+			userGroups[u.ID][g.ID] = true
+		}
+	}
+	devices := map[string]string{}
+	for _, t := range effective[*model.WGTunnel](r, model.KindWGTunnel) {
+		if t.Enabled {
+			devices[t.ID] = t.Device
+		}
+	}
+	peers := effective[*model.WGPeer](r, model.KindWGPeer)
+	policies := effective[*model.AccessPolicy](r, model.KindAccessPolicy)
+	sort.SliceStable(policies, func(i, j int) bool { return policies[i].Name < policies[j].Name })
+
+	var out []string
+	for _, pol := range policies {
+		res := resources[pol.Resource.ID]
+		if res == nil || pol.RequiresApproval || pol.RequiresMFA {
+			continue
+		}
+		named := map[string]bool{}
+		for _, u := range pol.Users {
+			named[u.ID] = true
+		}
+		groups := map[string]bool{}
+		for _, g := range pol.Groups {
+			groups[g.ID] = true
+		}
+		// device -> family -> source addresses
+		src := map[string]map[bool][]string{}
+		for _, p := range peers {
+			dev := devices[p.Tunnel.ID]
+			member, known := userGroups[p.User.ID]
+			if !p.Enabled || dev == "" || !known {
+				continue // no identity, no access: an unbound peer matches no policy
+			}
+			allowed := pol.Everyone || named[p.User.ID]
+			for g := range member {
+				allowed = allowed || groups[g]
+			}
+			for _, g := range p.Groups {
+				allowed = allowed || groups[g.ID]
+			}
+			if !allowed {
+				continue
+			}
+			for _, a := range p.AllowedIPs {
+				ip, n, err := net.ParseCIDR(a)
+				if err != nil {
+					continue
+				}
+				if ones, bits := n.Mask.Size(); ones != bits {
+					continue // only the peer's own addresses identify it
+				}
+				if src[dev] == nil {
+					src[dev] = map[bool][]string{}
+				}
+				src[dev][isV6(a)] = append(src[dev][isV6(a)], ip.String())
+			}
+		}
+		var tail []string
+		if res.Protocol != "any" {
+			tail = append(tail, "meta l4proto "+res.Protocol)
+		} else if res.Ports != "" {
+			tail = append(tail, "meta l4proto { tcp, udp }")
+		}
+		if res.Ports != "" {
+			tail = append(tail, "th dport { "+res.Ports+" }")
+		}
+		tail = append(tail, "counter accept", "comment "+quote(pol.ID))
+		v6 := isV6(res.Target)
+		fam := "ip"
+		if v6 {
+			fam = "ip6"
+		}
+		for _, dev := range sortedKeys(src, func(s string) string { return s }) {
+			addrs := uniq(src[dev][v6])
+			if len(addrs) == 0 {
+				continue
+			}
+			out = append(out, strings.Join(append([]string{"iifname " + quote(dev),
+				fmt.Sprintf("%s saddr { %s }", fam, strings.Join(addrs, ", ")), fam + " daddr " + res.Target}, tail...), " "))
+		}
+	}
+	return out
 }

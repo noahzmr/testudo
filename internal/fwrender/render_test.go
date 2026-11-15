@@ -211,3 +211,64 @@ func TestRenderIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestAccessPoliciesFollowIdentity(t *testing.T) {
+	f := base(t)
+	user := func(n int) model.Ref[model.User] { return model.Ref[model.User]{ID: id(n)} }
+	group := func(n int) model.Ref[model.Group] { return model.Ref[model.Group]{ID: id(n)} }
+	tun := model.Ref[model.WGTunnel]{ID: id(24)}
+	key := func(c string) string { return strings.Repeat(c, 42) + "A=" }
+	f.add(
+		&model.FirewallPolicy{Meta: meta(40, "default"), DefaultDeny: true, AllowEstablished: true},
+		&model.Group{Meta: meta(70, "engineers")},
+		&model.User{Meta: meta(71, "alice"), Username: "alice", Source: "host"},
+		&model.User{Meta: meta(72, "bob"), Username: "bob", Source: "host", Groups: []model.Ref[model.Group]{group(70)}},
+		&model.User{Meta: meta(73, "carol"), Username: "carol", Source: "host", Disabled: true},
+		&model.WGPeer{Meta: meta(80, "alice-laptop"), Enabled: true, Tunnel: tun, PublicKey: key("A"), AllowedIPs: []string{"10.8.0.2/32", "fd08::2/128"}, User: user(71)},
+		&model.WGPeer{Meta: meta(81, "bob-phone"), Enabled: true, Tunnel: tun, PublicKey: key("B"), AllowedIPs: []string{"10.8.0.3/32"}, User: user(72)},
+		&model.WGPeer{Meta: meta(82, "carol-pc"), Enabled: true, Tunnel: tun, PublicKey: key("C"), AllowedIPs: []string{"10.8.0.4/32"}, User: user(73)},
+		&model.WGPeer{Meta: meta(83, "kiosk"), Enabled: true, Tunnel: tun, PublicKey: key("D"), AllowedIPs: []string{"10.8.0.5/32"}},
+		&model.WGPeer{Meta: meta(84, "revoked"), Enabled: false, Tunnel: tun, PublicKey: key("E"), AllowedIPs: []string{"10.8.0.6/32"}, User: user(71)},
+		&model.AccessResource{Meta: meta(90, "git"), Type: "network", Target: "10.50.0.10", Protocol: "tcp", Ports: "22"},
+		&model.AccessResource{Meta: meta(91, "wiki"), Type: "network", Target: "10.50.0.0/24", Protocol: "any"},
+		&model.AccessResource{Meta: meta(92, "vault"), Type: "ssh", Target: "10.50.0.99", Protocol: "tcp", Ports: "22"},
+		&model.AccessResource{Meta: meta(93, "v6-app"), Type: "network", Target: "2001:db8::10", Protocol: "tcp", Ports: "443"},
+		&model.AccessPolicy{Meta: meta(95, "git-for-alice"), Resource: model.Ref[model.AccessResource]{ID: id(90)}, Users: []model.Ref[model.User]{user(71)}, MaxDuration: "8h"},
+		&model.AccessPolicy{Meta: meta(96, "wiki-for-engineers"), Resource: model.Ref[model.AccessResource]{ID: id(91)}, Groups: []model.Ref[model.Group]{group(70)}, MaxDuration: "8h"},
+		&model.AccessPolicy{Meta: meta(97, "vault-needs-approval"), Resource: model.Ref[model.AccessResource]{ID: id(92)}, Everyone: true, MaxDuration: "1h", RequiresApproval: true},
+		&model.AccessPolicy{Meta: meta(98, "v6-for-everyone"), Resource: model.Ref[model.AccessResource]{ID: id(93)}, Everyone: true, MaxDuration: "8h"},
+	)
+	out := f.render(opts())
+	line := func(policy int) string {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, id(policy)) {
+				return strings.TrimSpace(l)
+			}
+		}
+		return ""
+	}
+	want := map[int]string{
+		// named user: only alice's enabled device
+		95: `iifname "wg0" ip saddr { 10.8.0.2 } ip daddr 10.50.0.10 meta l4proto tcp th dport { 22 } counter accept comment "` + id(95) + `"`,
+		// group through the user: bob
+		96: `iifname "wg0" ip saddr { 10.8.0.3 } ip daddr 10.50.0.0/24 counter accept comment "` + id(96) + `"`,
+		// everyone means everyone with an identity, and an IPv6 resource
+		// matches IPv6 tunnel addresses only: alice has one
+		98: `iifname "wg0" ip6 saddr { fd08::2 } ip6 daddr 2001:db8::10 meta l4proto tcp th dport { 443 } counter accept comment "` + id(98) + `"`,
+	}
+	for policy, w := range want {
+		if got := line(policy); got != w {
+			t.Errorf("policy %d:\n got %s\nwant %s", policy, got, w)
+		}
+	}
+	// A policy that needs approval grants nothing by itself.
+	if l := line(97); l != "" {
+		t.Errorf("approval-gated policy rendered a standing rule: %s", l)
+	}
+	// Nobody without an identity, no disabled user, no revoked device.
+	for _, addr := range []string{"10.8.0.4", "10.8.0.5", "10.8.0.6"} {
+		if strings.Contains(out, addr) {
+			t.Errorf("address %s got access", addr)
+		}
+	}
+}

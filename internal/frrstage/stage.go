@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/frrender"
@@ -49,7 +50,7 @@ func (s *Stage) Name() string { return "routing" }
 
 // Render builds the routing setup for this node.
 func (s *Stage) Render(st *confstore.State) ([]byte, error) {
-	var opt frrender.Options
+	opt := frrender.Options{Now: time.Now()}
 	if s.Locate != nil {
 		opt.SiteID, opt.NodeID = s.Locate(st)
 	}

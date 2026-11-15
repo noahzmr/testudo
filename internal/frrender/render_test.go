@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
@@ -207,5 +208,46 @@ func TestGoldenConfigPassesFRRCheck(t *testing.T) {
 	}
 	if out, err := exec.Command("vtysh", "-C", "-f", path).CombinedOutput(); err != nil {
 		t.Fatalf("vtysh refuses the configuration: %v\n%s", err, out)
+	}
+}
+
+func TestSiteToSiteTunnelRoutes(t *testing.T) {
+	nm := func(n int, name string) model.Meta {
+		m := meta(n, name)
+		m.Scope = model.NodeScope(id(nodeN))
+		return m
+	}
+	key := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	tun := func(n int) model.Ref[model.WGTunnel] { return model.Ref[model.WGTunnel]{ID: id(n)} }
+	past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	st := build(t,
+		&model.Zone{Meta: meta(70, "vpn"), DefaultAction: "drop"},
+		&model.WGTunnel{Meta: nm(71, "branch"), Enabled: true, Device: "wg1", Mode: "site_to_site", ListenPort: 51821,
+			Addresses: []string{"10.9.0.1/30"}, PublicKey: key, Zone: model.Ref[model.Zone]{ID: id(70)}},
+		&model.WGTunnel{Meta: nm(72, "roadwarriors"), Enabled: true, Device: "wg0", Mode: "road_warrior", ListenPort: 51820,
+			Addresses: []string{"10.8.0.1/24"}, PublicKey: key, Zone: model.Ref[model.Zone]{ID: id(70)}},
+		&model.WGPeer{Meta: meta(80, "branch-office"), Enabled: true, Tunnel: tun(71), PublicKey: key,
+			AllowedIPs: []string{"10.9.0.2/32", "192.168.50.0/24", "2001:db8:50::/48", "0.0.0.0/0"}},
+		&model.WGPeer{Meta: meta(81, "old-branch"), Enabled: true, Tunnel: tun(71), PublicKey: strings.Replace(key, "A", "B", 1),
+			AllowedIPs: []string{"192.168.60.0/24"}, ExpiresAt: &past},
+		&model.WGPeer{Meta: meta(82, "laptop"), Enabled: true, Tunnel: tun(72), PublicKey: key, AllowedIPs: []string{"10.8.0.2/32", "192.168.70.0/24"}},
+	)
+	o := opts()
+	o.Now = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	res, err := Render(st, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ip route 192.168.50.0/24 wg1\n", "ipv6 route 2001:db8:50::/48 wg1\n"} {
+		if !strings.Contains(res.Conf, want) {
+			t.Errorf("configuration lacks %q", strings.TrimSpace(want))
+		}
+	}
+	// Not the tunnel's own network, not a default route, not an expired
+	// peer, and not a road-warrior's networks.
+	for _, not := range []string{"10.9.0.2", " 0.0.0.0/0 wg1", "192.168.60.0", "192.168.70.0"} {
+		if strings.Contains(res.Conf, not) {
+			t.Errorf("configuration contains %q", not)
+		}
 	}
 }

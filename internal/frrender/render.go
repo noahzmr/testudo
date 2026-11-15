@@ -12,6 +12,7 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
@@ -22,6 +23,9 @@ type Options struct {
 	SiteID, NodeID string
 	// Down lists the gateways whose monitor currently fails, by gateway id.
 	Down map[string]bool
+	// Now decides which WireGuard peers have expired; the zero time treats
+	// none as expired.
+	Now time.Time
 }
 
 // PolicyRule is one `ip rule`: traffic carrying Mark looks up Table.
@@ -311,6 +315,50 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 		}
 		res.Rules = append(res.Rules, PolicyRule{Priority: RulePriorityBase + i, Mark: p.Mark, Table: table})
 	}
+	// Site-to-site tunnels: the networks behind a peer are reached through
+	// the tunnel device. WireGuard itself only decides which peer gets a
+	// packet once it is on the device; the kernel needs the route to put it
+	// there. From the routing table these networks can be originated into
+	// BGP, which is how tunnel routes reach the rest of the network.
+	tunnels := map[string]*model.WGTunnel{}
+	each(r, model.KindWGTunnel, func(t *model.WGTunnel) {
+		if t.Enabled && t.Mode == "site_to_site" {
+			tunnels[t.ID] = t
+		}
+	})
+	each(r, model.KindWGPeer, func(p *model.WGPeer) {
+		t := tunnels[p.Tunnel.ID]
+		if t == nil || !p.Enabled || (p.ExpiresAt != nil && !opt.Now.IsZero() && !p.ExpiresAt.After(opt.Now)) {
+			return
+		}
+		var own []*net.IPNet
+		for _, a := range t.Addresses {
+			if _, n, err := net.ParseCIDR(a); err == nil {
+				own = append(own, n)
+			}
+		}
+	next:
+		for _, a := range p.AllowedIPs {
+			ip, n, err := net.ParseCIDR(a)
+			if err != nil {
+				continue
+			}
+			if ones, _ := n.Mask.Size(); ones == 0 {
+				continue // a default route through a tunnel is a routing decision, not a consequence
+			}
+			for _, o := range own {
+				if o.Contains(ip) {
+					continue next // inside the tunnel's own network: already connected
+				}
+			}
+			cmd := "ip route"
+			if isV6(a) {
+				cmd = "ipv6 route"
+			}
+			statics = append(statics, fmt.Sprintf("%s %s %s", cmd, n.String(), t.Device))
+		}
+	})
+
 	// A gateway that is monitored through an address beyond itself needs a
 	// host route to that address through the gateway. Otherwise the probe
 	// would follow the default route and report on whichever uplink is
