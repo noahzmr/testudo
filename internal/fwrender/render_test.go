@@ -272,3 +272,41 @@ func TestAccessPoliciesFollowIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestKernelModeBalancing(t *testing.T) {
+	f := base(t)
+	f.add(
+		&model.FirewallPolicy{Meta: meta(699, "default"), DefaultDeny: true, AllowEstablished: true},
+		&model.LBBackendPool{Meta: meta(700, "web"), Algorithm: "weighted_round_robin", HealthCheck: model.LBHealthCheck{Type: "tcp"},
+			Backends: []model.LBBackend{{Address: "10.0.0.2:8080", Weight: 2}, {Address: "10.0.0.3:8080"}, {Address: "10.0.0.4:8080", Drain: true},
+				{Address: "10.0.0.5:8080"}, {Address: "[fd00::2]:8080"}}},
+		&model.LBBackendPool{Meta: meta(701, "dns"), Algorithm: "weighted_round_robin", Sticky: true, HealthCheck: model.LBHealthCheck{Type: "none"},
+			Backends: []model.LBBackend{{Address: "10.0.0.2:53"}, {Address: "10.0.0.3:53"}}},
+		&model.LBService{Meta: meta(710, "web"), Enabled: true, Zone: zone(wan), Port: 443, Protocol: "tcp", Mode: "kernel",
+			DefaultPool: model.Ref[model.LBBackendPool]{ID: id(700)}},
+		&model.LBService{Meta: meta(711, "dns"), Enabled: true, Zone: zone(wan), Address: "192.0.2.1", Port: 53, Protocol: "udp", Mode: "kernel",
+			DefaultPool: model.Ref[model.LBBackendPool]{ID: id(701)}},
+		// Proxy-mode services are not the packet filter's business.
+		&model.LBService{Meta: meta(712, "proxied"), Enabled: true, Zone: zone(wan), Port: 80, Protocol: "http", Mode: "proxy"},
+	)
+	o := opts()
+	o.BackendDown = map[string]bool{"10.0.0.5:8080": true}
+	out := f.render(o)
+	for _, want := range []string{
+		// Weights 2 and 1; the draining and the failed backend are left out.
+		`meta nfproto ipv4 tcp dport 443 counter dnat ip addr . port to numgen inc mod 3 map { 0-1 : 10.0.0.2 . 8080, 2 : 10.0.0.3 . 8080 } comment "` + id(710) + `"`,
+		`meta nfproto ipv6 tcp dport 443 counter dnat ip6 addr . port to numgen inc mod 1 map { 0 : fd00::2 . 8080 } comment "` + id(710) + `"`,
+		// A listen address fixes the family; sticky hashes the client.
+		`ip daddr 192.0.2.1 udp dport 53 counter dnat ip addr . port to jhash ip saddr mod 2 map { 0 : 10.0.0.2 . 53, 1 : 10.0.0.3 . 53 } comment "` + id(711) + `"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "dport 80 ") {
+		t.Error("a proxy-mode service was rendered into the packet filter")
+	}
+	if len(KernelBackends(f.store.Current(), o)) != 2 {
+		t.Errorf("pools to health-check: %v", KernelBackends(f.store.Current(), o))
+	}
+}

@@ -37,6 +37,9 @@ type Options struct {
 	// time (URL tables, GeoIP), by alias id. They are rendered into the sets
 	// so that a full reload does not empty them.
 	Elements map[string][]string
+	// BackendDown names the backends ("host:port") of kernel-mode load
+	// balancing that failed their health check; they get no new connections.
+	BackendDown map[string]bool
 }
 
 // Running is the part of the ruleset that does not come from the model: the
@@ -221,6 +224,7 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 	nat := effective[*model.NATRule](r, model.KindNATRule)
 	sort.SliceStable(nat, func(i, j int) bool { return nat[i].Sequence < nat[j].Sequence })
 	f.Pre, f.Post = r.nat(nat)
+	f.Pre = append(f.Pre, r.balance()...)
 	return f, r.err()
 }
 
@@ -771,6 +775,123 @@ func (r *renderer) nat(rules []*model.NATRule) (pre, post []string) {
 		}
 	}
 	return pre, post
+}
+
+// KernelBackends lists, per pool id, the backends of services balanced in
+// the packet filter on this node, for the health monitor.
+func KernelBackends(st *confstore.State, opt Options) map[string]*model.LBBackendPool {
+	r := &renderer{st: st, opt: opt}
+	pools := map[string]*model.LBBackendPool{}
+	for _, p := range effective[*model.LBBackendPool](r, model.KindLBBackendPool) {
+		pools[p.ID] = p
+	}
+	out := map[string]*model.LBBackendPool{}
+	for _, s := range effective[*model.LBService](r, model.KindLBService) {
+		if p := pools[s.DefaultPool.ID]; s.Enabled && s.Mode == "kernel" && p != nil {
+			out[p.ID] = p
+		}
+	}
+	return out
+}
+
+// balance renders the services that are balanced in the packet filter: one
+// destination NAT rule per service and address family that spreads new
+// connections over the pool's backends by weight. A sticky pool hashes the
+// client address instead of counting, so a client keeps its backend as long
+// as the set of backends does not change. Draining and unhealthy backends
+// are left out; connections they already have continue, because an
+// established connection keeps its translation.
+//
+// Replies have to come back through this node: the client's address is
+// preserved, so the backends need a route to it via the firewall.
+func (r *renderer) balance() []string {
+	pools := map[string]*model.LBBackendPool{}
+	for _, p := range effective[*model.LBBackendPool](r, model.KindLBBackendPool) {
+		pools[p.ID] = p
+	}
+	var out []string
+	for _, s := range effective[*model.LBService](r, model.KindLBService) {
+		if !s.Enabled || s.Mode != "kernel" {
+			continue
+		}
+		fail := func(format string, a ...any) {
+			r.errs = append(r.errs, fmt.Sprintf("lb_service %q: ", s.Name)+fmt.Sprintf(format, a...))
+		}
+		if s.Protocol != "tcp" && s.Protocol != "udp" {
+			fail("kernel mode balances tcp and udp; %s needs the proxy", s.Protocol)
+			continue
+		}
+		p := pools[s.DefaultPool.ID]
+		if p == nil {
+			fail("kernel mode needs a fallback pool that is in effect on this node")
+			continue
+		}
+		if p.Algorithm != "weighted_round_robin" {
+			fail("pool %q: %s is not available; use weighted round robin", p.Name, strings.ReplaceAll(p.Algorithm, "_", " "))
+			continue
+		}
+		if p.ProxyProtocol != "" {
+			fail("pool %q: the PROXY protocol needs the proxy; kernel mode preserves the client address by itself", p.Name)
+			continue
+		}
+		type target struct {
+			addr, port string
+			weight     int
+		}
+		byFam := map[bool][]target{}
+		for _, b := range p.Backends {
+			host, port, err := net.SplitHostPort(b.Address)
+			if err != nil || net.ParseIP(host) == nil {
+				fail("pool %q: kernel mode needs backends by IP address, %q is not one", p.Name, b.Address)
+				continue
+			}
+			if b.Drain || r.opt.BackendDown[b.Address] {
+				continue
+			}
+			w := b.Weight
+			if w == 0 {
+				w = 1
+			}
+			byFam[isV6(host)] = append(byFam[isV6(host)], target{host, port, w})
+		}
+		for _, v6 := range []bool{false, true} {
+			targets := byFam[v6]
+			if len(targets) == 0 || (s.Address != "" && isV6(s.Address) != v6) {
+				continue
+			}
+			fam := "ip"
+			if v6 {
+				fam = "ip6"
+			}
+			total, slots := 0, make([]string, 0, len(targets))
+			for _, t := range targets {
+				key := strconv.Itoa(total)
+				if t.weight > 1 {
+					key += "-" + strconv.Itoa(total+t.weight-1)
+				}
+				slots = append(slots, fmt.Sprintf("%s : %s . %s", key, t.addr, t.port))
+				total += t.weight
+			}
+			pick := fmt.Sprintf("numgen inc mod %d", total)
+			if p.Sticky {
+				pick = fmt.Sprintf("jhash %s saddr mod %d", fam, total)
+			}
+			match := "meta nfproto ipv4"
+			if v6 {
+				match = "meta nfproto ipv6"
+			}
+			if s.Address != "" {
+				match = famAddr("daddr", s.Address)
+			}
+			parts := []string{r.zoneMatch("iifname", s.Zone), match, fmt.Sprintf("%s dport %d", s.Protocol, s.Port), "counter",
+				fmt.Sprintf("dnat %s addr . port to %s map { %s }", fam, pick, strings.Join(slots, ", ")), "comment " + quote(s.ID)}
+			if parts[0] == "" {
+				parts = parts[1:]
+			}
+			out = append(out, strings.Join(parts, " "))
+		}
+	}
+	return out
 }
 
 // access renders the standing access policies: a peer bound to a user may

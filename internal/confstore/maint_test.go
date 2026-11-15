@@ -180,3 +180,30 @@ func TestGatewayGroupMustHaveMembers(t *testing.T) {
 		t.Errorf("route without a next hop: %v", err)
 	}
 }
+
+func TestKernelModeServiceBalancesConnectionsOnly(t *testing.T) {
+	s := open(t)
+	zone := mustCreate(t, s, "a", &model.Zone{Meta: model.Meta{Name: "wan"}, DefaultAction: "drop"})
+	pool := mustCreate(t, s, "a", &model.LBBackendPool{Meta: model.Meta{Name: "web"}, Algorithm: "weighted_round_robin",
+		Backends: []model.LBBackend{{Address: "10.0.0.2:80"}}, HealthCheck: model.LBHealthCheck{Type: "tcp"}})
+	svc := func(name, proto string, port int, withPool bool) *model.LBService {
+		l := &model.LBService{Meta: model.Meta{Name: name}, Enabled: true, Zone: model.Ref[model.Zone]{ID: zone.ID},
+			Port: port, Protocol: proto, Mode: "kernel"}
+		if withPool {
+			l.DefaultPool = model.Ref[model.LBBackendPool]{ID: pool.ID}
+		}
+		return l
+	}
+	if _, err := s.Create(ctx, "a", svc("l7", "http", 80, true)); err == nil || !strings.Contains(err.Error(), "needs proxy mode") {
+		t.Errorf("http in kernel mode: %v", err)
+	}
+	if _, err := s.Create(ctx, "a", svc("nopool", "tcp", 81, false)); err == nil || !strings.Contains(err.Error(), "fallback pool") {
+		t.Errorf("kernel mode without a pool: %v", err)
+	}
+	ok := mustCreate(t, s, "a", svc("l4", "tcp", 82, true))
+	_, err := s.Create(ctx, "a", &model.LBRouter{Meta: model.Meta{Name: "r"}, Enabled: true, Service: model.Ref[model.LBService]{ID: ok.ID},
+		TLS: "none", Pool: model.Ref[model.LBBackendPool]{ID: pool.ID}})
+	if err == nil || !strings.Contains(err.Error(), "sees no host names") {
+		t.Errorf("router on a kernel-mode service: %v", err)
+	}
+}

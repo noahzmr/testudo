@@ -369,6 +369,12 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 		}
 	}
 
+	each(v, model.KindLBService, func(l *model.LBService) {
+		if l.Enabled && l.Mode == "kernel" {
+			v.bad.add(l, "balancing in the packet filter is not available in the running packet filter yet; use proxy mode")
+		}
+	})
+
 	if len(v.bad.msgs) > 0 {
 		return nil, errors.New(strings.Join(v.bad.msgs, "; "))
 	}

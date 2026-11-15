@@ -62,6 +62,9 @@ func runChecks(s *State) []Problem {
 			}
 		}
 		if svc, ok := s.peek(model.KindLBService, r.Service.ID).(*model.LBService); ok {
+			if svc.Mode == "kernel" {
+				add(r, "service", "service %q balances in the packet filter, which sees no host names; routers need a service in proxy mode", svc.Name)
+			}
 			if len(r.SNI) > 0 && svc.Protocol != "tcp" && svc.Protocol != "https" {
 				add(r, "sni", "SNI matching needs a tcp or https service, %q is %s", svc.Name, svc.Protocol)
 			}
@@ -109,6 +112,20 @@ func runChecks(s *State) []Problem {
 		site := e.(*model.Site)
 		if n, ok := s.peek(model.KindClusterNode, site.Voter.ID).(*model.ClusterNode); ok && n.Site.ID != site.ID {
 			add(site, "voter", "node %q belongs to another site", n.Name)
+		}
+	}
+
+	// Balancing in the packet filter works on connections, not requests.
+	for _, e := range s.objects[model.KindLBService] {
+		svc := e.(*model.LBService)
+		if !svc.Enabled || svc.Mode != "kernel" {
+			continue
+		}
+		if svc.Protocol != "tcp" && svc.Protocol != "udp" {
+			add(svc, "protocol", "kernel mode balances tcp and udp; %s needs proxy mode", svc.Protocol)
+		}
+		if svc.DefaultPool.ID == "" {
+			add(svc, "default_pool", "kernel mode sends everything to the fallback pool; choose one")
 		}
 	}
 

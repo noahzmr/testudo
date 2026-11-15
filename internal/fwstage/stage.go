@@ -47,6 +47,9 @@ type Stage struct {
 	Locate func(*confstore.State) (siteID, nodeID string)
 	// Elements returns the current content of run-time aliases by alias id.
 	Elements func() map[string][]string
+	// BackendDown returns the backends of kernel-mode load balancing that
+	// failed their health check.
+	BackendDown func() map[string]bool
 
 	mu      sync.Mutex
 	manager Manager
@@ -95,6 +98,9 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 	}
 	if s.Elements != nil {
 		opt.Elements = s.Elements()
+	}
+	if s.BackendDown != nil {
+		opt.BackendDown = s.BackendDown()
 	}
 	frags, err := fwrender.Build(st, opt)
 	if err != nil {
