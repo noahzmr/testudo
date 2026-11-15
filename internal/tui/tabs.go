@@ -919,11 +919,7 @@ func newFirewallTab(eng *engine.Engine, app *App) *firewallTab {
 func (t *firewallTab) HelpHints() []KeyHint {
 	return []KeyHint{
 		{Key: "↑/↓ · j/k", Desc: "select rule"},
-		{Key: "a", Desc: "add policy rule (chain / action / proto / ports / ifaces / src / dst / ct state / rate / log)"},
-		{Key: "e", Desc: "edit: open a pre-filled add modal from the selected rule"},
-		{Key: "x", Desc: "delete the selected policy rule (baseline rules are read-only)"},
-		{Key: "E", Desc: "toggle default-deny (enforce) - enabling is commit-confirm, press C to keep it"},
-		{Key: "C", Desc: "confirm a pending default-deny change"},
+		{Key: "x", Desc: "delete the selected hand-made rule (rules and defaults are edited in the Web UI or with testudo config)"},
 		{Key: "R", Desc: "reset the selected kernel rule's counter (needs netops writes)"},
 		{Key: "r", Desc: "refresh"},
 	}
@@ -1010,19 +1006,6 @@ func (t *firewallTab) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "r":
 			t.refresh()
-		case "a":
-			return t.openRuleModal("Add Policy Rule", netops.FilterRule{Chain: "input", Action: "drop", Proto: "tcp"})
-		case "e":
-			// Edit = open the add modal pre-filled from the selected policy
-			// rule. Decoded kernel rules aren't Testudo-managed, so editing
-			// them isn't offered.
-			if rs, ok := t.selectedManaged(); ok {
-				if rs.Baseline {
-					return statusCmd("baseline rules are rendered from the policy baseline - not editable per rule")
-				}
-				return t.openRuleModal("Edit Policy Rule (adds a new rule)", rs.FilterRule)
-			}
-			return statusCmd("select a policy rule to edit")
 		case "x":
 			// Only policy rules can be deleted from here; tell the user when
 			// they try to delete a decoded kernel rule or a baseline row.
@@ -1030,10 +1013,6 @@ func (t *firewallTab) Update(msg tea.Msg) tea.Cmd {
 				return statusCmd("kernel rule is read-only here - delete policy rules only")
 			}
 			return t.openDelModal()
-		case "E":
-			return t.openEnforceModal()
-		case "C":
-			return t.confirmEnforce()
 		case "R":
 			return t.resetSelectedCounter()
 		}
@@ -1053,152 +1032,6 @@ func (t *firewallTab) firewallManager() (*firewall.Manager, tea.Cmd) {
 	return nil, statusCmd("netops not initialized - firewall management is off")
 }
 
-// openRuleModal opens the add-rule form pre-filled from src. Rules are never
-// mutated in place; "edit" means "add the corrected rule" (the operator
-// removes the stale one with x), which keeps the workflow identical to add.
-func (t *firewallTab) openRuleModal(title string, src netops.FilterRule) tea.Cmd {
-	fw, cmd := t.firewallManager()
-	if fw == nil {
-		return cmd
-	}
-	yesNo := func(b bool) string {
-		if b {
-			return "yes"
-		}
-		return "no"
-	}
-	modal := NewFormModal(title,
-		[]FormField{
-			{Label: "chain", Value: src.Chain, Hint: "input / output / forward"},
-			{Label: "action", Value: src.Action, Hint: "accept / drop / reject / log"},
-			{Label: "proto", Value: src.Proto, Hint: "tcp / udp / icmp / icmpv6 / blank=any"},
-			{Label: "port", Value: portOrBlank(src.Port), Hint: "destination port 1-65535; blank=any (needs tcp/udp)"},
-			{Label: "port_end", Value: portOrBlank(src.PortEnd), Hint: "inclusive range end; blank=single port"},
-			{Label: "in_iface", Value: src.InIface, Hint: "incoming interface (input/forward); blank=any"},
-			{Label: "out_iface", Value: src.OutIface, Hint: "outgoing interface (output/forward); blank=any"},
-			{Label: "src", Value: src.SrcCIDR, Hint: "source IP or CIDR, v4 or v6; blank=any"},
-			{Label: "dst", Value: src.DstCIDR, Hint: "destination IP or CIDR, v4 or v6; blank=any"},
-			{Label: "ct_state", Value: src.CtState, Hint: "new / established,related / invalid; blank=any"},
-			{Label: "rate_limit", Value: src.RateLimit, Hint: "N/second|minute|hour|day; blank=none"},
-			{Label: "rate_over", Value: yesNo(src.RateOver), Hint: "yes = match packets OVER the rate (brute-force style)"},
-			{Label: "log", Value: yesNo(src.Log), Hint: "yes = log matches before the verdict"},
-			{Label: "comment", Value: src.Comment, Hint: "optional"},
-		},
-		func(values map[string]string) error {
-			port, err := parseOptionalPort(values["port"])
-			if err != nil {
-				return fmt.Errorf("port: %v", err)
-			}
-			portEnd, err := parseOptionalPort(values["port_end"])
-			if err != nil {
-				return fmt.Errorf("port_end: %v", err)
-			}
-			rule := netops.FilterRule{
-				Chain:     strings.TrimSpace(values["chain"]),
-				Action:    strings.TrimSpace(values["action"]),
-				Proto:     strings.TrimSpace(values["proto"]),
-				Port:      port,
-				PortEnd:   portEnd,
-				InIface:   strings.TrimSpace(values["in_iface"]),
-				OutIface:  strings.TrimSpace(values["out_iface"]),
-				SrcCIDR:   strings.TrimSpace(values["src"]),
-				DstCIDR:   strings.TrimSpace(values["dst"]),
-				CtState:   strings.TrimSpace(values["ct_state"]),
-				RateLimit: strings.TrimSpace(values["rate_limit"]),
-				RateOver:  isYes(values["rate_over"]),
-				Log:       isYes(values["log"]),
-				Comment:   strings.TrimSpace(values["comment"]),
-			}
-			err = fw.AddRule(rule)
-			t.eng.AuditFirewall(tuiActor(), "rule_add", rule.String(), err)
-			return err
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-// openEnforceModal toggles default-deny. Enabling is commit-confirm: the
-// change applies at once and reverts after the window unless C is pressed -
-// the standard guard against locking yourself out of a remote box.
-func (t *firewallTab) openEnforceModal() tea.Cmd {
-	fw, cmd := t.firewallManager()
-	if fw == nil {
-		return cmd
-	}
-	if t.status.Enforce {
-		modal := NewFormModal("Disable default-deny",
-			[]FormField{{Label: "confirm", Value: "", Hint: "type yes - input/forward chains go back to default-accept"}},
-			func(values map[string]string) error {
-				if !isYes(values["confirm"]) {
-					return fmt.Errorf("type yes to confirm")
-				}
-				err := fw.SetEnforce(false, 0)
-				t.eng.AuditFirewall(tuiActor(), "enforce", `{"enforce":false}`, err)
-				if err == nil {
-					t.refresh()
-				}
-				return err
-			})
-		return t.app.SetModal(modal)
-	}
-	modal := NewFormModal("Enable default-deny (policy DROP on input + forward)",
-		[]FormField{
-			{Label: "confirm_sec", Value: "60", Hint: "auto-revert window; press C in the firewall tab within it to keep enforce on"},
-			{Label: "confirm", Value: "", Hint: "type yes - baseline keeps established/related, lo, ICMP, SSH and the Web UI port open"},
-		},
-		func(values map[string]string) error {
-			if !isYes(values["confirm"]) {
-				return fmt.Errorf("type yes to confirm")
-			}
-			secs := 60
-			if v := strings.TrimSpace(values["confirm_sec"]); v != "" {
-				if _, err := fmt.Sscanf(v, "%d", &secs); err != nil || secs < 0 {
-					return fmt.Errorf("confirm_sec: whole seconds, 0 = no safety net")
-				}
-			}
-			err := fw.SetEnforce(true, time.Duration(secs)*time.Second)
-			t.eng.AuditFirewall(tuiActor(), "enforce", fmt.Sprintf(`{"enforce":true,"confirm_sec":%d}`, secs), err)
-			if err == nil {
-				t.refresh()
-			}
-			return err
-		})
-	return t.app.SetModal(modal)
-}
-
-// confirmEnforce keeps a pending default-deny change.
-func (t *firewallTab) confirmEnforce() tea.Cmd {
-	fw, cmd := t.firewallManager()
-	if fw == nil {
-		return cmd
-	}
-	if !t.status.PendingConfirm {
-		return statusCmd("no default-deny change is pending confirmation")
-	}
-	err := fw.ConfirmEnforce()
-	t.eng.AuditFirewall(tuiActor(), "enforce_confirm", "{}", err)
-	if err != nil {
-		return statusCmd("confirm: " + err.Error())
-	}
-	t.refresh()
-	return statusCmd("default-deny confirmed")
-}
-
-func portOrBlank(p uint16) string {
-	if p == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", p)
-}
-
-func parseOptionalPort(s string) (uint16, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, nil
-	}
-	return parseUint16(s)
-}
-
 func isYes(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "y", "yes", "true", "1", "on":
@@ -1207,9 +1040,7 @@ func isYes(s string) bool {
 	return false
 }
 
-// resetSelectedCounter zeroes the per-rule counter on the highlighted decoded
-// rule. Write-gated: ResetRuleCounter returns ErrWritesDisabled when netops
-// writes are off, surfaced here as a toast.
+// resetSelectedCounter zeroes the selected kernel rule's counter.
 func (t *firewallTab) resetSelectedCounter() tea.Cmd {
 	all := t.rows()
 	if t.cursor < 0 || t.cursor >= len(all) || all[t.cursor].kind != firewallRowRule {
@@ -1239,7 +1070,10 @@ func (t *firewallTab) openDelModal() tea.Cmd {
 		return statusCmd("select a policy rule to delete")
 	}
 	if rs.Baseline {
-		return statusCmd("baseline rules are read-only - disable default-deny or edit the baseline to change them")
+		return statusCmd("baseline rules come from the firewall policy object")
+	}
+	if rs.Owner != "" && rs.Owner != netops.OwnerUser {
+		return statusCmd("this rule belongs to " + rs.Owner + " - change it there")
 	}
 	modal := NewFormModal("Delete rule: "+rs.FilterRule.String(),
 		[]FormField{{Label: "confirm", Value: "", Hint: "type yes to delete rule " + rs.ID}},
@@ -1270,7 +1104,7 @@ func (t *firewallTab) policyHeader() string {
 	switch {
 	case st.PendingConfirm:
 		left := time.Until(st.PendingUntil).Round(time.Second)
-		parts = append(parts, fmt.Sprintf("UNCONFIRMED - press C within %s or it reverts", left))
+		parts = append(parts, fmt.Sprintf("UNCONFIRMED - reverts in %s", left))
 	case st.DriftError != "":
 		parts = append(parts, "kernel unreadable: "+st.DriftError)
 	case st.Inert && !st.TableExists:
@@ -1424,8 +1258,7 @@ func newNATTab(eng *engine.Engine, app *App) *natTab { return &natTab{eng: eng, 
 func (t *natTab) HelpHints() []KeyHint {
 	return []KeyHint{
 		{Key: "↑/↓ · j/k", Desc: "select row"},
-		{Key: "a", Desc: "add port forward (proto / wan_port / lan_ip / lan_port)"},
-		{Key: "x", Desc: "delete the selected port forward"},
+		{Key: "x", Desc: "delete the selected hand-made port forward (NAT rules are edited in the Web UI or with testudo config)"},
 		{Key: "c", Desc: "focus the live conntrack table"},
 		{Key: "F", Desc: "flush the selected conntrack flow (needs netops writes)"},
 		{Key: "r", Desc: "refresh"},
@@ -1480,8 +1313,6 @@ func (t *natTab) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "r":
 			t.refresh()
-		case "a":
-			return t.openAddModal()
 		case "x":
 			return t.openDelModal()
 		case "F":
@@ -1538,62 +1369,26 @@ func (t *natTab) openFlushModal(f netops.ConntrackFlow) tea.Cmd {
 	return t.app.SetModal(modal)
 }
 
-func (t *natTab) openAddModal() tea.Cmd {
-	modal := NewFormModal("Add Port Forward",
-		[]FormField{
-			{Label: "proto", Value: "tcp", Hint: "tcp or udp"},
-			{Label: "wan_port", Value: "", Hint: "external port (1-65535)"},
-			{Label: "lan_ip", Value: "", Hint: "internal IPv4 target"},
-			{Label: "lan_port", Value: "", Hint: "internal port; blank = same as wan_port"},
-		},
-		func(values map[string]string) error {
-			fw := t.eng.Firewall()
-			if fw == nil {
-				return fmt.Errorf("firewall policy unavailable")
-			}
-			proto := values["proto"]
-			wanP, err := parseUint16(values["wan_port"])
-			if err != nil {
-				return fmt.Errorf("wan_port: %v", err)
-			}
-			lanP, _ := parseUint16(values["lan_port"])
-			pf := netops.PortForward{Proto: proto, WANPort: wanP, LANIP: values["lan_ip"], LANPort: lanP}
-			err = fw.AddForward(pf)
-			t.eng.AuditFirewall(tuiActor(), "forward_add", pf.String(), err)
-			return err
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-// openDelModal prompts for proto + wan_port. When a row is currently
-// selected (cursor on a valid forward), its proto/port pre-fill the form so
-// the common case is a one-keystroke confirm.
+// openDelModal deletes the selected port forward when it was made by hand.
 func (t *natTab) openDelModal() tea.Cmd {
-	proto, wanPort := "tcp", ""
-	if t.cursor >= 0 && t.cursor < len(t.forwards) {
-		pf := t.forwards[t.cursor]
-		proto = pf.Proto
-		wanPort = fmt.Sprintf("%d", pf.WANPort)
+	fw := t.eng.Firewall()
+	if fw == nil || t.cursor < 0 || t.cursor >= len(t.forwards) {
+		return statusCmd("select a port forward to delete")
 	}
-	modal := NewFormModal("Delete Port Forward",
-		[]FormField{
-			{Label: "proto", Value: proto, Hint: "tcp or udp"},
-			{Label: "wan_port", Value: wanPort, Hint: "external port to remove"},
-		},
+	pf := t.forwards[t.cursor]
+	if pf.Owner != "" && pf.Owner != netops.OwnerUser {
+		return statusCmd("this forward belongs to " + pf.Owner + " - change it there")
+	}
+	modal := NewFormModal("Delete port forward: "+pf.PortForward.String(),
+		[]FormField{{Label: "confirm", Value: "", Hint: "type yes to delete"}},
 		func(values map[string]string) error {
-			fw := t.eng.Firewall()
-			if fw == nil {
-				return fmt.Errorf("firewall policy unavailable")
+			if !isYes(values["confirm"]) {
+				return fmt.Errorf("type yes to confirm")
 			}
-			wanP, err := parseUint16(values["wan_port"])
-			if err != nil {
-				return fmt.Errorf("wan_port: %v", err)
-			}
-			n, err := fw.DelForwardsMatching(values["proto"], wanP)
-			t.eng.AuditFirewall(tuiActor(), "forward_del", fmt.Sprintf(`{"proto":%q,"wan_port":%d}`, values["proto"], wanP), err)
-			if err == nil && n == 0 {
-				return fmt.Errorf("no forward for %s/%d", values["proto"], wanP)
+			err := fw.DelForward(pf.ID)
+			t.eng.AuditFirewall(tuiActor(), "forward_del", pf.PortForward.String(), err)
+			if err == nil {
+				t.refresh()
 			}
 			return err
 		},
