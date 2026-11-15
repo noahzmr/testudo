@@ -6,8 +6,10 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.10.1
+	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/endobit/oui v0.7.0
 	github.com/getsentry/sentry-go v0.46.2
+	github.com/go-jose/go-jose/v4 v4.0.2
 	github.com/go-playground/validator/v10 v10.27.0
 	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.3.0
@@ -19,6 +21,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.52.0
 	golang.org/x/net v0.54.0
+	golang.org/x/oauth2 v0.23.0
 	golang.org/x/sys v0.45.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	gopkg.in/yaml.v3 v3.0.1
