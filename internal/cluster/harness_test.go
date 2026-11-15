@@ -2,6 +2,8 @@ package cluster
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -327,4 +329,10 @@ func (c *cluster) leaderErr() (*member, error) {
 		}
 	}
 	return nil, ErrNoQuorum
+}
+
+// forgeToken encodes a token body, for tests that tamper with one.
+func forgeToken(b tokenBody) string {
+	body, _ := json.Marshal(b)
+	return tokenPrefix + base64.RawURLEncoding.EncodeToString(body)
 }

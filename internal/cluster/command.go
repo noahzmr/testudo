@@ -35,13 +35,14 @@ const (
 	CmdMember  = "member"       // a member announces its build and addresses
 	CmdSecret  = "secret"       // a sealed secret is stored or removed
 	CmdRevoke  = "revoke"       // a member's certificate is no longer accepted
+	CmdToken   = "token"        // a join token is issued or used up
 )
 
 // Supported lists the command types this build can apply and the highest
 // format version of each. A member announces this map; the leader proposes
 // a command only when every voter can apply it.
 var Supported = map[string]int{
-	CmdRecord: 1, CmdSeed: 1, CmdResult: 1, CmdPending: 1, CmdRollout: 1, CmdMember: 1, CmdSecret: 1, CmdRevoke: 1,
+	CmdRecord: 1, CmdSeed: 1, CmdResult: 1, CmdPending: 1, CmdRollout: 1, CmdMember: 1, CmdSecret: 1, CmdRevoke: 1, CmdToken: 1,
 }
 
 // Member is what a node announces about itself.
@@ -109,6 +110,16 @@ type RecordEntry struct {
 	SetRollout bool     `json:"set_rollout,omitempty"`
 }
 
+// Token is a join token as the cluster remembers it: by hash, until it is
+// used or expires.
+type Token struct {
+	Hash    string    `json:"hash"`
+	Expires time.Time `json:"expires"`
+	// Voter says whether the member that joins with it becomes a voter.
+	Voter  bool `json:"voter"`
+	Remove bool `json:"remove,omitempty"`
+}
+
 // SecretOp stores or removes one sealed secret.
 type SecretOp struct {
 	Name   string `json:"name"`
@@ -126,10 +137,13 @@ type State struct {
 	Revoked map[string]time.Time `json:"revoked,omitempty"`
 	// Secrets holds sealed secrets by name.
 	Secrets map[string][]byte `json:"secrets,omitempty"`
+	// Tokens holds unused join tokens by hash.
+	Tokens map[string]Token `json:"tokens,omitempty"`
 }
 
 func newState() *State {
-	return &State{Members: map[string]Member{}, Results: map[string]Result{}, Revoked: map[string]time.Time{}, Secrets: map[string][]byte{}}
+	return &State{Members: map[string]Member{}, Results: map[string]Result{}, Revoked: map[string]time.Time{},
+		Secrets: map[string][]byte{}, Tokens: map[string]Token{}}
 }
 
 func (s *State) clone() *State {
@@ -145,6 +159,9 @@ func (s *State) clone() *State {
 	}
 	for k, v := range s.Secrets {
 		c.Secrets[k] = v
+	}
+	for k, v := range s.Tokens {
+		c.Tokens[k] = v
 	}
 	if s.Pending != nil {
 		p := *s.Pending

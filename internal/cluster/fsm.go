@@ -156,6 +156,22 @@ func (f *fsm) apply(l *raft.Log) error {
 		for _, s := range serials {
 			f.state.Revoked[s] = l.AppendedAt
 		}
+	case CmdToken:
+		var t Token
+		if err := decode(&t); err != nil {
+			return err
+		}
+		if t.Remove {
+			delete(f.state.Tokens, t.Hash)
+		} else {
+			f.state.Tokens[t.Hash] = t
+		}
+		// Forget what expired; the entry's own time is the same everywhere.
+		for h, old := range f.state.Tokens {
+			if l.AppendedAt.After(old.Expires) {
+				delete(f.state.Tokens, h)
+			}
+		}
 	case CmdSecret:
 		var op SecretOp
 		if err := decode(&op); err != nil {
@@ -236,6 +252,9 @@ func (f *fsm) Restore(rc io.ReadCloser) error {
 	}
 	for k, v := range snap.Cluster.Secrets {
 		fresh.Secrets[k] = v
+	}
+	for k, v := range snap.Cluster.Tokens {
+		fresh.Tokens[k] = v
 	}
 	fresh.Pending, fresh.Rollout = snap.Cluster.Pending, snap.Cluster.Rollout
 	f.mu.Lock()

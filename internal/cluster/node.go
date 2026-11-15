@@ -562,3 +562,5 @@ func (n *Node) Stats() Stats {
 	}
 	return s
 }
+
+func schemaVersion() int { return model.SchemaVersion }
