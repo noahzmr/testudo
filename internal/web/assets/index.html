@@ -350,40 +350,13 @@
       <div class="card" id="fw-policy-card">
         <h2>Policy <span class="muted">· <span id="fw-policy-mode">—</span></span></h2>
         <p class="muted" id="fw-policy-summary">loading…</p>
-        <div id="fw-policy-pending" class="muted" hidden>
-          Default-deny is active but <strong>not confirmed</strong>. It reverts automatically in
-          <span id="fw-policy-pending-secs">—</span> s unless this page can still reach the API.
-          <button data-action="fw-confirm" class="btn btn-small btn-go">Confirm now</button>
-        </div>
+        <p class="muted">This is what the kernel enforces right now: the defaults, the baseline, and the rules of the configuration, WireGuard peers and access grants. Change it under <a href="#/filter-rules">Rules</a>, <a href="#/firewall-policies">Policy</a> and <a href="#/nat-rules">NAT rules</a>. Rules made by hand before the configuration existed can only be deleted here.</p>
         <div class="row">
-          <button data-action="fw-enforce-on" class="btn btn-danger" title="Set input + forward chain policy to drop. Baseline rules (established/related, loopback, ICMP, SSH, this Web UI port) stay open. Reverts in 90 s unless confirmed.">Enable default-deny</button>
-          <button data-action="fw-enforce-off" class="btn" title="Back to default-accept: rules still apply, unmatched traffic passes.">Disable default-deny</button>
           <a class="btn btn-small" href="/api/firewall/export" download="testudo-firewall.json">Export policy</a>
-          <label class="btn btn-small">Import policy<input type="file" id="fw-import-file" accept="application/json" hidden/></label>
         </div>
       </div>
       <div class="card">
-        <h2>Add filter rule</h2>
-        <div class="form-grid">
-          <label>chain<select id="fw-chain"><option>input</option><option>output</option><option>forward</option></select></label>
-          <label>action<select id="fw-action"><option>drop</option><option>accept</option><option>reject</option><option>log</option></select></label>
-          <label>proto<select id="fw-proto"><option value="">any</option><option>tcp</option><option>udp</option><option>icmp</option><option>icmpv6</option></select></label>
-          <label>port<input id="fw-port" placeholder="dst port; blank = any"/></label>
-          <label>port end<input id="fw-port-end" placeholder="range end; blank = single"/></label>
-          <label>in iface<input id="fw-iif" placeholder="blank = any"/></label>
-          <label>out iface<input id="fw-oif" placeholder="blank = any"/></label>
-          <label>src (IP/CIDR, v4 or v6)<input id="fw-src" placeholder="blank = any"/></label>
-          <label>dst (IP/CIDR, v4 or v6)<input id="fw-dst" placeholder="blank = any"/></label>
-          <label>ct state<select id="fw-ct"><option value="">any</option><option>new</option><option value="established,related">established,related</option><option>invalid</option></select></label>
-          <label>rate limit<input id="fw-rate" placeholder="e.g. 5/minute; blank = none"/></label>
-          <label>comment<input id="fw-comment" placeholder="optional"/></label>
-          <label class="check"><input type="checkbox" id="fw-log"/> log matches</label>
-          <label class="check"><input type="checkbox" id="fw-rate-over"/> match <em>over</em> the rate</label>
-        </div>
-        <div class="row"><button data-action="fw-add" class="btn btn-go">Add rule</button></div>
-      </div>
-      <div class="card">
-        <h2>Policy rules <span class="muted">· install order per chain · baseline rows are read-only</span></h2>
+        <h2>Policy rules <span class="muted">· install order per chain · read-only</span></h2>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Chain</th><th>Action</th><th>Match</th><th>Owner</th><th>Comment</th><th>Pkts</th><th>Bytes</th><th></th></tr></thead>
@@ -413,16 +386,6 @@
 
     <!-- NAT ----------------------------------------------------------- -->
     <section data-pane="nat" class="pane" role="tabpanel" aria-label="NAT">
-      <div class="card">
-        <h2>Add port forward</h2>
-        <div class="form-grid">
-          <label>proto<select id="nat-proto"><option>tcp</option><option>udp</option></select></label>
-          <label>wan port<input id="nat-wan" placeholder="external"/></label>
-          <label>lan ip<input id="nat-lanip" placeholder="192.168.1.10"/></label>
-          <label>lan port<input id="nat-lanport" placeholder="blank = same as wan"/></label>
-        </div>
-        <div class="row"><button data-action="nat-add" class="btn btn-go">Add forward</button></div>
-      </div>
       <div class="card">
         <h2>Port forwards</h2>
         <div class="table-wrap">

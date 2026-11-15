@@ -202,20 +202,12 @@ func (s *Server) buildMux() error {
 
 	// Firewall / NAT: every mutation goes through the policy manager (desired
 	// state in firewall.json, applied atomically, reconciled after reboot).
-	// Enabling enforce (default-deny) is commit-confirm; see handleFirewallEnforce.
+	// The policy view is read-only; defaults and rules are model objects.
 	mux.HandleFunc("/api/firewall/policy", s.protect(s.handleFirewallPolicy))
-	mux.HandleFunc("/api/firewall/add", s.protect(s.handleFirewallAdd))
 	mux.HandleFunc("/api/firewall/del", s.protect(s.handleFirewallDel))
-	mux.HandleFunc("/api/firewall/reorder", s.protect(s.handleFirewallReorder))
-	mux.HandleFunc("/api/firewall/enforce", s.protect(s.handleFirewallEnforce))
-	mux.HandleFunc("/api/firewall/enforce/confirm", s.protect(s.handleFirewallConfirm))
-	mux.HandleFunc("/api/firewall/baseline", s.protect(s.handleFirewallBaseline))
 	mux.HandleFunc("/api/firewall/export", s.protect(s.handleFirewallExport))
-	mux.HandleFunc("/api/firewall/import", s.protect(s.handleFirewallImport))
 	mux.HandleFunc("/api/firewall/reset-counter", s.protect(s.handleFirewallResetCounter))
-	mux.HandleFunc("/api/nat/add", s.protect(s.handleNATAdd))
 	mux.HandleFunc("/api/nat/del", s.protect(s.handleNATDel))
-	mux.HandleFunc("/api/nat/masquerade/add", s.protect(s.handleMasqueradeAdd))
 	mux.HandleFunc("/api/nat/masquerade/del", s.protect(s.handleMasqueradeDel))
 	mux.HandleFunc("/api/conntrack/flush", s.protect(s.handleConntrackFlush))
 
@@ -310,9 +302,6 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 var adminOnly = []string{
 	"/api/settings",
 	"/api/users",
-	"/api/firewall/import",
-	"/api/firewall/enforce",
-	"/api/firewall/baseline",
 	"/api/pam/resource",
 	"/api/pam/policy",
 	"/api/pam/breakglass",

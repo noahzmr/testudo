@@ -173,64 +173,12 @@
         await post('/api/route/del', { cidr: btn.dataset.cidr });
         showToast('route deleted');
         break;
-      case 'fw-add':
-        await post('/api/firewall/add', {
-          chain:      val('fw-chain'),
-          action:     val('fw-action'),
-          proto:      val('fw-proto'),
-          port:       parseInt(val('fw-port') || '0', 10),
-          port_end:   parseInt(val('fw-port-end') || '0', 10),
-          in_iface:   val('fw-iif'),
-          out_iface:  val('fw-oif'),
-          src:        val('fw-src'),
-          dst:        val('fw-dst'),
-          ct_state:   val('fw-ct'),
-          rate_limit: val('fw-rate'),
-          rate_over:  document.getElementById('fw-rate-over').checked,
-          log:        document.getElementById('fw-log').checked,
-          comment:    val('fw-comment'),
-        });
-        showToast('rule added');
-        clearInputs(['fw-port', 'fw-port-end', 'fw-iif', 'fw-oif', 'fw-src', 'fw-dst', 'fw-rate', 'fw-comment']);
-        break;
       case 'fw-del': {
         if (!confirm('Delete rule ' + btn.dataset.text + ' ?')) return;
         await post('/api/firewall/del', { id: btn.dataset.id });
         showToast('rule deleted');
         break;
       }
-      case 'fw-move': {
-        // Reorder: swap the selected user rule with its neighbour and send the
-        // full new order (the API takes a permutation of user-rule ids).
-        const ids = Array.from(document.querySelectorAll('#fw-rules-body tr[data-user-id]'))
-          .map(tr => tr.dataset.userId);
-        const i = ids.indexOf(btn.dataset.id);
-        const j = i + (btn.dataset.dir === 'up' ? -1 : 1);
-        if (i < 0 || j < 0 || j >= ids.length) return;
-        [ids[i], ids[j]] = [ids[j], ids[i]];
-        await post('/api/firewall/reorder', { ids });
-        showToast('rules reordered');
-        break;
-      }
-      case 'fw-enforce-on': {
-        if (!confirm('Enable default-deny?\n\nInput and forward chains switch to policy DROP. The baseline keeps '
-          + 'established/related, loopback, ICMP, SSH and this Web UI reachable.\n\n'
-          + 'The change reverts automatically in 90 s unless this page confirms it - '
-          + 'it will do so as soon as it can still reach the API.')) return;
-        await post('/api/firewall/enforce', { enforce: true, confirm_sec: 90 });
-        showToast('default-deny enabled - confirming…');
-        fwAutoConfirm = true;
-        break;
-      }
-      case 'fw-enforce-off':
-        if (!confirm('Disable default-deny? Unmatched traffic will pass again.')) return;
-        await post('/api/firewall/enforce', { enforce: false, confirm_sec: 0 });
-        showToast('default-deny disabled');
-        break;
-      case 'fw-confirm':
-        await post('/api/firewall/enforce/confirm', {});
-        showToast('default-deny confirmed');
-        break;
 
       // ---- privileged access ----
       case 'pam-request':
@@ -395,22 +343,9 @@
         showToast('counter reset');
         break;
       }
-      case 'nat-add':
-        await post('/api/nat/add', {
-          proto:    val('nat-proto'),
-          wan_port: parseInt(val('nat-wan'), 10),
-          lan_ip:   val('nat-lanip'),
-          lan_port: parseInt(val('nat-lanport') || '0', 10),
-        });
-        showToast('port forward added');
-        clearInputs(['nat-wan', 'nat-lanip', 'nat-lanport']);
-        break;
       case 'nat-del':
         if (!confirm('Delete forward ' + btn.dataset.proto + '/' + btn.dataset.port + '?')) return;
-        await post('/api/nat/del', {
-          proto: btn.dataset.proto,
-          wan_port: parseInt(btn.dataset.port, 10),
-        });
+        await post('/api/nat/del', { id: btn.dataset.id });
         showToast('forward removed');
         break;
       case 'wg-add': {
@@ -2248,52 +2183,18 @@
     if (box) box.hidden = true;
   }
 
-  // fwAutoConfirm is set right after the operator enables default-deny: the
-  // next successful snapshot proves this page can still reach the API, so the
-  // pending enforce change is confirmed automatically (commit-confirm).
-  let fwAutoConfirm = false;
-  let fwImportWired = false;
-
-  // wireFirewallImport uploads a chosen policy file as the new policy.
-  function wireFirewallImport() {
-    if (fwImportWired) return;
-    const input = document.getElementById('fw-import-file');
-    if (!input) return;
-    fwImportWired = true;
-    input.addEventListener('change', async () => {
-      const f = input.files && input.files[0];
-      if (!f) return;
-      if (!confirm('Replace the whole firewall policy with ' + f.name + '? It is applied immediately.')) { input.value = ''; return; }
-      try {
-        const text = await f.text();
-        const res = await fetch('/api/firewall/import', { method: 'POST', body: text,
-          headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
-        if (!res.ok) throw new Error(await res.text());
-        showToast('policy imported');
-      } catch (e) {
-        showToast('import failed: ' + (e.message || e), true);
-      } finally {
-        input.value = '';
-      }
-    });
-  }
-
   function renderFirewallPolicy(p) {
-    wireFirewallImport();
     const mode = document.getElementById('fw-policy-mode');
     const summary = document.getElementById('fw-policy-summary');
-    const pending = document.getElementById('fw-policy-pending');
     if (!mode) return;
     if (!p) {
       mode.textContent = 'unavailable';
       summary.textContent = 'netops not initialized - firewall management is off';
-      pending.hidden = true;
       return;
     }
     if (!p.available) {
       mode.textContent = 'unavailable';
       summary.textContent = p.error || 'policy file could not be loaded';
-      pending.hidden = true;
       return;
     }
     mode.textContent = p.enforce ? 'DEFAULT-DENY (enforcing)' : 'default-accept (permissive)';
@@ -2310,18 +2211,6 @@
     bits.push('file ' + p.path);
     summary.textContent = bits.join(' · ');
     summary.className = (p.in_sync || p.drift_error) && !p.last_error ? 'muted' : 'muted warn';
-    pending.hidden = !p.pending_confirm;
-    if (p.pending_confirm) {
-      document.getElementById('fw-policy-pending-secs').textContent = p.pending_secs;
-      if (fwAutoConfirm) {
-        fwAutoConfirm = false;
-        post('/api/firewall/enforce/confirm', {})
-          .then(() => showToast('default-deny confirmed - this page can still reach Testudo'))
-          .catch(() => {});
-      }
-    } else {
-      fwAutoConfirm = false;
-    }
   }
 
   function fwMatchText(r) {
@@ -2339,20 +2228,17 @@
   // inert" apart from real drift.
   let lastFWPolicy = null;
   function renderFirewall(rules, system, ruleCounters) {
-    const userIds = (rules || []).filter(r => !r.baseline).map(r => r.id);
     const inertIdle = !!(lastFWPolicy && lastFWPolicy.inert && !lastFWPolicy.table_exists);
     document.getElementById('fw-rules-body').innerHTML = (rules || []).map(r => {
       const notLive = !r.live && !inertIdle;
       const cls = (r.baseline ? ' class="dim"' : '') + (notLive ? ' title="desired but not live (drift)"' : '');
-      const userAttr = r.baseline ? '' : ' data-user-id="' + escape(r.id) + '"';
-      const pos = userIds.indexOf(r.id);
-      let actions = '<span class="muted">baseline</span>';
-      if (!r.baseline) {
-        actions = ''
-          + (pos > 0 ? '<button class="btn btn-small" data-action="fw-move" data-dir="up" data-id="' + escape(r.id) + '" title="move up">▲</button>' : '')
-          + (pos >= 0 && pos < userIds.length - 1 ? '<button class="btn btn-small" data-action="fw-move" data-dir="down" data-id="' + escape(r.id) + '" title="move down">▼</button>' : '')
-          + '<button class="btn btn-small btn-danger" data-action="fw-del" data-id="' + escape(r.id) + '" data-text="' + escape(r.text) + '">del</button>';
-      }
+      const userAttr = '';
+      // Only rules made by hand before the configuration existed can be
+      // deleted here; everything else belongs to its subsystem.
+      const mine = !r.baseline && (!r.owner || r.owner === 'user');
+      const actions = r.baseline ? '<span class="muted">baseline</span>'
+        : mine ? '<button class="btn btn-small btn-danger" data-action="fw-del" data-id="' + escape(r.id) + '" data-text="' + escape(r.text) + '">del</button>'
+        : '<span class="muted">' + escape(r.owner === 'model' ? 'configuration' : r.owner) + '</span>';
       const actionCls = (r.action === 'drop' || r.action === 'reject') ? ' class="status-pill off"' : '';
       return '<tr' + cls + userAttr + '>'
         + '<td>' + escape(r.chain) + '</td>'
@@ -2417,7 +2303,9 @@
       + '<td>' + n.wan_port + '</td>'
       + '<td>' + escape(n.lan_ip) + '</td>'
       + '<td>' + n.lan_port + '</td>'
-      + '<td><button class="btn btn-small btn-danger" data-action="nat-del" data-proto="' + escape(n.proto) + '" data-port="' + n.wan_port + '">del</button></td>'
+      + '<td>' + (!n.owner || n.owner === 'user'
+        ? '<button class="btn btn-small btn-danger" data-action="nat-del" data-id="' + escape(n.id) + '" data-proto="' + escape(n.proto) + '" data-port="' + n.wan_port + '">del</button>'
+        : '<span class="muted">' + escape(n.owner === 'model' ? 'configuration' : n.owner) + '</span>') + '</td>'
       + '</tr>'
     ).join('') || '<tr><td colspan="5" class="muted">no port forwards configured</td></tr>';
   }
@@ -3169,7 +3057,7 @@
     }
   }
   function poll() {
-    if (document.hidden && !fwAutoConfirm) return;
+    if (document.hidden) return;
     refresh();
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

@@ -3,17 +3,23 @@ package web
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
-	"time"
 
 	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/netops"
 )
 
-// maxPolicyImport bounds an uploaded policy document.
-const maxPolicyImport = 1 << 20
+// The policy file is no longer edited from here. Rules, NAT, defaults and
+// the baseline are model objects (/api/v1); this file serves the view of
+// what the manager enforces, and lets an operator delete rules that were
+// created by hand before the model existed and were not carried over.
+
+// leftover reports whether an entry was created by hand; only those may be
+// deleted here. Rules of WireGuard peers, access grants and the model belong
+// to their subsystems.
+func leftover(owner string) bool { return owner == "" || owner == netops.OwnerUser }
+
+var errNotLeftover = errors.New("this entry belongs to a subsystem or to the configuration model; change it there")
 
 // firewallManager returns the policy manager or writes a 503 explaining why
 // firewall management is unavailable.
@@ -39,6 +45,8 @@ func writeFirewallErr(w http.ResponseWriter, err error) {
 		http.Error(w, "netops writes are disabled - enable \"allow netops writes\" in Settings", http.StatusForbidden)
 	case errors.Is(err, firewall.ErrPendingConfirm):
 		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, errNotLeftover):
+		http.Error(w, err.Error(), http.StatusForbidden)
 	case errors.Is(err, firewall.ErrNotFound):
 		http.Error(w, err.Error(), http.StatusNotFound)
 	default:
@@ -74,39 +82,9 @@ func (s *Server) handleFirewallPolicy(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(view)
 }
 
-// handleFirewallAdd appends a filter rule to the policy (applied atomically,
-// then persisted).
-func (s *Server) handleFirewallAdd(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		netops.FilterRule
-		Index *int `json:"index"` // optional insert position
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	var err error
-	if b.Index != nil {
-		err = fw.InsertRule(*b.Index, b.FilterRule)
-	} else {
-		err = fw.AddRule(b.FilterRule)
-	}
-	s.Engine.AuditFirewall(actorFrom(r), "rule_add", jsonArgs(b.FilterRule), err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-// handleFirewallDel removes a rule by id when given one, otherwise every rule
-// matching the non-empty fields of the body (the pre-id wildcard contract).
+// handleFirewallDel removes a hand-made rule by id.
 func (s *Server) handleFirewallDel(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		netops.FilterRule
 		ID string `json:"id"`
 	}
 	if !readJSON(w, r, &b) {
@@ -116,107 +94,15 @@ func (s *Server) handleFirewallDel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var err error
-	if b.ID != "" {
-		err = fw.DelRule(b.ID)
-	} else {
-		var n int
-		n, err = fw.DelRulesMatching(b.FilterRule)
-		if err == nil && n == 0 {
-			err = firewall.ErrNotFound
+	err := firewall.ErrNotFound
+	for _, rule := range fw.Policy().Rules {
+		if rule.ID() == b.ID && b.ID != "" {
+			if err = errNotLeftover; leftover(rule.Owner) {
+				err = fw.DelRule(b.ID)
+			}
 		}
 	}
 	s.Engine.AuditFirewall(actorFrom(r), "rule_del", jsonArgs(b), err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-// handleFirewallReorder sets the order of the user rules (ids = full new order).
-func (s *Server) handleFirewallReorder(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		IDs []string `json:"ids"`
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	err := fw.Reorder(b.IDs)
-	s.Engine.AuditFirewall(actorFrom(r), "rules_reorder", jsonArgs(b), err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-// handleFirewallEnforce toggles default-deny. Turning it on with confirm_sec
-// > 0 is commit-confirm: the browser must POST /api/firewall/enforce/confirm
-// within the window (it does so automatically once it can still reach the
-// API) or the change reverts - the operator cannot lock themselves out.
-func (s *Server) handleFirewallEnforce(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		Enforce    bool `json:"enforce"`
-		ConfirmSec int  `json:"confirm_sec"`
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	window := time.Duration(b.ConfirmSec) * time.Second
-	if b.Enforce && b.ConfirmSec == 0 {
-		window = 90 * time.Second // never let a browser enable enforce without a safety net
-	}
-	err := fw.SetEnforce(b.Enforce, window)
-	s.Engine.AuditFirewall(actorFrom(r), "enforce", fmt.Sprintf(`{"enforce":%v,"confirm_sec":%d}`, b.Enforce, int(window.Seconds())), err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(fw.Status())
-}
-
-// handleFirewallConfirm keeps a pending enforce change.
-func (s *Server) handleFirewallConfirm(w http.ResponseWriter, r *http.Request) {
-	var b struct{}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	err := fw.ConfirmEnforce()
-	s.Engine.AuditFirewall(actorFrom(r), "enforce_confirm", "{}", err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(fw.Status())
-}
-
-// handleFirewallBaseline replaces the baseline (the always-on preamble).
-func (s *Server) handleFirewallBaseline(w http.ResponseWriter, r *http.Request) {
-	var b netops.FilterBaseline
-	if !readJSON(w, r, &b) {
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	err := fw.SetBaseline(b)
-	s.Engine.AuditFirewall(actorFrom(r), "baseline", jsonArgs(b), err)
 	if err != nil {
 		writeFirewallErr(w, err)
 		return
@@ -244,59 +130,9 @@ func (s *Server) handleFirewallExport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-// handleFirewallImport replaces the whole policy from an uploaded document.
-func (s *Server) handleFirewallImport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxPolicyImport+1))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if len(data) > maxPolicyImport {
-		http.Error(w, "policy document too large", http.StatusRequestEntityTooLarge)
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	err = fw.Import(data)
-	s.Engine.AuditFirewall(actorFrom(r), "import", fmt.Sprintf(`{"bytes":%d}`, len(data)), err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-// ---- NAT (port forwards + masquerades live in the same policy) -------
-
-func (s *Server) handleNATAdd(w http.ResponseWriter, r *http.Request) {
-	var b netops.PortForward
-	if !readJSON(w, r, &b) {
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	err := fw.AddForward(b)
-	s.Engine.AuditFirewall(actorFrom(r), "forward_add", jsonArgs(b), err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
 func (s *Server) handleNATDel(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		ID      string `json:"id"`
-		Proto   string `json:"proto"`
-		WANPort uint16 `json:"wan_port"`
+		ID string `json:"id"`
 	}
 	if !readJSON(w, r, &b) {
 		return
@@ -305,14 +141,12 @@ func (s *Server) handleNATDel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var err error
-	if b.ID != "" {
-		err = fw.DelForward(b.ID)
-	} else {
-		var n int
-		n, err = fw.DelForwardsMatching(b.Proto, b.WANPort)
-		if err == nil && n == 0 {
-			err = firewall.ErrNotFound
+	err := firewall.ErrNotFound
+	for _, pf := range fw.Policy().Forwards {
+		if pf.ID() == b.ID && b.ID != "" {
+			if err = errNotLeftover; leftover(pf.Owner) {
+				err = fw.DelForward(b.ID)
+			}
 		}
 	}
 	s.Engine.AuditFirewall(actorFrom(r), "forward_del", jsonArgs(b), err)
@@ -323,29 +157,9 @@ func (s *Server) handleNATDel(w http.ResponseWriter, r *http.Request) {
 	writeOK(w)
 }
 
-func (s *Server) handleMasqueradeAdd(w http.ResponseWriter, r *http.Request) {
-	var b netops.Masquerade
-	if !readJSON(w, r, &b) {
-		return
-	}
-	fw, ok := s.firewallManager(w)
-	if !ok {
-		return
-	}
-	err := fw.AddMasquerade(b)
-	s.Engine.AuditFirewall(actorFrom(r), "masquerade_add", jsonArgs(b), err)
-	if err != nil {
-		writeFirewallErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
 func (s *Server) handleMasqueradeDel(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		ID       string `json:"id"`
-		OutIface string `json:"out_iface"`
-		SrcCIDR  string `json:"src"`
+		ID string `json:"id"`
 	}
 	if !readJSON(w, r, &b) {
 		return
@@ -354,14 +168,12 @@ func (s *Server) handleMasqueradeDel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var err error
-	if b.ID != "" {
-		err = fw.DelMasquerade(b.ID)
-	} else {
-		var n int
-		n, err = fw.DelMasqueradesMatching(b.OutIface, b.SrcCIDR)
-		if err == nil && n == 0 {
-			err = firewall.ErrNotFound
+	err := firewall.ErrNotFound
+	for _, ms := range fw.Policy().Masquerades {
+		if ms.ID() == b.ID && b.ID != "" {
+			if err = errNotLeftover; leftover(ms.Owner) {
+				err = fw.DelMasquerade(b.ID)
+			}
 		}
 	}
 	s.Engine.AuditFirewall(actorFrom(r), "masquerade_del", jsonArgs(b), err)
