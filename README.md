@@ -238,7 +238,7 @@ Interfaces can be enabled, disabled, switched to DHCP, assigned static IPs, gate
 
 Current backend: `iptables` / `nftables`. `firewalld` support is on the roadmap.
 
-Supported operations: inspect rules, inspect counters, inspect blocked traffic, hit counts, create rules, remove rules, replay firewall events.
+Supported operations: inspect rules, inspect counters, inspect blocked traffic, hit counts, replay firewall events. Rules, NAT and the default-deny policy are edited as configuration objects in the Web UI (Firewall → Rules, Policy, NAT rules); see [docs/firewall.md](docs/firewall.md).
 
 ```text
 ┌ Firewall Rules ─────────────────────────────────────┐

@@ -44,7 +44,7 @@ with MFA enrolled must supply the code on the login form.
 
 * **Roles are enforced server-side** in `web.protect`: GET is open to every
   role; any other method needs `operator`, the admin-only paths
-  (`/api/settings`, `/api/users/*`, `/api/firewall/import|enforce|baseline`)
+  (`/api/settings`, `/api/users/*`)
   need `admin`, the `/api/me/*` self-service paths need only a login.
 * **CSRF**: state-changing requests must be same-origin (`Origin` / `Sec-Fetch-Site`
   check) and the session cookie is `SameSite=Lax`, `HttpOnly`, `Secure` under TLS.

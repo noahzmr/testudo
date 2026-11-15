@@ -69,16 +69,29 @@ meta l4proto icmp accept   meta l4proto ipv6-icmp accept
 tcp dport {22, <web port>} accept      [limit rate 10/minute log prefix "testudo-drop: "]
 ```
 
-Enabling enforce is a **commit-confirm transaction**: the change is applied
-immediately and reverts automatically unless confirmed within the window.
+Default-deny is switched on and off in the firewall policy object of the
+configuration model (Firewall → Policy in the Web UI). Like every change to
+the model it is a **commit-confirm transaction**: applied immediately, and
+rolled back unless confirmed within 60 seconds
+([phase-1-config-core.md](phase-1-config-core.md)).
 
-* Web UI: *Enable default-deny* → the page confirms itself on its next
-  successful snapshot poll (proof it can still reach the API). 90 s window.
-* TUI: `E` → modal → `C` to confirm within the window (default 60 s).
-* CLI: `testudo firewall enforce on --confirm-sec 60` → type `yes` to keep.
+## Editing
 
-Mutations are refused while a confirm is pending. Turning enforce off is
-immediate.
+The policy file is not edited directly any more. Filter rules, NAT rules,
+the default-deny switch and the baseline are objects of the configuration
+model; the stage that applies the model hands them to the manager under the
+owner `model`. WireGuard peers and access grants keep adding and removing
+their own rules by owner.
+
+The Web UI's *Running state*, the TUI's Firewall and NAT tabs and
+`testudo firewall` show what the manager enforces. Rules that were made by
+hand before the model existed (owner `user`) stay in force until they are
+deleted there; `testudo config import-legacy --apply` moves them into an
+empty model. Removed: adding, editing and reordering rules, port forwards
+and masquerades by hand, the enforce toggle, the baseline editor and policy
+import, in the Web UI (`/api/firewall/add|reorder|enforce|baseline|import`,
+`/api/nat/add`, `/api/nat/masquerade/add`), the TUI (`a`, `e`, `E`, `C`)
+and the CLI (`testudo firewall import|enforce`).
 
 ## Reconciliation and drift
 
@@ -93,7 +106,6 @@ Transitions surface as anomalies (`WARN` drift detected / `INFO` back in sync /
 testudo firewall status      # mode, counts, kernel in sync / DRIFT
 testudo firewall rules       # policy rendered nft-style
 testudo firewall export > fw.json
-testudo firewall import --file fw.json   # validate → apply → persist
 testudo firewall apply       # re-apply (needs CAP_NET_ADMIN)
 ```
 
