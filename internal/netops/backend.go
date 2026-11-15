@@ -124,8 +124,12 @@ type Op struct {
 	MTU     int    `json:"mtu,omitempty"`
 	// Nft is an nftables ruleset for the nft_* operations. It is large and
 	// not secret; audit rows record its size and hash, not the text.
-	Nft    string `json:"nft,omitempty"`
-	TxQLen int    `json:"txqlen,omitempty"` // interface transmit queue length
+	Nft string `json:"nft,omitempty"`
+	// Frr is an FRRouting configuration for the frr_* operations. It can
+	// contain session passwords; audit rows record size and hash only.
+	Frr     string       `json:"frr,omitempty"`
+	Routing *RoutingSpec `json:"routing,omitempty"`
+	TxQLen  int          `json:"txqlen,omitempty"` // interface transmit queue length
 
 	// Sysctl write (performance tuning; key allowlisted).
 	SysctlKey string `json:"sysctl_key,omitempty"`
@@ -262,6 +266,8 @@ func (w *Writer) queryDirect(op Op) ([]byte, error) {
 		return w.listNetplanDirect()
 	case OpQueryNftAvailable, OpQueryNftCheck, OpQueryNftList:
 		return nftQueryDirect(op)
+	case OpQueryFrrAvailable, OpQueryFrrCheck, OpQueryFrrShow:
+		return frrQueryDirect(op)
 	case OpQueryFirewallSummary:
 		return marshalResult(w.listFirewallDirect())
 	case OpQueryFirewallRules:
@@ -332,6 +338,14 @@ func (w *Writer) applyDirect(op Op) error {
 		return w.flushConntrackDirect(*op.Conntrack)
 	case OpResetRuleCounter:
 		return w.resetRuleCounterDirect(op.Family, op.Table, op.Chain, op.Handle)
+	case OpFrrReload:
+		_, err := runFrr(FrrRequest{Mode: FrrReload, Conf: op.Frr})
+		return err
+	case OpSyncRouting:
+		if op.Routing == nil {
+			return fmt.Errorf("routing sync missing spec")
+		}
+		return w.syncRoutingDirect(*op.Routing)
 	case OpNftApply:
 		_, err := runNft(NftRequest{Mode: NftLoad, Ruleset: op.Nft})
 		return err

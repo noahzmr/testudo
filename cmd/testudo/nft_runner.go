@@ -50,15 +50,30 @@ func runNftRunner() error {
 		if err != nil {
 			return err
 		}
-		var req netops.NftRequest
+		var req runnerRequest
 		if err := json.Unmarshal(line, &req); err != nil {
 			_ = out.Encode(netops.NftResult{Error: "bad request"})
 			continue
 		}
-		if err := out.Encode(netops.RunNft(req)); err != nil {
+		var res netops.NftResult
+		switch {
+		case req.Nft != nil:
+			res = netops.RunNft(*req.Nft)
+		case req.Frr != nil:
+			res = netops.RunFrr(*req.Frr)
+		default:
+			res = netops.NftResult{Error: "empty request"}
+		}
+		if err := out.Encode(res); err != nil {
 			return err
 		}
 	}
+}
+
+// runnerRequest is one job: for nft or for FRR's tools, never both.
+type runnerRequest struct {
+	Nft *netops.NftRequest `json:"nft,omitempty"`
+	Frr *netops.FrrRequest `json:"frr,omitempty"`
 }
 
 func readLine(r *bufio.Reader) ([]byte, error) {
@@ -105,8 +120,18 @@ func startNftRunner() (*nftRunnerProc, error) {
 	return &nftRunnerProc{cmd: cmd, in: in, out: bufio.NewReaderSize(out, 1<<20)}, nil
 }
 
-// Run sends one request and waits for its answer. Requests are serialised.
+// Run sends one nft request and waits for its answer.
 func (p *nftRunnerProc) Run(req netops.NftRequest) netops.NftResult {
+	return p.send(runnerRequest{Nft: &req})
+}
+
+// RunFrr sends one FRR request and waits for its answer.
+func (p *nftRunnerProc) RunFrr(req netops.FrrRequest) netops.NftResult {
+	return p.send(runnerRequest{Frr: &req})
+}
+
+// send serialises requests: one at a time over the pipe.
+func (p *nftRunnerProc) send(req runnerRequest) netops.NftResult {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	msg, err := json.Marshal(req)
@@ -132,15 +157,16 @@ func (p *nftRunnerProc) Close() {
 	_ = p.cmd.Wait()
 }
 
-// auditArgs keeps rulesets out of the audit log: a ruleset is tens of
-// kilobytes and is fully derivable from the configuration history, so the
-// row records its size and hash.
+// auditArgs keeps rulesets and routing configurations out of the audit log:
+// they are large, derivable from the configuration history, and a routing
+// configuration can contain session passwords. The row records size and hash.
 func auditArgs(o netops.Op, body []byte) string {
-	if o.Nft == "" {
+	text := o.Nft + o.Frr
+	if text == "" {
 		return string(body)
 	}
-	sum := sha256.Sum256([]byte(o.Nft))
+	sum := sha256.Sum256([]byte(text))
 	out, _ := json.Marshal(map[string]any{"kind": o.Kind, "actor": o.Actor,
-		"ruleset_bytes": len(o.Nft), "ruleset_sha256": hex.EncodeToString(sum[:])})
+		"bytes": len(text), "sha256": hex.EncodeToString(sum[:])})
 	return string(out)
 }

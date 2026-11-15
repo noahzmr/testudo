@@ -176,6 +176,7 @@ func runHelper() error {
 		fmt.Fprintf(os.Stderr, "helper: nft runner unavailable: %v\n", err)
 	} else {
 		netops.SetNftRunner(runner.Run)
+		netops.SetFrrRunner(runner.RunFrr)
 		defer runner.Close()
 	}
 
