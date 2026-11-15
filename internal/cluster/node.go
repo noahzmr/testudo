@@ -564,3 +564,37 @@ func (n *Node) Stats() Stats {
 }
 
 func schemaVersion() int { return model.SchemaVersion }
+
+// Recover rewrites a member's consensus state so that it is a cluster of
+// one. It is the way out when the majority of voters is lost for good and
+// nothing can be decided any more. It is unsafe by nature: whatever the
+// lost members had agreed on and this one never received is gone, and if
+// the others come back they must not be let in again as they are. The
+// member must be stopped while this runs.
+func Recover(opt Options) error {
+	if opt.ID == "" || opt.Dir == "" || opt.Store == nil {
+		return errors.New("cluster: id, directory and store are required")
+	}
+	if opt.Advertise == "" {
+		opt.Advertise = opt.Bind
+	}
+	if opt.Key == nil {
+		opt.Key = func() []byte { return nil }
+	}
+	logs, err := raftboltdb.New(raftboltdb.Options{Path: filepath.Join(opt.Dir, "raft.db")})
+	if err != nil {
+		return fmt.Errorf("cluster: log store: %w", err)
+	}
+	defer logs.Close()
+	conf := raft.DefaultConfig()
+	conf.LocalID = raft.ServerID(opt.ID)
+	conf.Logger = hclog.New(&hclog.LoggerOptions{Name: "raft", Output: io.Discard})
+	snaps, err := raft.NewFileSnapshotStoreWithLogger(opt.Dir, 3, conf.Logger)
+	if err != nil {
+		return err
+	}
+	_, trans := raft.NewInmemTransport(raft.ServerAddress(opt.Advertise))
+	f := &fsm{store: opt.Store, secrets: opt.Secrets.Local(), key: opt.Key, state: newState()}
+	return raft.RecoverCluster(conf, f, logs, logs, snaps, trans, raft.Configuration{Servers: []raft.Server{
+		{ID: raft.ServerID(opt.ID), Address: raft.ServerAddress(opt.Advertise), Suffrage: raft.Voter}}})
+}

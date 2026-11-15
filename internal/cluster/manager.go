@@ -44,6 +44,8 @@ const (
 	// renew at two thirds of it.
 	CertValidity = 90 * 24 * time.Hour
 	tokenPrefix  = "tdj1."
+	// SystemActor is the actor of records the program writes by itself.
+	SystemActor = "system"
 )
 
 // Config configures a member's place in a cluster.
@@ -431,8 +433,14 @@ func (m *Manager) Join(ctx context.Context, token string) error {
 	if m.Member() {
 		return errors.New("cluster: this node already belongs to a cluster")
 	}
+	// A node joins empty. What the program itself put into a fresh store
+	// (the built-in roles) does not count and is replaced by the cluster's.
+	pristine := false
 	if m.cfg.Store.Current().Index() != 0 {
-		return errors.New("cluster: this node has a configuration of its own; a node joins empty")
+		var err error
+		if pristine, err = m.cfg.Store.OnlyBy(SystemActor); err != nil || !pristine {
+			return errors.New("cluster: this node has a configuration of its own; a node joins empty")
+		}
 	}
 	t, err := parseToken(token)
 	if err != nil {
@@ -485,6 +493,11 @@ func (m *Manager) Join(ctx context.Context, token string) error {
 	}
 	if len(res.Key) != KeySize {
 		return errors.New("cluster: the answer carries no cluster key")
+	}
+	if pristine {
+		if err := m.cfg.Store.Reset(); err != nil {
+			return err
+		}
 	}
 	for name, v := range map[string][]byte{entryKey: res.Key, entryNodeKey: keyPEM, entryNodeCert: res.Chain} {
 		if err := m.local.Put(name, v); err != nil {
@@ -952,4 +965,119 @@ func (m *Manager) Remove(id string) error {
 		return ErrNotLeader
 	}
 	return node.Remove(id)
+}
+
+// Status is the cluster as one member sees it, for people and monitoring.
+type Status struct {
+	Member bool   `json:"member"`
+	ID     string `json:"id"`
+	Leader string `json:"leader,omitempty"`
+	// Quorum is false when this member knows no leader: it serves what it
+	// has and accepts no changes.
+	Quorum  bool           `json:"quorum"`
+	Stats   *Stats         `json:"stats,omitempty"`
+	Members []MemberStatus `json:"members,omitempty"`
+	Pending *Pending       `json:"pending,omitempty"`
+	Rollout *Rollout       `json:"rollout,omitempty"`
+	// ModelIndex is the newest record this member has.
+	ModelIndex int64     `json:"model_index"`
+	CertExpiry time.Time `json:"cert_expiry,omitempty"`
+}
+
+// MemberStatus is one member with what it last reported.
+type MemberStatus struct {
+	Member
+	// Role is leader, voter or non-voter; InGroup is false for a member
+	// that is announced and not (yet, or any more) part of the group.
+	Role    string  `json:"role"`
+	InGroup bool    `json:"in_group"`
+	Result  *Result `json:"result,omitempty"`
+	// State sums the report up: applied, pending (not there yet), failed,
+	// drift, or unknown (no report).
+	State string `json:"state"`
+}
+
+// Status describes the cluster from here.
+func (m *Manager) Status() Status {
+	node := m.Node()
+	if node == nil {
+		return Status{ID: m.cfg.ID, ModelIndex: m.cfg.Store.Current().Index()}
+	}
+	st := node.State()
+	stats := node.Stats()
+	leader, _ := node.Leader()
+	out := Status{Member: true, ID: m.cfg.ID, Leader: leader, Quorum: leader != "", Stats: &stats, Pending: st.Pending,
+		Rollout: st.Rollout, ModelIndex: stats.ModelIndex}
+	out.CertExpiry, _ = m.certExpiry()
+	servers, _ := node.Servers()
+	seen := map[string]bool{}
+	add := func(id string, voter, inGroup bool) {
+		ms := MemberStatus{Member: st.Members[id], InGroup: inGroup, Role: "non-voter", State: "unknown"}
+		ms.ID = id
+		switch {
+		case id == leader:
+			ms.Role = "leader"
+		case voter:
+			ms.Role = "voter"
+		}
+		if r, ok := st.Results[id]; ok {
+			ms.Result = &r
+			switch {
+			case !r.OK:
+				ms.State = "failed"
+			case r.Drift != "":
+				ms.State = "drift"
+			case r.Index < stats.ModelIndex:
+				ms.State = "pending"
+			default:
+				ms.State = "applied"
+			}
+		}
+		out.Members = append(out.Members, ms)
+		seen[id] = true
+	}
+	for _, s := range servers {
+		add(s.ID, s.Voter, true)
+	}
+	for id := range st.Members {
+		if !seen[id] {
+			add(id, false, false)
+		}
+	}
+	return out
+}
+
+// Promote, Demote and TransferLeadership are the leader's; see Node.
+func (m *Manager) Promote(id string) error {
+	if n := m.Node(); n != nil {
+		return n.Promote(id)
+	}
+	return errors.New("cluster: this node does not belong to a cluster")
+}
+
+func (m *Manager) Demote(id string) error {
+	if n := m.Node(); n != nil {
+		return n.Demote(id)
+	}
+	return errors.New("cluster: this node does not belong to a cluster")
+}
+
+func (m *Manager) TransferLeadership() error {
+	if n := m.Node(); n != nil {
+		return n.TransferLeadership()
+	}
+	return errors.New("cluster: this node does not belong to a cluster")
+}
+
+// RecoverAlone makes this member a cluster of one from what it has on
+// disk. See Recover. The member must not be running.
+func (m *Manager) RecoverAlone() error {
+	if !m.Member() {
+		return errors.New("cluster: this node does not belong to a cluster")
+	}
+	if m.Node() != nil {
+		return errors.New("cluster: stop the member first")
+	}
+	return Recover(Options{ID: m.cfg.ID, Dir: filepath.Join(m.cfg.Dir, "raft"), Bind: m.cfg.RaftBind, Advertise: m.cfg.RaftAdvertise,
+		Store: m.cfg.Store, Secrets: m.cfg.Secrets, Key: m.key})
 }
