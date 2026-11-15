@@ -1,0 +1,52 @@
+{
+ "devices": [
+  {
+   "name": "wg0",
+   "listen_port": 51820,
+   "mtu": 1380,
+   "addresses": [
+    "10.8.0.1/24",
+    "fd08::1/64"
+   ],
+   "key_ref": "wg0-key",
+   "peers": [
+    {
+     "public_key": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=",
+     "preshared_ref": "alice-psk",
+     "allowed_ips": [
+      "10.8.0.2/32",
+      "fd08::2/128"
+     ],
+     "keepalive": 25
+    },
+    {
+     "public_key": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=",
+     "allowed_ips": [
+      "10.8.0.3/32"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wg1",
+   "listen_port": 51821,
+   "addresses": [
+    "10.9.0.1/30"
+   ],
+   "peers": [
+    {
+     "public_key": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=",
+     "allowed_ips": [
+      "10.9.0.2/32",
+      "192.168.50.0/24"
+     ],
+     "endpoint": "branch.example.com:51821"
+    }
+   ]
+  }
+ ],
+ "next_expiry": "2026-06-03T12:00:00Z",
+ "expired": [
+  "expired"
+ ]
+}

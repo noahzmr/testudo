@@ -218,17 +218,19 @@ func (VRF) Kind() Kind { return KindVRF }
 // WGTunnel is one WireGuard device. Its private key is never part of the
 // model; KeyRef names the entry in the node's secret store.
 type WGTunnel struct {
-	Meta       `yaml:",inline"`
-	Enabled    bool      `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
-	Device     string    `json:"device" yaml:"device" validate:"required,ifname" ui:"label=Device,order=10"`
-	Mode       string    `json:"mode" yaml:"mode" validate:"required,oneof=road_warrior site_to_site" ui:"label=Mode,widget=select,order=20"`
-	ListenPort int       `json:"listen_port" yaml:"listen_port" validate:"required,min=1,max=65535" ui:"label=Listen port,order=30"`
-	Addresses  []string  `json:"addresses" yaml:"addresses" validate:"required,min=1,max=8,dive,cidr" ui:"label=Tunnel addresses,widget=list,order=40"`
-	PublicKey  string    `json:"public_key" yaml:"public_key" validate:"required,wgkey" ui:"label=Public key,order=50"`
-	KeyRef     string    `json:"key_ref,omitempty" yaml:"key_ref,omitempty" validate:"omitempty,objname" ui:"label=Private key entry,widget=readonly,order=60" secret:"true"`
-	Zone       Ref[Zone] `json:"zone" yaml:"zone" validate:"required" ui:"label=Zone,widget=ref-picker,ref=zone,order=70"`
-	MTU        int       `json:"mtu,omitempty" yaml:"mtu,omitempty" validate:"omitempty,min=1280,max=9000" ui:"label=MTU,order=80"`
-	DNS        []string  `json:"dns,omitempty" yaml:"dns,omitempty" validate:"max=4,dive,ip" ui:"label=DNS servers pushed to clients,widget=list,order=90"`
+	Meta         `yaml:",inline"`
+	Enabled      bool      `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Device       string    `json:"device" yaml:"device" validate:"required,ifname" ui:"label=Device,order=10"`
+	Mode         string    `json:"mode" yaml:"mode" validate:"required,oneof=road_warrior site_to_site" ui:"label=Mode,widget=select,order=20"`
+	ListenPort   int       `json:"listen_port" yaml:"listen_port" validate:"required,min=1,max=65535" ui:"label=Listen port,order=30"`
+	Addresses    []string  `json:"addresses" yaml:"addresses" validate:"required,min=1,max=8,dive,cidr" ui:"label=Tunnel addresses,widget=list,order=40"`
+	PublicKey    string    `json:"public_key" yaml:"public_key" validate:"required,wgkey" ui:"label=Public key,order=50"`
+	KeyRef       string    `json:"key_ref,omitempty" yaml:"key_ref,omitempty" validate:"omitempty,objname" ui:"label=Private key entry,widget=readonly,order=60" secret:"true"`
+	Zone         Ref[Zone] `json:"zone" yaml:"zone" validate:"required" ui:"label=Zone,widget=ref-picker,ref=zone,order=70"`
+	MTU          int       `json:"mtu,omitempty" yaml:"mtu,omitempty" validate:"omitempty,min=1280,max=9000" ui:"label=MTU,order=80"`
+	DNS          []string  `json:"dns,omitempty" yaml:"dns,omitempty" validate:"max=4,dive,ip" ui:"label=DNS servers pushed to clients,widget=list,order=90"`
+	Endpoint     string    `json:"endpoint,omitempty" yaml:"endpoint,omitempty" validate:"omitempty,hostname_port" ui:"label=Public endpoint,order=95,help=host:port that clients connect to; written into client configurations"`
+	ClientRoutes []string  `json:"client_routes,omitempty" yaml:"client_routes,omitempty" validate:"max=64,dive,cidr" ui:"label=Networks reachable through the tunnel,widget=list,order=96,help=Pushed to split-tunnel clients; full-tunnel clients route everything"`
 }
 
 func (WGTunnel) Kind() Kind { return KindWGTunnel }

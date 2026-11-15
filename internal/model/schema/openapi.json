@@ -4346,6 +4346,16 @@
             "title": "Tunnel addresses",
             "type": "array"
           },
+          "client_routes": {
+            "description": "Pushed to split-tunnel clients; full-tunnel clients route everything",
+            "items": {
+              "format": "cidr",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Networks reachable through the tunnel",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "readOnly": true,
@@ -4382,6 +4392,12 @@
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "endpoint": {
+            "description": "host:port that clients connect to; written into client configurations",
+            "format": "host-port",
+            "title": "Public endpoint",
+            "type": "string"
           },
           "id": {
             "format": "uuid",
@@ -11718,6 +11734,51 @@
         ]
       }
     },
+    "/api/v1/wg-peers/{id}/client-config": {
+      "get": {
+        "operationId": "wg_client_config",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "config": {
+                      "type": "string"
+                    },
+                    "preshared_key_placeholder": {
+                      "type": "string"
+                    },
+                    "private_key_placeholder": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "config",
+                    "preshared_key_placeholder",
+                    "private_key_placeholder"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Configuration"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "A peer's client configuration, with placeholders where its two secrets go",
+        "tags": [
+          "changes"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
     "/api/v1/wg-peers/{id}/effective": {
       "get": {
         "operationId": "effective_wg_peer",
@@ -12074,6 +12135,105 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/wg/client-keypair": {
+      "post": {
+        "operationId": "wg_client_keypair",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "private_key": {
+                      "type": "string"
+                    },
+                    "public_key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "private_key",
+                    "public_key"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "summary": "Create a key pair for a client device; nothing is stored",
+        "tags": [
+          "vpn"
+        ]
+      }
+    },
+    "/api/v1/wg/preshared-key": {
+      "post": {
+        "operationId": "wg_preshared_key",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "preshared_key": {
+                      "type": "string"
+                    },
+                    "preshared_ref": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "preshared_key",
+                    "preshared_ref"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "summary": "Create a preshared key in the node's secret store; the key is returned this one time",
+        "tags": [
+          "vpn"
+        ]
+      }
+    },
+    "/api/v1/wg/tunnel-key": {
+      "post": {
+        "operationId": "wg_tunnel_key",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "key_ref": {
+                      "type": "string"
+                    },
+                    "public_key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key_ref",
+                    "public_key"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "summary": "Create a tunnel's private key in the node's secret store; returns the entry name and the public key",
+        "tags": [
+          "vpn"
+        ]
+      }
     },
     "/api/v1/whoami": {
       "get": {

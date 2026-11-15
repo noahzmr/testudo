@@ -2120,6 +2120,22 @@
           "list": true
         },
         {
+          "name": "endpoint",
+          "label": "Public endpoint",
+          "type": "string",
+          "order": 95,
+          "help": "host:port that clients connect to; written into client configurations"
+        },
+        {
+          "name": "client_routes",
+          "label": "Networks reachable through the tunnel",
+          "type": "string",
+          "widget": "list",
+          "order": 96,
+          "help": "Pushed to split-tunnel clients; full-tunnel clients route everything",
+          "list": true
+        },
+        {
           "name": "scope",
           "label": "Scope",
           "type": "string",

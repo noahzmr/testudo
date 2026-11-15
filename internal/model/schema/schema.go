@@ -575,6 +575,24 @@ func OpenAPI() ([]byte, error) {
 	paths["/api/v1/events"] = map[string]any{"get": op("events", "Server-sent events: 'change' per committed record, 'apply' per apply outcome",
 		map[string]any{"200": map[string]any{"description": "Event stream", "content": map[string]any{"text/event-stream": map[string]any{"schema": map[string]any{"type": "string"}}}}})}
 	paths["/api/v1/runtime"] = map[string]any{"get": op("runtime", "What the model's objects do in the running system: packet-filter path, per-object counters, state of run-time aliases", ok("Runtime state", map[string]any{"type": "object"}))}
+	strs := func(names ...string) map[string]any {
+		props := map[string]any{}
+		for _, n := range names {
+			props[n] = map[string]any{"type": "string"}
+		}
+		return obj(props, names...)
+	}
+	vpn := func(id, summary string, body map[string]any) map[string]any {
+		o := op(id, summary, map[string]any{"201": resp("Created", body)})
+		o["tags"] = []string{"vpn"}
+		return map[string]any{"post": o}
+	}
+	paths["/api/v1/wg/tunnel-key"] = vpn("wg_tunnel_key", "Create a tunnel's private key in the node's secret store; returns the entry name and the public key", strs("key_ref", "public_key"))
+	paths["/api/v1/wg/preshared-key"] = vpn("wg_preshared_key", "Create a preshared key in the node's secret store; the key is returned this one time", strs("preshared_ref", "preshared_key"))
+	paths["/api/v1/wg/client-keypair"] = vpn("wg_client_keypair", "Create a key pair for a client device; nothing is stored", strs("private_key", "public_key"))
+	paths["/api/v1/wg-peers/{id}/client-config"] = map[string]any{"parameters": []any{pr("id")},
+		"get": op("wg_client_config", "A peer's client configuration, with placeholders where its two secrets go",
+			map[string]any{"200": resp("Configuration", strs("config", "private_key_placeholder", "preshared_key_placeholder")), "404": rr("NotFound")})}
 	paths["/api/v1/changesets"] = map[string]any{
 		"get": op("list_changesets", "List change sets", ok("Change sets", map[string]any{"type": "array", "items": map[string]any{"type": "object"}})),
 		"post": op("create_changeset", "Create an empty change set", map[string]any{"201": resp("Change set", map[string]any{"type": "object"})},
