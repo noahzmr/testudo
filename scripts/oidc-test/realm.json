@@ -1,0 +1,40 @@
+{
+  "realm": "testudo",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 60,
+  "groups": [
+    { "name": "network", "subGroups": [ { "name": "operators" } ] },
+    { "name": "staff" }
+  ],
+  "users": [
+    { "username": "alice", "enabled": true, "email": "alice@example.com", "firstName": "Alice", "lastName": "Example", "emailVerified": true,
+      "credentials": [ { "type": "password", "value": "alice-test-password", "temporary": false } ], "groups": [ "/network/operators" ] },
+    { "username": "bob", "enabled": true, "email": "bob@example.com", "firstName": "Bob", "lastName": "Example", "emailVerified": true,
+      "credentials": [ { "type": "password", "value": "bob-test-password", "temporary": false } ], "groups": [ "/staff" ] },
+    { "username": "mallory", "enabled": true, "email": "mallory@example.com", "firstName": "Mallory", "lastName": "Example", "emailVerified": true,
+      "credentials": [ { "type": "password", "value": "mallory-test-password", "temporary": false } ] }
+  ],
+  "clients": [
+    {
+      "clientId": "testudo",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "test-only-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [ "http://127.0.0.1:18182/auth/oidc/callback" ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://127.0.0.1:18182/login",
+        "backchannel.logout.url": "http://127.0.0.1:18182/auth/oidc/backchannel-logout",
+        "backchannel.logout.session.required": "true"
+      },
+      "protocolMappers": [
+        { "name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
+          "config": { "claim.name": "groups", "full.path": "true", "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true" } }
+      ]
+    }
+  ]
+}
