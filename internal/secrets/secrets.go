@@ -25,7 +25,18 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 func ValidName(name string) bool { return nameRe.MatchString(name) && !strings.Contains(name, "..") }
 
 // Store is a directory of secrets.
-type Store struct{ Dir string }
+type Store struct {
+	Dir string
+	// Replicate, when set, takes over every write: on a cluster member a
+	// secret has to reach the other members too, and it is the cluster
+	// that then writes it into each member's directory (through a Store
+	// without Replicate). remove is true for a deletion.
+	Replicate func(name string, value []byte, remove bool) error
+}
+
+// Local returns the store without replication: what the cluster itself
+// writes through.
+func (s Store) Local() Store { return Store{Dir: s.Dir} }
 
 func (s Store) path(name string) (string, error) {
 	if !ValidName(name) {
@@ -39,6 +50,9 @@ func (s Store) Put(name string, value []byte) error {
 	p, err := s.path(name)
 	if err != nil {
 		return err
+	}
+	if s.Replicate != nil {
+		return s.Replicate(name, value, false)
 	}
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
@@ -78,6 +92,9 @@ func (s Store) Delete(name string) error {
 	p, err := s.path(name)
 	if err != nil {
 		return err
+	}
+	if s.Replicate != nil {
+		return s.Replicate(name, nil, true)
 	}
 	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
