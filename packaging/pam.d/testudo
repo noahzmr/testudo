@@ -1,0 +1,22 @@
+# PAM service for Testudo: every login that is not a built-in account or the
+# identity provider goes through this stack. Install as /etc/pam.d/testudo.
+#
+# As shipped it uses the host's local accounts with lock-out after repeated
+# failures (pam_faillock; its limits are in /etc/security/faillock.conf).
+# Replace or extend the stack for LDAP/SSSD (pam_sss), RADIUS (pam_radius_auth)
+# or one-time codes (pam_oath, pam_google_authenticator): a module that asks
+# a second hidden question gets the "one-time code" field of the login page.
+#
+# Members of the host group "testudo-admin" are administrators whatever the
+# configuration says. That is the way in when the identity provider is down.
+
+auth      required                     pam_faillock.so preauth
+auth      [success=1 default=ignore]   pam_unix.so
+auth      [default=die]                pam_faillock.so authfail
+auth      sufficient                   pam_faillock.so authsucc
+auth      requisite                    pam_deny.so
+
+account   required                     pam_faillock.so
+account   required                     pam_unix.so
+
+session   required                     pam_unix.so
