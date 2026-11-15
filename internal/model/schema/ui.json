@@ -5103,6 +5103,390 @@
           "order": 906
         }
       ]
+    },
+    {
+      "kind": "oidc_provider",
+      "plural": "oidc-providers",
+      "title": "OIDC provider",
+      "menu": "system/oidc",
+      "scopes": [
+        "global"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "issuer",
+          "label": "Issuer URL",
+          "type": "string",
+          "order": 10,
+          "help": "The provider's issuer; its discovery document is read from there",
+          "required": true
+        },
+        {
+          "name": "client_id",
+          "label": "Client ID",
+          "type": "string",
+          "order": 20,
+          "required": true
+        },
+        {
+          "name": "client_secret_ref",
+          "label": "Client secret entry",
+          "type": "string",
+          "widget": "readonly",
+          "order": 30,
+          "help": "Empty for a public client; PKCE is always used",
+          "secret": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "redirect_url",
+          "label": "Redirect URL",
+          "type": "string",
+          "order": 40,
+          "help": "This console's public address followed by /auth/oidc/callback",
+          "required": true
+        },
+        {
+          "name": "scopes",
+          "label": "Extra scopes",
+          "type": "string",
+          "widget": "list",
+          "order": 50,
+          "help": "openid profile and email are always requested",
+          "list": true
+        },
+        {
+          "name": "username_claim",
+          "label": "Username claim",
+          "type": "string",
+          "order": 60,
+          "help": "Default preferred_username"
+        },
+        {
+          "name": "groups_claim",
+          "label": "Groups claim",
+          "type": "string",
+          "order": 70,
+          "help": "Default groups; its values are matched against the claim value of groups"
+        },
+        {
+          "name": "signing_algs",
+          "label": "Accepted signature algorithms",
+          "type": "string",
+          "widget": "multi-select",
+          "order": 80,
+          "help": "Default RS256 and ES256",
+          "list": true,
+          "enum": [
+            "RS256",
+            "RS384",
+            "RS512",
+            "ES256",
+            "ES384",
+            "ES512",
+            "PS256",
+            "PS384",
+            "PS512",
+            "EdDSA"
+          ]
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "api_token",
+      "plural": "api-tokens",
+      "title": "API token",
+      "menu": "system/tokens",
+      "scopes": [
+        "global"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "owner",
+          "label": "Owner",
+          "type": "string",
+          "widget": "readonly",
+          "order": 10,
+          "required": true
+        },
+        {
+          "name": "permissions",
+          "label": "Permissions",
+          "type": "string",
+          "widget": "multi-select",
+          "order": 20,
+          "required": true,
+          "list": true,
+          "rules": [
+            "permission"
+          ]
+        },
+        {
+          "name": "hash",
+          "label": "Token hash",
+          "type": "string",
+          "widget": "readonly",
+          "order": 30,
+          "required": true,
+          "secret": true
+        },
+        {
+          "name": "expires_at",
+          "label": "Expires",
+          "type": "datetime",
+          "order": 40
+        },
+        {
+          "name": "disabled",
+          "label": "Disabled",
+          "type": "boolean",
+          "order": 50
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
     }
   ],
   "secret_mask": "********"

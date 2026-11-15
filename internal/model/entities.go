@@ -32,6 +32,8 @@ const (
 	KindAccessResource Kind = "access_resource"
 	KindAccessPolicy   Kind = "access_policy"
 	KindPolicyRoute    Kind = "policy_route"
+	KindOIDCProvider   Kind = "oidc_provider"
+	KindAPIToken       Kind = "api_token"
 )
 
 func init() {
@@ -61,6 +63,8 @@ func init() {
 	register("access-resources", "Access resource", "access/resources", allLevels, func() Entity { return &AccessResource{} })
 	register("policy-routes", "Policy route", "routing/policy", allLevels, func() Entity { return &PolicyRoute{} })
 	register("access-policies", "Access policy", "access/policies", allLevels, func() Entity { return &AccessPolicy{} })
+	register("oidc-providers", "OIDC provider", "system/oidc", globalOny, func() Entity { return &OIDCProvider{} })
+	register("api-tokens", "API token", "system/tokens", globalOny, func() Entity { return &APIToken{} })
 }
 
 // Interface binds a kernel network device on one node to a zone.
@@ -458,3 +462,35 @@ type PolicyRoute struct {
 }
 
 func (PolicyRoute) Kind() Kind { return KindPolicyRoute }
+
+// OIDCProvider is the identity provider people log in through. The client
+// secret is not part of the model; ClientSecretRef names its entry in the
+// node's secret store.
+type OIDCProvider struct {
+	Meta            `yaml:",inline"`
+	Enabled         bool     `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Issuer          string   `json:"issuer" yaml:"issuer" validate:"required,url" ui:"label=Issuer URL,order=10,help=The provider's issuer; its discovery document is read from there"`
+	ClientID        string   `json:"client_id" yaml:"client_id" validate:"required,max=255" ui:"label=Client ID,order=20"`
+	ClientSecretRef string   `json:"client_secret_ref,omitempty" yaml:"client_secret_ref,omitempty" validate:"omitempty,objname" ui:"label=Client secret entry,widget=readonly,order=30,help=Empty for a public client; PKCE is always used" secret:"true"`
+	RedirectURL     string   `json:"redirect_url" yaml:"redirect_url" validate:"required,url" ui:"label=Redirect URL,order=40,help=This console's public address followed by /auth/oidc/callback"`
+	Scopes          []string `json:"scopes,omitempty" yaml:"scopes,omitempty" validate:"max=16,dive,min=1,max=64" ui:"label=Extra scopes,widget=list,order=50,help=openid profile and email are always requested"`
+	UsernameClaim   string   `json:"username_claim,omitempty" yaml:"username_claim,omitempty" validate:"max=64" ui:"label=Username claim,order=60,help=Default preferred_username"`
+	GroupsClaim     string   `json:"groups_claim,omitempty" yaml:"groups_claim,omitempty" validate:"max=64" ui:"label=Groups claim,order=70,help=Default groups; its values are matched against the claim value of groups"`
+	SigningAlgs     []string `json:"signing_algs,omitempty" yaml:"signing_algs,omitempty" validate:"max=8,dive,oneof=RS256 RS384 RS512 ES256 ES384 ES512 PS256 PS384 PS512 EdDSA" ui:"label=Accepted signature algorithms,widget=multi-select,order=80,help=Default RS256 and ES256"`
+}
+
+func (OIDCProvider) Kind() Kind { return KindOIDCProvider }
+
+// APIToken lets a program call the API. Only a hash of the token is kept.
+// A token carries its own permissions, fixed when it is created and never
+// more than its creator had.
+type APIToken struct {
+	Meta        `yaml:",inline"`
+	Owner       string     `json:"owner" yaml:"owner" validate:"required,max=255" ui:"label=Owner,widget=readonly,order=10"`
+	Permissions []string   `json:"permissions" yaml:"permissions" validate:"required,min=1,max=64,dive,permission" ui:"label=Permissions,widget=multi-select,order=20"`
+	Hash        string     `json:"hash" yaml:"hash" validate:"required,min=64,max=64" ui:"label=Token hash,widget=readonly,order=30" secret:"true"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty" yaml:"expires_at,omitempty" validate:"-" ui:"label=Expires,order=40"`
+	Disabled    bool       `json:"disabled,omitempty" yaml:"disabled,omitempty" validate:"-" ui:"label=Disabled,order=50"`
+}
+
+func (APIToken) Kind() Kind { return KindAPIToken }
