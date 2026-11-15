@@ -3090,8 +3090,11 @@
   });
 
   document.getElementById('logout').addEventListener('click', async () => {
-    await fetch('/api/logout', { method: 'POST' });
-    window.location.href = '/login';
+    const res = await fetch('/api/logout', { method: 'POST' });
+    // A session from the identity provider is ended there as well.
+    let next = '/login';
+    if (res.status === 200) { try { next = (await res.json()).logout_url || next; } catch { /* stay local */ } }
+    window.location.href = next;
   });
 
   wgCombo.init();

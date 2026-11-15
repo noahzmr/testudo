@@ -27,6 +27,7 @@ import (
 	"github.com/noahzmr/testudo/internal/auth"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/engine"
+	"github.com/noahzmr/testudo/internal/identity"
 	sentryx "github.com/noahzmr/testudo/internal/integrations/sentry"
 	"github.com/noahzmr/testudo/internal/netops"
 )
@@ -52,6 +53,11 @@ type Server struct {
 	mu       sync.RWMutex
 	sessions map[string]*sessionRecord
 
+	// oidc is the identity-provider integration; OIDCHTTPClient replaces
+	// the HTTP client used towards the provider (tests, private CAs).
+	oidc           oidcState
+	OIDCHTTPClient *http.Client
+
 	// stopping is closed when the server shuts down; long-lived responses
 	// (the configuration event stream) end on it.
 	stopping <-chan struct{}
@@ -64,6 +70,13 @@ type sessionRecord struct {
 	user      string
 	role      auth.Role
 	expiresAt time.Time
+	// principal is what the caller may do. For logins the model decides
+	// about, login and index let it be worked out again when the model
+	// changes; oidc holds the provider's tokens of such a session.
+	principal identity.Principal
+	login     *identity.Login
+	index     int64
+	oidc      *oidcSession
 }
 
 const (
@@ -144,6 +157,9 @@ func (s *Server) buildMux() error {
 
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
+	mux.HandleFunc("/auth/oidc/login", s.handleOIDCLogin)
+	mux.HandleFunc("/auth/oidc/callback", s.handleOIDCCallback)
+	mux.HandleFunc("/auth/oidc/backchannel-logout", s.handleOIDCBackchannelLogout)
 	mux.HandleFunc("/api/me", s.protect(s.handleMe))
 	mux.HandleFunc("/api/me/passwd", s.protect(s.handleMePasswd))
 	mux.HandleFunc("/api/me/totp/enroll", s.protect(s.handleMeTOTPEnroll))
@@ -390,14 +406,20 @@ func sameOrigin(r *http.Request) bool {
 
 // session returns the live session for the request, or nil.
 func (s *Server) session(r *http.Request) *sessionRecord {
+	if rec := s.tokenSession(r); rec != nil {
+		return rec
+	}
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		return nil
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	rec, ok := s.sessions[c.Value]
+	s.mu.RUnlock()
 	if !ok || time.Now().After(rec.expiresAt) {
+		return nil
+	}
+	if !s.current(c.Value, rec) || !s.oidcFresh(r.Context(), c.Value, rec) {
 		return nil
 	}
 	return rec
@@ -410,12 +432,22 @@ type loginView struct {
 	Error    string
 	Username string
 	NeedCode bool
+	// Provider is the name of the identity provider when one is enabled.
+	Provider string
+}
+
+// loginView fills in what every rendering of the login page shows.
+func (s *Server) loginView(v loginView) loginView {
+	if p := s.oidcProvider(); p != nil {
+		v.Provider = p.Name
+	}
+	return v
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		_ = s.loginTmpl.Execute(w, loginView{})
+		_ = s.loginTmpl.Execute(w, s.loginView(loginView{}))
 		return
 	case http.MethodPost:
 		if err := r.ParseForm(); err != nil {
@@ -427,7 +459,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		code := r.FormValue("code")
 		u, err := s.Users.Authenticate(user, pass, code)
 		if err != nil {
-			s.Engine.Audit(user, "login", `{"result":"denied"}`, err)
+			s.Engine.Audit(user, "login", fmt.Sprintf(`{"source":"local","result":"denied","from":%q}`, clientIP(r)), err)
 			w.WriteHeader(http.StatusUnauthorized)
 			view := loginView{Error: "invalid credentials", Username: user}
 			switch {
@@ -436,23 +468,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			case errors.Is(err, auth.ErrDisabled):
 				view.Error = "account disabled"
 			}
-			_ = s.loginTmpl.Execute(w, view)
+			_ = s.loginTmpl.Execute(w, s.loginView(view))
 			return
 		}
-		sid := newSessionID()
-		s.mu.Lock()
-		s.sessions[sid] = &sessionRecord{user: u.Name, role: u.Role, expiresAt: time.Now().Add(sessionTTL)}
-		s.mu.Unlock()
-		s.Engine.Audit(u.Name, "login", fmt.Sprintf(`{"role":%q,"mfa":%v}`, u.Role, u.MFAEnrolled()), nil)
-		http.SetCookie(w, &http.Cookie{
-			Name:     sessionCookieName,
-			Value:    sid,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   s.TLS.Enabled(),
-			SameSite: http.SameSiteLaxMode,
-			Expires:  time.Now().Add(sessionTTL),
-		})
+		s.startSession(w, identity.Local(u), nil, nil)
+		s.Engine.Audit(u.Name, "login", fmt.Sprintf(`{"source":"local","role":%q,"mfa":%v,"from":%q}`, u.Role, u.MFAEnrolled(), clientIP(r)), nil)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -467,6 +487,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user":         rec.user,
 		"role":         rec.role,
+		"source":       rec.principal.Source,
+		"permissions":  rec.principal.Permissions,
+		"break_glass":  rec.principal.BreakGlass,
 		"mfa_enrolled": u.MFAEnrolled(),
 		"can_approve":  rec.role.CanApprove(),
 		"tls":          s.TLS.Enabled(),
@@ -474,14 +497,26 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	var rec *sessionRecord
 	if c, err := r.Cookie(sessionCookieName); err == nil {
 		s.mu.Lock()
+		rec = s.sessions[c.Value]
 		delete(s.sessions, c.Value)
 		s.mu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: "", Path: "/", Expires: time.Unix(0, 0),
 	})
+	if rec != nil {
+		s.Engine.Audit(rec.user, "logout", fmt.Sprintf(`{"source":%q}`, rec.principal.Source), nil)
+	}
+	// A session that began at the identity provider ends there too: the
+	// page is told where to go next.
+	if to := s.oidcLogoutURL(r.Context(), rec); to != "" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"logout_url": to})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

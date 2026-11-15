@@ -56,6 +56,7 @@
     @media (prefers-reduced-motion: reduce) {
       .login-banner .l { animation: none; opacity: 1; }
     }
+    .login-alt { margin: var(--sp-5) 0 0; padding-top: var(--sp-4); border-top: 1px solid var(--border); text-align: center; }
     .login-sub {
       margin: 0 0 var(--sp-6);
       text-align: center;
@@ -128,6 +129,7 @@
       <button type="submit" class="btn btn-go">Sign in</button>
       <div class="err-line" role="alert">{{.Error}}</div>
     </form>
+    {{if .Provider}}<p class="login-alt"><a class="btn" href="/auth/oidc/login">Sign in with {{.Provider}}</a></p>{{end}}
   </main>
 </body>
 </html>

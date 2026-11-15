@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/noahzmr/testudo/internal/confapi"
+	"github.com/noahzmr/testudo/internal/identity"
 )
 
 // mountConfig serves the configuration model's versioned API below /api/v1/.
@@ -34,12 +35,22 @@ func (s *Server) mountConfig(mux *http.ServeMux) error {
 		Runtime: s.Engine.ConfigRuntime,
 		Keys:    s.Engine,
 		Certs:   s.Engine,
+		Secrets: s.Engine,
+		Audit: func(ctx context.Context, limit int) ([]confapi.AuditRow, error) {
+			entries, err := s.Engine.RecentAudit(ctx, limit)
+			rows := make([]confapi.AuditRow, 0, len(entries))
+			for _, e := range entries {
+				rows = append(rows, confapi.AuditRow{Time: e.TS, Actor: e.Actor, Op: e.Op, Detail: e.Args, Result: e.Result, PeerUID: e.PeerUID})
+			}
+			return rows, err
+		},
 		Identify: func(r *http.Request) (confapi.Identity, bool) {
 			rec, ok := r.Context().Value(sessionCtxKey).(*sessionRecord)
 			if !ok || rec == nil {
 				return confapi.Identity{}, false
 			}
-			return confapi.Identity{Name: rec.user, Permissions: confapi.RolePermissions(string(rec.role))}, true
+			return confapi.Identity{Name: rec.user, Permissions: rec.principal.Permissions,
+				Token: rec.principal.Source == identity.SourceToken}, true
 		},
 	}
 	s.Engine.SetConfigNotify(api.Notice)
