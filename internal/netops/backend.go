@@ -127,10 +127,11 @@ type Op struct {
 	Nft string `json:"nft,omitempty"`
 	// Frr is an FRRouting configuration for the frr_* operations. It can
 	// contain session passwords; audit rows record size and hash only.
-	Frr     string       `json:"frr,omitempty"`
-	Routing *RoutingSpec `json:"routing,omitempty"`
-	WG      *WGSpec      `json:"wg,omitempty"`
-	TxQLen  int          `json:"txqlen,omitempty"` // interface transmit queue length
+	Frr     string        `json:"frr,omitempty"`
+	Routing *RoutingSpec  `json:"routing,omitempty"`
+	WG      *WGSpec       `json:"wg,omitempty"`
+	Proxy   *ProxyRequest `json:"proxy,omitempty"`
+	TxQLen  int           `json:"txqlen,omitempty"` // interface transmit queue length
 
 	// Sysctl write (performance tuning; key allowlisted).
 	SysctlKey string `json:"sysctl_key,omitempty"`
@@ -269,6 +270,8 @@ func (w *Writer) queryDirect(op Op) ([]byte, error) {
 		return nftQueryDirect(op)
 	case OpQueryFrrAvailable, OpQueryFrrCheck, OpQueryFrrShow:
 		return frrQueryDirect(op)
+	case OpQueryProxyStatus:
+		return marshalResult(runProxy(ProxyRequest{Mode: ProxyStatus}))
 	case OpQueryFirewallSummary:
 		return marshalResult(w.listFirewallDirect())
 	case OpQueryFirewallRules:
@@ -341,6 +344,12 @@ func (w *Writer) applyDirect(op Op) error {
 		return w.resetRuleCounterDirect(op.Family, op.Table, op.Chain, op.Handle)
 	case OpFrrReload:
 		_, err := runFrr(FrrRequest{Mode: FrrReload, Conf: op.Frr})
+		return err
+	case OpProxyControl:
+		if op.Proxy == nil || op.Proxy.Mode == ProxyStatus {
+			return fmt.Errorf("proxy control missing request")
+		}
+		_, err := runProxy(*op.Proxy)
 		return err
 	case OpSyncWG:
 		if op.WG == nil {

@@ -177,6 +177,7 @@ func runHelper() error {
 	} else {
 		netops.SetNftRunner(runner.Run)
 		netops.SetFrrRunner(runner.RunFrr)
+		netops.SetProxyRunner(runner.RunProxy)
 		defer runner.Close()
 	}
 

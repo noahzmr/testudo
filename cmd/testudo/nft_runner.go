@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
+	"syscall"
 
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/privsep"
@@ -40,6 +41,11 @@ func runNftRunner() error {
 		// As root this is not needed; otherwise loads will fail and say why.
 		fmt.Fprintf(os.Stderr, "nft runner: cannot pass on the network capability: %v\n", err)
 	}
+	// The proxy is started through this binary again, which sheds what the
+	// proxy must not have before it becomes the proxy.
+	if exe, err := os.Executable(); err == nil {
+		netops.ProxyWrapper = []string{exe, proxyExecArg}
+	}
 	in := bufio.NewReaderSize(os.Stdin, 1<<20)
 	out := json.NewEncoder(os.Stdout)
 	for {
@@ -61,6 +67,8 @@ func runNftRunner() error {
 			res = netops.RunNft(*req.Nft)
 		case req.Frr != nil:
 			res = netops.RunFrr(*req.Frr)
+		case req.Proxy != nil:
+			res = netops.RunProxy(*req.Proxy)
 		default:
 			res = netops.NftResult{Error: "empty request"}
 		}
@@ -72,8 +80,9 @@ func runNftRunner() error {
 
 // runnerRequest is one job: for nft or for FRR's tools, never both.
 type runnerRequest struct {
-	Nft *netops.NftRequest `json:"nft,omitempty"`
-	Frr *netops.FrrRequest `json:"frr,omitempty"`
+	Nft   *netops.NftRequest   `json:"nft,omitempty"`
+	Frr   *netops.FrrRequest   `json:"frr,omitempty"`
+	Proxy *netops.ProxyRequest `json:"proxy,omitempty"`
 }
 
 func readLine(r *bufio.Reader) ([]byte, error) {
@@ -130,6 +139,11 @@ func (p *nftRunnerProc) RunFrr(req netops.FrrRequest) netops.NftResult {
 	return p.send(runnerRequest{Frr: &req})
 }
 
+// RunProxy sends one request for the proxy supervisor.
+func (p *nftRunnerProc) RunProxy(req netops.ProxyRequest) netops.NftResult {
+	return p.send(runnerRequest{Proxy: &req})
+}
+
 // send serialises requests: one at a time over the pipe.
 func (p *nftRunnerProc) send(req runnerRequest) netops.NftResult {
 	p.mu.Lock()
@@ -169,4 +183,21 @@ func auditArgs(o netops.Op, body []byte) string {
 	out, _ := json.Marshal(map[string]any{"kind": o.Kind, "actor": o.Actor,
 		"bytes": len(text), "sha256": hex.EncodeToString(sum[:])})
 	return string(out)
+}
+
+// proxyExecArg makes this binary turn into the proxy: it keeps only the
+// capability to bind low ports, then executes the command that follows.
+// The runner holds CAP_NET_ADMIN to load rulesets; a proxy that terminates
+// connections from the internet must not inherit that.
+const proxyExecArg = "__proxy-exec"
+
+func runProxyExec(args []string) error {
+	if len(args) == 0 {
+		return errors.New("proxy exec: no command")
+	}
+	runtime.LockOSThread()
+	if err := privsep.KeepOnlyBindService(); err != nil {
+		fmt.Fprintf(os.Stderr, "proxy exec: %v\n", err)
+	}
+	return syscall.Exec(args[0], args, os.Environ())
 }

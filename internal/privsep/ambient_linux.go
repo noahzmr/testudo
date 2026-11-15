@@ -32,3 +32,32 @@ func RaiseAmbientNetAdmin() error {
 	}
 	return nil
 }
+
+// KeepOnlyBindService reduces the calling thread to CAP_NET_BIND_SERVICE,
+// made ambient so that the program executed next can bind low ports and do
+// nothing else privileged. Without that capability it clears everything,
+// which leaves a process that can only bind high ports. Callers must have
+// locked the goroutine to its thread.
+func KeepOnlyBindService() error {
+	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
+		return fmt.Errorf("clear ambient: %w", err)
+	}
+	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	var data [2]unix.CapUserData
+	if err := unix.Capget(&hdr, &data[0]); err != nil {
+		return fmt.Errorf("capget: %w", err)
+	}
+	const bit = uint32(1) << unix.CAP_NET_BIND_SERVICE
+	keep := data[0].Permitted & bit
+	data[0].Permitted, data[0].Effective, data[0].Inheritable = keep, keep, keep
+	data[1] = unix.CapUserData{}
+	if err := unix.Capset(&hdr, &data[0]); err != nil {
+		return fmt.Errorf("capset: %w", err)
+	}
+	if keep != 0 {
+		if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_RAISE, unix.CAP_NET_BIND_SERVICE, 0, 0); err != nil {
+			return fmt.Errorf("raise ambient: %w", err)
+		}
+	}
+	return nil
+}

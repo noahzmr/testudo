@@ -35,3 +35,6 @@ func EffectiveCaps() (uint64, error)                    { return 0, errUnsupport
 
 // RaiseAmbientNetAdmin is only meaningful on Linux.
 func RaiseAmbientNetAdmin() error { return errUnsupported }
+
+// KeepOnlyBindService is only meaningful on Linux.
+func KeepOnlyBindService() error { return errUnsupported }

@@ -53,6 +53,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == nftRunnerArg {
 		return runNftRunner()
 	}
+	if len(os.Args) > 1 && os.Args[1] == proxyExecArg {
+		return runProxyExec(os.Args[2:])
+	}
 
 	cmd := "live"
 	args := os.Args[1:]
