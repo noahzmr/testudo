@@ -122,6 +122,49 @@ type Engine struct {
 	pending *Pending
 	prev    map[string][]byte // artifacts in force before the pending change
 	timer   *time.Timer
+
+	// Cluster membership (see cluster.go). applied is the model index this
+	// member last put into effect, failed the one it last failed at.
+	cluster   Cluster
+	maxFailed int
+	applied   int64
+	failed    int64
+	override  *LocalOverride
+	overFile  string
+}
+
+// stateT and Op keep cluster.go readable.
+type (
+	stateT = *confstore.State
+	Op     = confstore.Op
+)
+
+// LocalOverride is a change that is in force on one member only, made
+// while that member was cut off from the cluster.
+type LocalOverride struct {
+	Actor  string    `json:"actor"`
+	Reason string    `json:"reason"`
+	Base   int64     `json:"base"` // the model index it was made on
+	At     time.Time `json:"at"`
+	Ops    []Op      `json:"ops"`
+}
+
+func (e *Engine) writeOverride(o *LocalOverride) error {
+	if o == nil {
+		if err := os.Remove(e.overFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	data, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+	tmp := e.overFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, e.overFile)
 }
 
 // Options configures an Engine.
@@ -142,7 +185,7 @@ func New(store *confstore.Store, opts Options, stages ...Stage) (*Engine, error)
 		return nil, err
 	}
 	e := &Engine{store: store, stages: stages, window: opts.Window, notify: opts.Notify,
-		file: filepath.Join(opts.Dir, "pending-apply.json")}
+		file: filepath.Join(opts.Dir, "pending-apply.json"), overFile: filepath.Join(opts.Dir, "local-override.json")}
 	if e.window <= 0 {
 		e.window = DefaultWindow
 	}
@@ -156,6 +199,13 @@ func New(store *confstore.Store, opts Options, stages ...Stage) (*Engine, error)
 func (e *Engine) Pending() (Pending, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.cluster != nil {
+		// The same answer on every member.
+		if p := e.cluster.View().Pending; p != nil {
+			return *p, true
+		}
+		return Pending{}, false
+	}
 	if e.pending == nil {
 		return Pending{}, false
 	}
@@ -168,6 +218,28 @@ func (e *Engine) Pending() (Pending, bool) {
 func (e *Engine) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if data, err := os.ReadFile(e.overFile); err == nil {
+		// A local override survives a restart: it is in force until
+		// someone resolves it.
+		var o LocalOverride
+		if json.Unmarshal(data, &o) == nil {
+			if cand, _, perr := e.store.Current().Prepare(o.Actor, o.Ops); perr == nil {
+				e.override = &o
+				return e.convergeLocked(ctx, cand)
+			}
+		}
+	}
+	if e.cluster != nil {
+		// Fail-static: the member starts with the last model it has, and
+		// follows the cluster from there. Whether a change is pending is
+		// the cluster's knowledge, not a file's.
+		head := e.store.Current()
+		if err := e.convergeLocked(ctx, head); err != nil {
+			return err
+		}
+		e.applied = head.Index()
+		return nil
+	}
 	if data, err := os.ReadFile(e.file); err == nil {
 		var p Pending
 		if err := json.Unmarshal(data, &p); err != nil {
@@ -228,6 +300,17 @@ func (e *Engine) Plan(ctx context.Context, actor string, ops []confstore.Op) (ma
 func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.Op, changeSets ...string) (Pending, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.override != nil {
+		return Pending{}, ErrOverride
+	}
+	if c := e.cluster; c != nil {
+		if !c.IsLeader() {
+			return Pending{}, ErrNotLeader
+		}
+		if c.View().Pending != nil {
+			return Pending{}, ErrPending
+		}
+	}
 	if e.pending != nil {
 		return Pending{}, ErrPending
 	}
@@ -240,12 +323,19 @@ func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.
 		return Pending{}, err
 	}
 
+	deadline := time.Now().Add(e.window).UTC()
+	if e.cluster != nil {
+		// The deadline goes into the same log entry as the record.
+		e.cluster.AttachPending(Pending{Actor: actor, Note: note, Deadline: deadline})
+	}
 	rec, err := e.store.Commit(ctx, actor, note, ops, changeSets...)
 	if err != nil {
 		return Pending{}, err
 	}
-	p := Pending{Index: rec.Index, Actor: actor, Note: note, Deadline: time.Now().Add(e.window).UTC()}
-	if err := e.writeMarker(p); err != nil {
+	p := Pending{Index: rec.Index, Actor: actor, Note: note, Deadline: deadline}
+	if e.cluster != nil {
+		// No marker file: the cluster holds the pending change.
+	} else if err := e.writeMarker(p); err != nil {
 		// Without a durable marker a crash could leave the change
 		// unconfirmed forever, so do not start applying.
 		_, rerr := e.store.Revert(ctx, SystemActor, rec.Index, "could not record the pending confirmation")
@@ -268,11 +358,20 @@ func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.
 		}
 	}
 
-	e.timer = time.AfterFunc(e.window, func() {
+	if c := e.cluster; c != nil {
+		// This member was the canary and is healthy: the others follow.
+		e.applied, e.failed = p.Index, 0
+		c.Report(p.Index, nil, "")
+		if err := c.OpenRollout(p.Index); err != nil {
+			rbErr := e.rollbackLocked(ctx, SystemActor, fmt.Sprintf("the rollout could not be opened: %v", err))
+			return Pending{}, errors.Join(err, rbErr)
+		}
+	}
+	e.timer = time.AfterFunc(time.Until(deadline), func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		// The timer may fire while Confirm holds the lock.
-		if e.pending != nil && e.pending.Index == p.Index {
+		if e.pending != nil && e.pending.Index == p.Index && (e.cluster == nil || e.cluster.IsLeader()) {
 			_ = e.rollbackLocked(context.Background(), SystemActor, "not confirmed in time")
 		}
 	})
@@ -284,6 +383,24 @@ func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.
 func (e *Engine) Confirm(actor string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if c := e.cluster; c != nil {
+		p := c.View().Pending
+		if p == nil {
+			return ErrNothingPending
+		}
+		if !c.IsLeader() {
+			return ErrNotLeader
+		}
+		if err := c.ClearPending(); err != nil {
+			return err
+		}
+		if e.timer != nil {
+			e.timer.Stop()
+		}
+		e.pending, e.prev, e.timer = nil, nil, nil
+		e.notify(Notice{Event: "confirmed", Index: p.Index, Actor: actor})
+		return nil
+	}
 	if e.pending == nil {
 		return ErrNothingPending
 	}
@@ -303,6 +420,15 @@ func (e *Engine) Confirm(actor string) error {
 func (e *Engine) Rollback(ctx context.Context, actor, reason string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if c := e.cluster; c != nil {
+		if !c.IsLeader() {
+			return ErrNotLeader
+		}
+		if p := c.View().Pending; p != nil && e.pending == nil {
+			q := *p
+			e.pending = &q
+		}
+	}
 	if e.pending == nil {
 		return ErrNothingPending
 	}
@@ -319,8 +445,17 @@ func (e *Engine) rollbackLocked(ctx context.Context, actor, reason string) error
 		e.timer.Stop()
 	}
 	var errs []error
-	if _, err := e.store.Revert(ctx, actor, p.Index, reason); err != nil {
+	if e.cluster != nil {
+		// The revert ends the confirmation window and the rollout in the
+		// same log entry.
+		e.cluster.AttachClear()
+	}
+	rev, err := e.store.Revert(ctx, actor, p.Index, reason)
+	if err != nil {
 		errs = append(errs, fmt.Errorf("revert record %d: %w", p.Index, err))
+	} else if e.cluster != nil {
+		e.applied, e.failed = rev.Index, 0
+		defer func() { e.cluster.Report(rev.Index, nil, "") }()
 	}
 	prev := e.prev
 	if prev == nil {
