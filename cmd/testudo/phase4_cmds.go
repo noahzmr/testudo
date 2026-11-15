@@ -164,6 +164,11 @@ func cmdWeb(args []string) error {
 	usePrivsep := fs.Bool("privsep", true, "run privileged netops in a separate helper process and drop the engine's capabilities (set false for legacy single-process mode)")
 	tlsCert := fs.String("tls-cert", "", "serve HTTPS with this certificate chain (PEM); requires --tls-key")
 	tlsKey := fs.String("tls-key", "", "private key (PEM) for --tls-cert")
+	clusterRaft := fs.String("cluster-raft", "", "listen address of the cluster's consensus transport (host:port on the site mesh); empty: this node never joins a cluster")
+	clusterAPI := fs.String("cluster-api", "", "listen address of the cluster's member API (host:port on the site mesh)")
+	clusterAdvRaft := fs.String("cluster-advertise-raft", "", "address other members reach the consensus transport at (default: --cluster-raft)")
+	clusterAdvAPI := fs.String("cluster-advertise-api", "", "address other members reach the member API at (default: --cluster-api)")
+	nodeName := fs.String("node-name", "", "this member's name in the cluster (default: the host name)")
 	publicURL := fs.String("public-url", "", "address people reach this console at (https://fw.example.com); used to send visitors of published services here to log in")
 	tlsAuto := fs.Bool("tls-auto", false, "serve HTTPS with a self-signed certificate generated into <storage>/tls on first use")
 	if err := fs.Parse(args); err != nil {
@@ -173,6 +178,11 @@ func cmdWeb(args []string) error {
 		return fmt.Errorf("--tls-cert and --tls-key must be given together")
 	}
 	cfg.WebListen = *listen
+	if (*clusterRaft == "") != (*clusterAPI == "") {
+		return fmt.Errorf("--cluster-raft and --cluster-api must be given together")
+	}
+	cfg.ClusterRaft, cfg.ClusterAPI, cfg.NodeName = *clusterRaft, *clusterAPI, *nodeName
+	cfg.ClusterAdvertiseRaft, cfg.ClusterAdvertiseAPI = *clusterAdvRaft, *clusterAdvAPI
 	cfg.SQLitePath = *dbPath
 	cfg.StorageDir = *storageDir
 	cfg.SettingsPath = filepath.Join(*storageDir, "settings.json")

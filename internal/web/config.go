@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -36,6 +37,7 @@ func (s *Server) mountConfig(mux *http.ServeMux) error {
 		Keys:    s.Engine,
 		Certs:   s.Engine,
 		Secrets: s.Engine,
+		Cluster: s.Engine,
 		Audit: func(ctx context.Context, limit int) ([]confapi.AuditRow, error) {
 			entries, err := s.Engine.RecentAudit(ctx, limit)
 			rows := make([]confapi.AuditRow, 0, len(entries))
@@ -49,8 +51,7 @@ func (s *Server) mountConfig(mux *http.ServeMux) error {
 			if !ok || rec == nil {
 				return confapi.Identity{}, false
 			}
-			return confapi.Identity{Name: rec.user, Permissions: rec.principal.Permissions,
-				Token: rec.principal.Source == identity.SourceToken}, true
+			return apiIdentity(rec), true
 		},
 	}
 	s.Engine.SetConfigNotify(api.Notice)
@@ -60,11 +61,56 @@ func (s *Server) mountConfig(mux *http.ServeMux) error {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
-			http.Error(w, "cross-origin request rejected", http.StatusForbidden)
-			return
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if !sameOrigin(r) {
+				http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+				return
+			}
+			// In a cluster a change is decided by the leader. A member
+			// that does not lead passes the request on, with who is asking.
+			// What concerns this member alone stays here.
+			if _, forward := s.Engine.ClusterWritable(); forward && !localOnly(r.URL.Path) {
+				id, _ := json.Marshal(apiIdentity(rec))
+				s.Engine.Cluster().Forward(w, r, string(id))
+				return
+			}
 		}
 		api.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionCtxKey, rec)))
 	})
+	// The other side of that: requests members pass on to this one. Only
+	// members can reach the endpoint, so the identity they name is the one
+	// they authenticated.
+	s.Engine.SetClusterForwarded(func(w http.ResponseWriter, r *http.Request, id string) {
+		var who confapi.Identity
+		if json.Unmarshal([]byte(id), &who) != nil || who.Name == "" {
+			http.Error(w, "no identity", http.StatusBadRequest)
+			return
+		}
+		p := identity.Principal{Name: who.Name, Source: "cluster", Permissions: who.Permissions, BreakGlass: who.BreakGlass}
+		if who.Token {
+			p.Source = identity.SourceToken
+		}
+		rec := &sessionRecord{user: who.Name, role: p.LegacyRole(), principal: p}
+		api.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionCtxKey, rec)))
+	})
 	return nil
+}
+
+// apiIdentity is a session as the API sees it.
+func apiIdentity(rec *sessionRecord) confapi.Identity {
+	p := rec.principal
+	return confapi.Identity{Name: rec.user, Permissions: p.Permissions, Token: p.Source == identity.SourceToken,
+		// The built-in administrator and the host's break-glass group may
+		// act when the cluster cannot.
+		BreakGlass: p.BreakGlass || (p.Source == identity.SourceLocal && p.Can("*", "write"))}
+}
+
+// localOnly reports whether a write concerns this member alone and is
+// never passed on to the leader.
+func localOnly(path string) bool {
+	switch path {
+	case "/api/v1/cluster/init", "/api/v1/cluster/join", "/api/v1/cluster/override":
+		return true
+	}
+	return false
 }
