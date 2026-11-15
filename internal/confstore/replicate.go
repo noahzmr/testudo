@@ -140,3 +140,44 @@ func (s *Store) RestoreSnapshot(snap Snapshot) error {
 func (s *State) Prepare(actor string, ops []Op) (*State, []Change, error) {
 	return s.prepare(s.index+1, actor, time.Now().UTC(), fillIDs(ops))
 }
+
+// Reset empties the store: no objects, no history, index zero. A node does
+// this to itself when it joins a cluster, whose model then takes the place.
+func (s *Store) Reset() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.Remove(filepath.Join(s.dir, snapshotFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := writeFileSync(s.path, nil); err != nil {
+		return err
+	}
+	nf, err := os.OpenFile(s.path, os.O_RDWR|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := lockFile(nf); err != nil {
+		nf.Close()
+		return err
+	}
+	s.log.Close()
+	s.log = nf
+	s.state.Store(newState())
+	s.publish(Record{Time: s.now().UTC(), Actor: "cluster", Type: "reset"})
+	return nil
+}
+
+// OnlyBy reports whether every record in the store was written by actor.
+// A store that holds nothing but what the program put there itself is as
+// good as empty.
+func (s *Store) OnlyBy(actor string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(s.dir, snapshotFile)); err == nil {
+		return false, nil // compacted history: someone has been using it
+	}
+	only := true
+	err := s.scan(func(r Record) bool {
+		only = r.Actor == actor
+		return only
+	})
+	return only, err
+}
