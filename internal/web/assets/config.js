@@ -85,11 +85,16 @@ const LABEL = {
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
   site: 'Sites', cluster_node: 'Nodes',
 };
+// Friendlier names for some select values.
+const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 'Imported',
+  'http-01': 'HTTP-01 (port 80)', 'tls-alpn-01': 'TLS-ALPN-01 (port 443)', 'dns-01': 'DNS-01 (wildcards)',
+  proxy: 'Proxy (HTTP, TLS, SNI)', kernel: 'Packet filter (TCP/UDP, fastest)' };
 // What the running system is driven by today. Everything else is stored,
 // versioned and audited, and takes effect when its subsystem moves over.
 const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'nat_rule', 'interface',
   'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf',
-  'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy']);
+  'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy',
+  'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate']);
 // Sections that open on the model instead of their live view.
 const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'sites', changes: 'changesets' };
 const paneOf = seg => seg === 'changesets' || seg === 'history' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
@@ -185,6 +190,7 @@ function show(field, v) {
     const one = id => names[field.ref]?.[id] || id.slice(0, 8);
     return Array.isArray(v) ? v.map(one).join(', ') : one(v);
   }
+  if (field.enum && OPTION[v]) return OPTION[v];
   if (Array.isArray(v)) return field.type === 'object' ? `${v.length} entries` : v.join(', ');
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
@@ -195,8 +201,14 @@ async function listView(form) {
   const g = gen;
   const cols = form.fields.filter(f => !f.group?.match(/^(Meta|Scope)$/) && f.name !== 'description').slice(0, 5);
   await Promise.all([...new Set(cols.filter(c => c.type === 'ref').map(c => c.ref))].map(loadNames));
-  const [r, rt] = await Promise.all([api('GET', '/' + form.plural), api('GET', '/runtime')]);
+  const [r, rt, hintsRes] = await Promise.all([api('GET', '/' + form.plural), api('GET', '/runtime'),
+    form.kind === 'lb_service' ? api('GET', '/lb/firewall-hints') : null]);
   if (g !== gen) return;
+  const lb = rt.data?.load_balancer || {}, certs = rt.data?.certificates || {};
+  const hints = Object.fromEntries((hintsRes?.data || []).map(h => [h.service, h]));
+  // Health of a pool's backends: the proxy reports its own, the kernel
+  // path is checked by this program.
+  const poolDown = o => (o.backends || []).filter(b => lb.pools?.[o.id]?.backends?.[b.address] === 'DOWN' || lb.backends?.[b.address]?.down);
   // What the running system says about these objects: traffic matched per
   // rule, and how fresh a run-time alias is.
   const counters = rt.data?.counters, feeds = rt.data?.aliases || {};
@@ -214,13 +226,46 @@ async function listView(form) {
       const b = sessions?.[o.address];
       return !sessions ? 'routing daemon not running' : !b ? 'not configured in the daemon' : `${b.state || 'unknown'} · ${b.received ?? 0} prefixes`;
     }
+    if (form.kind === 'lb_backend_pool') {
+      const st = lb.pools?.[o.id], down = poolDown(o), n = (o.backends || []).length;
+      const health = down.length ? `${down.length} of ${n} down (${down.map(b => b.address).join(', ')})` : `${n} backend${n === 1 ? '' : 's'}`;
+      return st ? `${health} · ${st.requests.toLocaleString()} requests · ${st.errors.toLocaleString()} errors · ${st.avg_ms.toFixed(1)} ms` : health;
+    }
+    if (form.kind === 'lb_service') {
+      if (!o.enabled) return 'disabled';
+      if (o.mode === 'kernel') { const c = counters?.[o.id]; return c ? `packet filter · ${c.packets.toLocaleString()} connections` : 'packet filter'; }
+      const h = hints[o.id];
+      return `proxy ${lb.process || 'unknown'}${h && !h.covered ? ' · no filter rule lets clients in' : ''}`;
+    }
+    if (form.kind === 'certificate') {
+      const st = certs[o.id];
+      if (o.source === 'acme') return o.staging ? "Let's Encrypt staging · renewed automatically" : "Let's Encrypt · renewed automatically";
+      return !st ? '' : st.error ? st.error : st.days_left < 0 ? `expired ${new Date(st.not_after).toLocaleDateString()}`
+        : `${st.days_left} days left (${new Date(st.not_after).toLocaleDateString()})`;
+    }
     const c = counters?.[o.id];
     return c ? `${c.packets.toLocaleString()} pkts` : '';
   };
-  const liveTitle = { alias: 'Content', gateway: 'Health', bgp_neighbor: 'Session' }[form.kind] || 'Matched';
-  const bad = o => feeds[o.id]?.error || gwHealth[o.id]?.down || (form.kind === 'bgp_neighbor' && sessions && sessions[o.address]?.state !== 'Established');
+  const liveTitle = { alias: 'Content', gateway: 'Health', bgp_neighbor: 'Session', lb_backend_pool: 'State', lb_service: 'State', certificate: 'Expiry' }[form.kind] || 'Matched';
+  const bad = o => feeds[o.id]?.error || gwHealth[o.id]?.down || (form.kind === 'bgp_neighbor' && sessions && sessions[o.address]?.state !== 'Established')
+    || (form.kind === 'lb_backend_pool' && poolDown(o).length) || (form.kind === 'lb_service' && o.enabled && o.mode === 'proxy' && (lb.process !== 'running' || hints[o.id]?.covered === false))
+    || (form.kind === 'certificate' && (certs[o.id]?.error || certs[o.id]?.days_left < 14));
   const showLiveCol = (form.kind === 'alias' && Object.keys(feeds).length) || (counters && (form.kind === 'filter_rule' || form.kind === 'nat_rule'))
-    || (rt.data?.routing && (form.kind === 'gateway' || form.kind === 'bgp_neighbor'));
+    || (rt.data?.routing && (form.kind === 'gateway' || form.kind === 'bgp_neighbor'))
+    || (rt.data?.load_balancer && (form.kind === 'lb_backend_pool' || form.kind === 'lb_service')) || form.kind === 'certificate';
+  // Services no filter rule lets clients reach. The rule is proposed; it
+  // is created only when someone asks for it, and then like any other.
+  const closed = Object.values(hints).filter(h => !h.covered && h.rule);
+  const fr = S.byKind.filter_rule;
+  const openUp = closed.length && fr && can(fr, 'write') ? el('div', { class: 'cfg-planned' },
+    el('p', { text: `No filter rule lets clients reach: ${closed.map(h => h.name).join(', ')}. With a default-deny policy these services are not reachable.` }),
+    closed.map(h => el('button', { type: 'button', text: `Create rule "${h.rule.name}" (${h.rule.protocol} ${h.rule.ports.join(', ')})`, onclick: async () => {
+      const res = await api('POST', '/filter-rules', h.rule);
+      if (!res.ok) return toast(res.data?.message || 'failed', 'err');
+      afterWrite(res); toast('Rule created'); listView(form);
+    } }))) : closed.length ? el('p', { class: 'cfg-planned', text: `No filter rule lets clients reach: ${closed.map(h => h.name).join(', ')}.` }) : null;
+  const caLink = form.kind === 'certificate' ? el('p', { class: 'dim' }, el('a', { href: '/api/v1/pki/ca', download: 'testudo-ca.pem', text: 'Download the local authority\'s certificate' }),
+    el('span', { text: ' for clients that should trust certificates issued here.' })) : null;
   if (!r.ok) return fill(main, el('p', { class: 'err', text: r.data?.message || 'failed' }));
   const rows = (r.data || []).map(o => el('tr', { onclick: () => { location.hash = `#/${form.plural}/${o.id}`; } },
     cols.map(c => el('td', { text: show(c, o[c.name]) })),
@@ -231,6 +276,7 @@ async function listView(form) {
       el('h2', { text: LABEL[form.kind] || form.title }),
       can(form, 'write') ? el('button', { class: 'primary', text: 'New', onclick: () => { location.hash = `#/${form.plural}/new`; } }) : null),
     ENFORCED.has(form.kind) ? null : el('p', { class: 'cfg-planned', text: 'Stored, versioned and audited. Not applied to the running system yet; use Running state for what is in effect.' }),
+    openUp, caLink,
     rows.length ? el('table', { class: 'cfg-table' },
       el('thead', {}, el('tr', {}, cols.map(c => el('th', { text: c.label })), showLiveCol ? el('th', { text: liveTitle }) : null, el('th', { text: 'Scope' }), el('th', { text: 'Version' }))),
       el('tbody', {}, rows)) : el('p', { class: 'dim', text: 'No objects yet.' }));
@@ -299,7 +345,7 @@ function widget(field, value, ctx) {
     get = () => boxes.filter(([, b]) => b.checked).map(([v]) => v);
   } else if (field.enum) {
     input = el('select', { disabled: ro }, field.required ? null : el('option', { value: '', text: '-' }),
-      field.enum.map(v => el('option', { value: v, text: v, selected: v === value })));
+      field.enum.map(v => el('option', { value: v, text: OPTION[v] || v, selected: v === value })));
     get = () => input.value || undefined;
   } else if (field.list) {
     input = el('textarea', { rows: 3, disabled: ro, placeholder: 'one per line', value: (value || []).join('\n') });
@@ -399,7 +445,7 @@ async function editView(form, obj, origins) {
   const extra = el('div', { class: 'cfg-extra' });
   // Values a helper sets that the form has no editable field for.
   const extras = {};
-  const helper = writable && !origins ? wgHelpers(form, obj, f, extras, ui) : null;
+  const helper = writable && !origins ? (form.kind === 'certificate' ? certHelpers(obj, f, extras) : wgHelpers(form, obj, f, extras, ui)) : null;
   fill($('#cfg-main'), 
     el('header', {}, el('h2', { text: obj ? `${form.title}: ${obj.name}` : `New ${form.title}` }),
       el('a', { href: '#/' + form.plural, text: 'Back' })),
@@ -501,6 +547,44 @@ async function showClientConfig(host, peerID, secrets) {
       qr.querySelector('svg')?.setAttribute('width', '260');
     } catch { fill(qr, el('span', { class: 'dim', text: 'QR code unavailable; use the text or the download.' })); }
   }
+}
+
+// certHelpers adds the two ways to get a certificate whose key lives on the
+// node: issue one from the internal authority, or import one with its key.
+// Either way the private key goes to the node's secret store and the form
+// only receives the name of its entry.
+function certHelpers(obj, f, extras) {
+  const input = name => f.ws.find(w => w.field.name === name)?.input;
+  const note = el('span', { class: 'dim' });
+  const key = el('textarea', { rows: 6, placeholder: '-----BEGIN PRIVATE KEY-----', spellcheck: 'false', autocomplete: 'off' });
+  const took = (data, text) => {
+    extras.key_ref = data.key_ref;
+    extras.not_after = data.not_after;
+    if (input('source')) input('source').value = data.source;
+    if (input('chain_pem')) input('chain_pem').value = data.chain_pem;
+    note.textContent = text;
+  };
+  return el('div', { class: 'cfg-extra' },
+    el('div', { class: 'actions' },
+      el('button', { type: 'button', text: obj ? 'Issue again from the local authority' : 'Issue from the local authority', onclick: async () => {
+        let domains;
+        try { domains = f.collect().domains; } catch { domains = null; }
+        if (!domains?.length) return toast('Enter the domains first', 'err');
+        const r = await api('POST', '/pki/issue', { domains });
+        if (!r.ok) return toast(r.data?.message || 'failed', 'err');
+        took(r.data, `Issued, valid until ${new Date(r.data.not_after).toLocaleDateString()}. Save to use it.`);
+      } }), note),
+    el('details', {}, el('summary', { text: 'Import a certificate with its private key' }),
+      el('p', { class: 'dim', text: 'Paste the certificate chain into the field above and the private key here. The key is checked against the certificate, stored on the node, and not shown again.' }),
+      key,
+      el('div', { class: 'actions' }, el('button', { type: 'button', text: 'Check and store the key', onclick: async () => {
+        const chain = input('chain_pem')?.value;
+        if (!chain || !key.value) return toast('Both the chain and the key are needed', 'err');
+        const r = await api('POST', '/pki/import', { chain_pem: chain, key_pem: key.value });
+        if (!r.ok) return toast(r.data?.message || 'failed', 'err');
+        key.value = '';
+        took(r.data, `Key stored; the certificate is valid until ${new Date(r.data.not_after).toLocaleDateString()}. Save to use it.`);
+      } }))));
 }
 
 // wgHelpers adds the buttons that create key material for tunnels and peers.
