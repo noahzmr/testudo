@@ -20,7 +20,11 @@ import (
 	"github.com/noahzmr/testudo/internal/fwbridge"
 	"github.com/noahzmr/testudo/internal/gwmon"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/secrets"
 	"github.com/noahzmr/testudo/internal/storage"
+	"github.com/noahzmr/testudo/internal/wgstage"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // confCore is the configuration model's runtime: the versioned store and the
@@ -34,6 +38,9 @@ type confCore struct {
 	notify atomic.Pointer[func(confapply.Notice)]
 	// feed holds the content of URL-table and GeoIP aliases.
 	feed *aliasfeed.Feed
+	// wg is the WireGuard stage; secrets holds its keys on this node.
+	wg      *wgstage.Stage
+	secrets secrets.Store
 	// routing is the routing stage; gateways watches the gateways whose
 	// health decides which routes it renders.
 	routing  *frrstage.Stage
@@ -72,13 +79,20 @@ func (e *Engine) openConfig() {
 		}
 		stage = &fwbridge.Stage{Manager: fw, Locate: localNode}
 	}
+	// WireGuard devices come first: the packet filter names them and the
+	// routing daemon routes through them.
+	c.secrets = secrets.Store{Dir: filepath.Join(e.cfg.StorageDir, "secrets")}
+	c.wg = &wgstage.Stage{Locate: localNode, Secrets: c.secrets}
+	if e.netops != nil {
+		c.wg.Runner = e.netops
+	}
 	// Routing follows the packet filter: marks are set there and used here.
 	c.gateways = &gwmon.Monitor{}
 	c.routing = &frrstage.Stage{Locate: localNode, Down: c.gateways.Down, StateDir: dir}
 	if e.netops != nil {
 		c.routing.Runner = e.netops
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, stage, c.routing)
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing)
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
@@ -134,7 +148,73 @@ func (e *Engine) startConfig(ctx context.Context) {
 	}
 	if e.netops != nil {
 		go e.gatewayLoop(ctx)
+		go e.peerExpiryLoop(ctx)
 	}
+}
+
+// peerExpiryLoop removes peers from their devices when they expire.
+func (e *Engine) peerExpiryLoop(ctx context.Context) {
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		if !e.conf.wg.Due() {
+			continue
+		}
+		if _, pending := e.conf.apply.Pending(); pending {
+			continue
+		}
+		st := e.conf.store.Current()
+		if err := e.conf.wg.Refresh(ctx, st); err != nil {
+			log.Printf("config: remove expired peers: %v", err)
+			continue
+		}
+		log.Printf("config: expired WireGuard peers were removed from their tunnels")
+		// The routes to an expired site-to-site peer go with it.
+		if err := e.conf.routing.Refresh(ctx, st); err != nil {
+			log.Printf("config: routes after peer expiry: %v", err)
+		}
+	}
+}
+
+// NewTunnelKey creates a tunnel's private key in the secret store.
+func (e *Engine) NewTunnelKey() (ref, publicKey string, err error) {
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		return "", "", err
+	}
+	ref = "wg-" + confstore.NewID()
+	if err := e.conf.secrets.Put(ref, []byte(key.String()+"\n")); err != nil {
+		return "", "", err
+	}
+	return ref, key.PublicKey().String(), nil
+}
+
+// NewPresharedKey creates a preshared key in the secret store and returns
+// it this one time.
+func (e *Engine) NewPresharedKey() (ref, key string, err error) {
+	psk, err := wgtypes.GenerateKey()
+	if err != nil {
+		return "", "", err
+	}
+	ref = "psk-" + confstore.NewID()
+	if err := e.conf.secrets.Put(ref, []byte(psk.String()+"\n")); err != nil {
+		return "", "", err
+	}
+	return ref, psk.String(), nil
+}
+
+// NewClientKeypair creates a key pair for a client device and keeps nothing.
+func (e *Engine) NewClientKeypair() (privateKey, publicKey string, err error) {
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		return "", "", err
+	}
+	return key.String(), key.PublicKey().String(), nil
 }
 
 // gatewayLoop probes the monitored gateways and moves routes when one goes

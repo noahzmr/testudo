@@ -79,6 +79,9 @@ type Server struct {
 	// Runtime, when set, reports what the model's objects are doing in the
 	// running system (counters, alias refresh state). Served at /runtime.
 	Runtime func() map[string]any
+	// Keys creates WireGuard key material on the node; nil disables the
+	// key endpoints.
+	Keys KeyMaker
 	// Heartbeat is the interval of keep-alive comments on the event stream.
 	Heartbeat time.Duration
 	// Done, when closed, ends every open event stream. Set it to the
@@ -230,6 +233,10 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, out)
 	})
 
+	m.HandleFunc("POST /api/v1/wg/tunnel-key", s.wgTunnelKey)
+	m.HandleFunc("POST /api/v1/wg/preshared-key", s.wgPresharedKey)
+	m.HandleFunc("POST /api/v1/wg/client-keypair", s.wgClientKeypair)
+	m.HandleFunc("GET /api/v1/wg-peers/{id}/client-config", s.wgClientConfig)
 	m.HandleFunc("GET /api/v1/changesets", s.listChangeSets)
 	m.HandleFunc("POST /api/v1/changesets", s.createChangeSet)
 	m.HandleFunc("GET /api/v1/changesets/{id}", s.getChangeSet)

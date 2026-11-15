@@ -88,7 +88,8 @@ const LABEL = {
 // What the running system is driven by today. Everything else is stored,
 // versioned and audited, and takes effect when its subsystem moves over.
 const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'nat_rule', 'interface',
-  'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf']);
+  'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf',
+  'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy']);
 // Sections that open on the model instead of their live view.
 const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'sites', changes: 'changesets' };
 const paneOf = seg => seg === 'changesets' || seg === 'history' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
@@ -360,7 +361,7 @@ function buildForm(form, obj, ctx) {
     }
     return rest;
   };
-  return { node, collect, mark };
+  return { node, collect, mark, ws };
 }
 
 // save sends the form and explains every way the server can refuse it.
@@ -396,21 +397,29 @@ async function editView(form, obj, origins) {
   const status = el('div', { id: 'cfg-status' });
   const ui = { form: f, status, reload: cur => editView(form, cur), done: () => { location.hash = '#/' + form.plural; } };
   const extra = el('div', { class: 'cfg-extra' });
+  // Values a helper sets that the form has no editable field for.
+  const extras = {};
+  const helper = writable && !origins ? wgHelpers(form, obj, f, extras, ui) : null;
   fill($('#cfg-main'), 
     el('header', {}, el('h2', { text: obj ? `${form.title}: ${obj.name}` : `New ${form.title}` }),
       el('a', { href: '#/' + form.plural, text: 'Back' })),
     el('form', { class: 'cfg-form', onsubmit: async ev => {
       ev.preventDefault();
       let body;
-      try { body = f.collect(); } catch (e) { fill(status, el('p', { class: 'err', text: 'Invalid JSON in a field: ' + e.message })); return; }
+      try { body = { ...f.collect(), ...extras }; } catch (e) { fill(status, el('p', { class: 'err', text: 'Invalid JSON in a field: ' + e.message })); return; }
       const saved = await save(form, obj, body, ui);
       if (saved) ui.done(saved);
-    } }, f.node, status,
+    } }, f.node, helper, status,
       writable ? el('div', { class: 'actions' },
         el('button', { class: 'primary', text: S.draft ? 'Add to change set' : 'Save and apply' }),
         obj ? el('button', { type: 'button', class: 'danger', text: 'Delete', onclick: () => removeObject(form, obj, status) }) : null) : null),
     extra);
   if (!obj) return;
+  if (form.kind === 'wg_peer' && !origins) {
+    const host = el('div');
+    extra.append(host);
+    showClientConfig(host, obj.id, null);
+  }
   const used = await api('GET', `/${form.plural}/${obj.id}/used-by`);
   extra.append(el('h3', { text: 'Used by' }), (used.data || []).length
     ? el('ul', {}, used.data.map(u => el('li', {}, el('a', { href: `#/${S.byKind[u.kind]?.plural}/${u.id}`, text: `${u.kind} "${u.name}"` }), ` (${u.field})`)))
@@ -435,6 +444,105 @@ async function removeObject(form, obj, status) {
   const p = r.data || {};
   fill(status, el('p', { class: 'err', text: p.error === 'in_use' ? 'Still in use by:' : (p.message || 'failed') }));
   if (p.used_by) status.append(el('ul', {}, p.used_by.map(u => el('li', {}, el('a', { href: `#/${S.byKind[u.kind]?.plural}/${u.id}`, text: `${u.kind} "${u.name}"` }), ` (${u.field})`))));
+}
+
+// ---- WireGuard helpers ----------------------------------------------------
+
+const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+
+// newClientKeypair makes a key pair for a client device in this browser, so
+// the private key never leaves it. Browsers without X25519 fall back to the
+// server, which returns the pair once and keeps nothing.
+async function newClientKeypair() {
+  try {
+    const pair = await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']);
+    const pub = await crypto.subtle.exportKey('raw', pair.publicKey);
+    const pkcs8 = await crypto.subtle.exportKey('pkcs8', pair.privateKey);
+    return { private_key: b64(pkcs8.slice(-32)), public_key: b64(pub), where: 'in this browser' };
+  } catch {
+    const r = await api('POST', '/wg/client-keypair');
+    if (!r.ok) throw new Error(r.data?.message || 'key generation failed');
+    return { ...r.data, where: 'on the appliance (this browser cannot)' };
+  }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    document.head.append(el('script', { src, onload: resolve, onerror: reject }));
+  });
+}
+
+// showClientConfig presents a peer's configuration. With secrets it is the
+// complete file, shown this once; without, it has placeholders.
+async function showClientConfig(host, peerID, secrets) {
+  const r = await api('GET', `/wg-peers/${peerID}/client-config`);
+  if (!r.ok) return fill(host, el('p', { class: 'err', text: r.data?.message || 'No client configuration.' }));
+  let text = r.data.config;
+  const complete = !!secrets?.private_key;
+  if (secrets?.private_key) text = text.replace(r.data.private_key_placeholder, secrets.private_key);
+  if (secrets?.preshared_key) text = text.replace(r.data.preshared_key_placeholder, secrets.preshared_key);
+  const qr = el('div', { class: 'cfg-qr' });
+  fill(host, el('h3', { text: 'Client configuration' }),
+    el('p', { class: complete ? 'err' : 'dim', text: complete
+      ? 'This is the only time the complete configuration is shown. The private key exists nowhere else.'
+      : 'The private key stays on the device that generated it, and a preshared key is shown only when it is created.' }),
+    el('pre', { text }),
+    complete ? el('div', { class: 'actions' },
+      el('a', { class: 'btn', download: 'wireguard.conf', href: 'data:text/plain;charset=utf-8,' + encodeURIComponent(text), text: 'Download' })) : null,
+    complete ? qr : null);
+  if (complete) {
+    try {
+      await loadScript('/static/vendor/qrcode.js');
+      window.qrcode.stringToBytes = window.qrcode.stringToBytesFuncs['UTF-8'];
+      const q = window.qrcode(0, 'M');
+      q.addData(text, 'Byte'); q.make();
+      qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+      qr.querySelector('svg')?.setAttribute('width', '260');
+    } catch { fill(qr, el('span', { class: 'dim', text: 'QR code unavailable; use the text or the download.' })); }
+  }
+}
+
+// wgHelpers adds the buttons that create key material for tunnels and peers.
+function wgHelpers(form, obj, f, extras, ui) {
+  const input = name => f.ws.find(w => w.field.name === name)?.input;
+  const note = el('span', { class: 'dim' });
+  if (form.kind === 'wg_tunnel') {
+    return el('div', { class: 'actions' }, el('button', { type: 'button', text: obj ? 'Rotate the tunnel key' : 'Create the tunnel key on this node', onclick: async () => {
+      const r = await api('POST', '/wg/tunnel-key');
+      if (!r.ok) return toast(r.data?.message || 'failed', 'err');
+      input('public_key').value = r.data.public_key;
+      extras.key_ref = r.data.key_ref;
+      note.textContent = obj ? 'New key created. Saving puts it into effect; every client then needs the new public key.'
+        : 'Key created on the node. The private key never leaves it; save to use it.';
+    } }), note);
+  }
+  if (form.kind !== 'wg_peer') return null;
+  const secrets = {};
+  const done = ui.done;
+  // After saving with fresh secrets, stay and show the complete file once.
+  ui.done = saved => {
+    if (!secrets.private_key || !saved?.id || S.draft) return done(saved);
+    const host = el('div', { class: 'cfg-extra' });
+    fill($('#cfg-main'), el('header', {}, el('h2', { text: `Peer ${saved.name} is ready` }), el('a', { href: '#/' + form.plural, text: 'Done' })), host);
+    showClientConfig(host, saved.id, secrets);
+  };
+  return el('div', { class: 'actions' },
+    el('button', { type: 'button', text: obj ? 'Rotate the key pair' : 'Generate a key pair', onclick: async () => {
+      try {
+        const pair = await newClientKeypair();
+        secrets.private_key = pair.private_key;
+        input('public_key').value = pair.public_key;
+        note.textContent = `Key pair generated ${pair.where}. Save to see the client configuration.`;
+      } catch (e) { toast(e.message, 'err'); }
+    } }),
+    el('button', { type: 'button', text: 'Add a preshared key', onclick: async () => {
+      const r = await api('POST', '/wg/preshared-key');
+      if (!r.ok) return toast(r.data?.message || 'failed', 'err');
+      extras.preshared_ref = r.data.preshared_ref;
+      secrets.preshared_key = r.data.preshared_key;
+      note.textContent = 'Preshared key created. It is part of the client configuration shown after saving.';
+    } }), note);
 }
 
 // dialog edits or creates an object on top of the current view.

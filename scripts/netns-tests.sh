@@ -10,7 +10,7 @@ set -eu
 cd "$(git rev-parse --show-toplevel)"
 
 pkgs="./internal/capture ./internal/fwrender ./internal/fwbridge ./internal/fwstage ./internal/frrender ./internal/frrstage ./cmd/testudo"
-pattern='^(TestFlowBaseline|TestModelDrivesTheKernel|TestGoldenRulesetLoadsIntoAKernel|TestRulesetOnARealKernel|TestGoldenConfigPassesFRRCheck|TestRoutingOnARealKernel|TestPrivilegedPathEndToEnd)$'
+pattern='^(TestFlowBaseline|TestModelDrivesTheKernel|TestGoldenRulesetLoadsIntoAKernel|TestRulesetOnARealKernel|TestGoldenConfigPassesFRRCheck|TestRoutingOnARealKernel|TestPrivilegedPathEndToEnd|TestVPNEndToEnd)$'
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
