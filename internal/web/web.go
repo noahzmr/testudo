@@ -53,6 +53,12 @@ type Server struct {
 	mu       sync.RWMutex
 	sessions map[string]*sessionRecord
 
+	// PublicURL is the address people reach this console at, for sending
+	// visitors of published services here to log in. Empty uses the
+	// address the identity provider redirects to.
+	PublicURL string
+	access    accessState
+
 	// logins counts failed logins per address.
 	logins loginLimiter
 
@@ -160,6 +166,8 @@ func (s *Server) buildMux() error {
 
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
+	mux.HandleFunc("/access/login", s.handleAccessLogin)
+	s.Engine.SetForwardAuth(http.HandlerFunc(s.handleForwardAuth))
 	mux.HandleFunc("/auth/oidc/login", s.handleOIDCLogin)
 	mux.HandleFunc("/auth/oidc/callback", s.handleOIDCCallback)
 	mux.HandleFunc("/auth/oidc/backchannel-logout", s.handleOIDCBackchannelLogout)
@@ -493,7 +501,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		s.startSession(w, identity.Local(u), nil, nil)
 		s.Engine.Audit(u.Name, "login", fmt.Sprintf(`{"source":"local","role":%q,"mfa":%v,"from":%q}`, u.Role, u.MFAEnrolled(), from), nil)
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, s.afterLogin(w, r), http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -523,6 +531,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		rec = s.sessions[c.Value]
 		delete(s.sessions, c.Value)
 		s.mu.Unlock()
+		s.dropAccess(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: "", Path: "/", Expires: time.Unix(0, 0),

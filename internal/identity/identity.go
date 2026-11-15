@@ -227,6 +227,26 @@ func Resolve(st *confstore.State, in Login) (Principal, error) {
 	return p, nil
 }
 
+// ModelGroups returns the ids of the groups a user object puts a user of
+// the built-in store or of the host in. Permissions of built-in users come
+// from their role there; their groups, which decide about published
+// services, come from here.
+func ModelGroups(st *confstore.State, username string) []string {
+	if st == nil {
+		return nil
+	}
+	var out []string
+	for _, e := range st.List(model.KindUser) {
+		if u := e.(*model.User); u.Source == "host" && u.Username == username && !u.Disabled {
+			for _, g := range u.Groups {
+				out = append(out, g.ID)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Cap returns the permissions of want that the holder of have also has, so
 // nobody can hand out more than they hold.
 func Cap(have Principal, want []string) (granted []string, refused []string) {

@@ -164,6 +164,7 @@ func cmdWeb(args []string) error {
 	usePrivsep := fs.Bool("privsep", true, "run privileged netops in a separate helper process and drop the engine's capabilities (set false for legacy single-process mode)")
 	tlsCert := fs.String("tls-cert", "", "serve HTTPS with this certificate chain (PEM); requires --tls-key")
 	tlsKey := fs.String("tls-key", "", "private key (PEM) for --tls-cert")
+	publicURL := fs.String("public-url", "", "address people reach this console at (https://fw.example.com); used to send visitors of published services here to log in")
 	tlsAuto := fs.Bool("tls-auto", false, "serve HTTPS with a self-signed certificate generated into <storage>/tls on first use")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -234,6 +235,7 @@ func cmdWeb(args []string) error {
 	}()
 
 	srv := web.New(eng, users, cfg.WebListen)
+	srv.PublicURL = *publicURL
 	srv.TLS = web.TLSConfig{
 		CertFile: *tlsCert, KeyFile: *tlsKey, Auto: *tlsAuto,
 		Dir:   filepath.Join(cfg.StorageDir, "tls"),

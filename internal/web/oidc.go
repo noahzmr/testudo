@@ -183,7 +183,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.startSession(w, p, &login, &oidcSession{tokens: tokens, subject: id.Subject, sessionID: id.SessionID})
 	s.Engine.Audit(p.Name, "login", fmt.Sprintf(`{"source":"oidc","subject":%q,"role":%q,"from":%q}`, id.Subject, p.LegacyRole(), clientIP(r)), nil)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, s.afterLogin(w, r), http.StatusSeeOther)
 }
 
 // oidcFresh extends a provider session whose tokens ran out. When the

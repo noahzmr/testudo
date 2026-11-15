@@ -209,5 +209,5 @@ func (s *Server) pamLogin(w http.ResponseWriter, r *http.Request, user, pass, co
 	}
 	s.startSession(w, p, &login, nil)
 	s.Engine.Audit(p.Name, "login", fmt.Sprintf(`{"source":"pam","role":%q,"break_glass":%v,"from":%q}`, p.LegacyRole(), p.BreakGlass, from), nil)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, s.afterLogin(w, r), http.StatusSeeOther)
 }
