@@ -707,6 +707,16 @@
             "title": "Neighbor address",
             "type": "string"
           },
+          "announce": {
+            "description": "Announced by this router when they are in its routing table",
+            "items": {
+              "format": "cidr",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Networks to originate",
+            "type": "array"
+          },
           "bfd": {
             "title": "BFD",
             "type": "boolean"
@@ -1178,6 +1188,12 @@
             },
             "title": "Overrides",
             "type": "array"
+          },
+          "router_id": {
+            "description": "For BGP and OSPF; defaults to the cluster address when that is IPv4",
+            "format": "ipv4",
+            "title": "Router ID",
+            "type": "string"
           },
           "scope": {
             "description": "global or one site or one node",
@@ -3252,6 +3268,151 @@
         ],
         "type": "object"
       },
+      "PolicyRoute": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "gateway": {
+            "format": "uuid",
+            "title": "Gateway",
+            "type": "string",
+            "x-ref": "gateway",
+            "x-required-without": "GatewayGroup"
+          },
+          "gateway_group": {
+            "description": "letters, digits, dot, dash, underscore; at most 63",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Gateway group",
+            "type": "string",
+            "x-excluded-with": "Gateway",
+            "x-rule": "objname"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "mark": {
+            "description": "Set by a filter rule; traffic carrying it follows this route",
+            "minimum": 1,
+            "title": "Firewall mark",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "table": {
+            "description": "Chosen automatically when empty",
+            "maximum": 4294967294,
+            "minimum": 1,
+            "title": "Routing table",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "mark",
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "policy_route",
+        "x-menu": "routing/policy",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
       "Problem": {
         "properties": {
           "error": {
@@ -3423,7 +3584,16 @@
             "format": "uuid",
             "title": "Gateway",
             "type": "string",
-            "x-ref": "gateway"
+            "x-ref": "gateway",
+            "x-required-without": "GatewayGroup"
+          },
+          "gateway_group": {
+            "description": "Use the healthy gateways of this group instead of one gateway; the lowest tier wins and equal tiers share the load",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Gateway group",
+            "type": "string",
+            "x-excluded-with": "Gateway",
+            "x-rule": "objname"
           },
           "id": {
             "format": "uuid",
@@ -3518,7 +3688,6 @@
         },
         "required": [
           "destination",
-          "gateway",
           "id",
           "name",
           "scope"
@@ -9666,6 +9835,278 @@
           "changes"
         ]
       }
+    },
+    "/api/v1/policy-routes": {
+      "get": {
+        "operationId": "list_policy_route",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PolicyRoute"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Policy route objects",
+        "tags": [
+          "routing"
+        ]
+      },
+      "post": {
+        "operationId": "create_policy_route",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyRoute"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyRoute"
+                }
+              }
+            },
+            "description": "Policy route",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Policy route",
+        "tags": [
+          "routing"
+        ]
+      }
+    },
+    "/api/v1/policy-routes/{id}": {
+      "delete": {
+        "operationId": "delete_policy_route",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Policy route",
+        "tags": [
+          "routing"
+        ]
+      },
+      "get": {
+        "operationId": "get_policy_route",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyRoute"
+                }
+              }
+            },
+            "description": "Policy route",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Policy route",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_policy_route",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyRoute"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyRoute"
+                }
+              }
+            },
+            "description": "Policy route",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Policy route",
+        "tags": [
+          "routing"
+        ]
+      }
+    },
+    "/api/v1/policy-routes/{id}/effective": {
+      "get": {
+        "operationId": "effective_policy_route",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/PolicyRoute"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Policy route as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/policy-routes/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_policy_route",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Policy route",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
     },
     "/api/v1/roles": {
       "get": {

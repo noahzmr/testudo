@@ -26,6 +26,24 @@ func runChecks(s *State) []Problem {
 		}
 	}
 
+	// A gateway group that a route or policy route names must have members.
+	groups := map[string]bool{}
+	for _, e := range s.objects[model.KindGateway] {
+		if g := e.(*model.Gateway); g.Group != "" {
+			groups[g.Group] = true
+		}
+	}
+	for _, e := range s.objects[model.KindRoute] {
+		if r := e.(*model.Route); r.GatewayGroup != "" && !groups[r.GatewayGroup] {
+			add(r, "gateway_group", "no gateway belongs to group %q", r.GatewayGroup)
+		}
+	}
+	for _, e := range s.objects[model.KindPolicyRoute] {
+		if r := e.(*model.PolicyRoute); r.GatewayGroup != "" && !groups[r.GatewayGroup] {
+			add(r, "gateway_group", "no gateway belongs to group %q", r.GatewayGroup)
+		}
+	}
+
 	// An enabled router needs a pool that can take traffic.
 	for _, e := range s.objects[model.KindLBRouter] {
 		r := e.(*model.LBRouter)

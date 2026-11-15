@@ -233,7 +233,9 @@ func applyRules(s map[string]any, rules []rule, t reflect.Type) (required bool, 
 			s["format"] = "hostname"
 		case "hostname_port":
 			s["format"] = "host-port"
-		case "required_if", "required_unless":
+		case "ipv4":
+			s["format"] = "ipv4"
+		case "required_if", "required_unless", "required_without", "excluded_with":
 			// Conditional requirements are enforced by the server; the
 			// extension lets the UI mirror them.
 			s["x-"+strings.ReplaceAll(r.name, "_", "-")] = r.param

@@ -31,6 +31,7 @@ const (
 	KindFirewallPolicy Kind = "firewall_policy"
 	KindAccessResource Kind = "access_resource"
 	KindAccessPolicy   Kind = "access_policy"
+	KindPolicyRoute    Kind = "policy_route"
 )
 
 func init() {
@@ -58,6 +59,7 @@ func init() {
 	register("cluster-nodes", "Cluster node", "cluster/nodes", globalOny, func() Entity { return &ClusterNode{} })
 	register("firewall-policies", "Firewall policy", "firewall/policy", allLevels, func() Entity { return &FirewallPolicy{} })
 	register("access-resources", "Access resource", "access/resources", allLevels, func() Entity { return &AccessResource{} })
+	register("policy-routes", "Policy route", "routing/policy", allLevels, func() Entity { return &PolicyRoute{} })
 	register("access-policies", "Access policy", "access/policies", allLevels, func() Entity { return &AccessPolicy{} })
 }
 
@@ -160,12 +162,13 @@ func (Gateway) Kind() Kind { return KindGateway }
 
 // Route is a static route.
 type Route struct {
-	Meta        `yaml:",inline"`
-	Enabled     bool         `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
-	Destination string       `json:"destination" yaml:"destination" validate:"required,cidr" ui:"label=Destination,order=10"`
-	Gateway     Ref[Gateway] `json:"gateway" yaml:"gateway" validate:"required" ui:"label=Gateway,widget=ref-picker,ref=gateway,order=20"`
-	VRF         Ref[VRF]     `json:"vrf,omitzero" yaml:"vrf,omitempty" validate:"-" ui:"label=VRF,widget=ref-picker,ref=vrf,order=30"`
-	Metric      int          `json:"metric,omitempty" yaml:"metric,omitempty" validate:"min=0,max=65535" ui:"label=Metric,order=40"`
+	Meta         `yaml:",inline"`
+	Enabled      bool         `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Destination  string       `json:"destination" yaml:"destination" validate:"required,cidr" ui:"label=Destination,order=10"`
+	Gateway      Ref[Gateway] `json:"gateway,omitzero" yaml:"gateway,omitempty" validate:"required_without=GatewayGroup" ui:"label=Gateway,widget=ref-picker,ref=gateway,order=20"`
+	GatewayGroup string       `json:"gateway_group,omitempty" yaml:"gateway_group,omitempty" validate:"omitempty,objname,excluded_with=Gateway" ui:"label=Gateway group,order=25,help=Use the healthy gateways of this group instead of one gateway; the lowest tier wins and equal tiers share the load"`
+	VRF          Ref[VRF]     `json:"vrf,omitzero" yaml:"vrf,omitempty" validate:"-" ui:"label=VRF,widget=ref-picker,ref=vrf,order=30"`
+	Metric       int          `json:"metric,omitempty" yaml:"metric,omitempty" validate:"min=0,max=65535" ui:"label=Metric,order=40"`
 }
 
 func (Route) Kind() Kind { return KindRoute }
@@ -183,6 +186,7 @@ type BGPNeighbor struct {
 	RRClient       bool           `json:"rr_client,omitempty" yaml:"rr_client,omitempty" validate:"-" ui:"label=Route reflector client,order=70"`
 	PrefixListIn   []string       `json:"prefix_list_in,omitempty" yaml:"prefix_list_in,omitempty" validate:"max=256,dive,cidr" ui:"label=Accepted prefixes,widget=list,order=80"`
 	PrefixListOut  []string       `json:"prefix_list_out,omitempty" yaml:"prefix_list_out,omitempty" validate:"max=256,dive,cidr" ui:"label=Announced prefixes,widget=list,order=90"`
+	Announce       []string       `json:"announce,omitempty" yaml:"announce,omitempty" validate:"max=256,dive,cidr" ui:"label=Networks to originate,widget=list,order=95,help=Announced by this router when they are in its routing table"`
 	Communities    []string       `json:"communities,omitempty" yaml:"communities,omitempty" validate:"max=32,dive,community" ui:"label=Communities,widget=list,order=100"`
 	SessionSecret  string         `json:"session_secret,omitempty" yaml:"session_secret,omitempty" validate:"max=80" ui:"label=Session password,widget=password,order=110" secret:"true"`
 	HoldTimeSecond int            `json:"hold_time_seconds,omitempty" yaml:"hold_time_seconds,omitempty" validate:"omitempty,min=3,max=65535" ui:"label=Hold time (s),order=120"`
@@ -381,6 +385,7 @@ type ClusterNode struct {
 	Site         Ref[Site] `json:"site" yaml:"site" validate:"required" ui:"label=Site,widget=ref-picker,ref=site,order=10"`
 	Hostname     string    `json:"hostname" yaml:"hostname" validate:"required,hostname_rfc1123" ui:"label=Hostname,order=20"`
 	Address      string    `json:"address" yaml:"address" validate:"required,ip" ui:"label=Cluster address,order=30,help=Address on the site mesh"`
+	RouterID     string    `json:"router_id,omitempty" yaml:"router_id,omitempty" validate:"omitempty,ipv4" ui:"label=Router ID,order=35,help=For BGP and OSPF; defaults to the cluster address when that is IPv4"`
 	VRRPPriority int       `json:"vrrp_priority,omitempty" yaml:"vrrp_priority,omitempty" validate:"min=0,max=254" ui:"label=VRRP priority,order=40"`
 }
 
@@ -435,3 +440,16 @@ type AccessPolicy struct {
 }
 
 func (AccessPolicy) Kind() Kind { return KindAccessPolicy }
+
+// PolicyRoute sends traffic that a filter rule marked through a chosen
+// gateway or gateway group instead of the main routing table.
+type PolicyRoute struct {
+	Meta         `yaml:",inline"`
+	Enabled      bool         `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Mark         uint32       `json:"mark" yaml:"mark" validate:"required,min=1" ui:"label=Firewall mark,order=10,help=Set by a filter rule; traffic carrying it follows this route"`
+	Gateway      Ref[Gateway] `json:"gateway,omitzero" yaml:"gateway,omitempty" validate:"required_without=GatewayGroup" ui:"label=Gateway,widget=ref-picker,ref=gateway,order=20"`
+	GatewayGroup string       `json:"gateway_group,omitempty" yaml:"gateway_group,omitempty" validate:"omitempty,objname,excluded_with=Gateway" ui:"label=Gateway group,order=30"`
+	Table        uint32       `json:"table,omitempty" yaml:"table,omitempty" validate:"omitempty,min=1,max=4294967294" ui:"label=Routing table,order=40,help=Chosen automatically when empty"`
+}
+
+func (PolicyRoute) Kind() Kind { return KindPolicyRoute }

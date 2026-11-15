@@ -1325,8 +1325,17 @@
           "type": "ref",
           "widget": "ref-picker",
           "ref": "gateway",
-          "order": 20,
-          "required": true
+          "order": 20
+        },
+        {
+          "name": "gateway_group",
+          "label": "Gateway group",
+          "type": "string",
+          "order": 25,
+          "help": "Use the healthy gateways of this group instead of one gateway; the lowest tier wins and equal tiers share the load",
+          "rules": [
+            "objname"
+          ]
         },
         {
           "name": "vrf",
@@ -1541,6 +1550,15 @@
           "type": "string",
           "widget": "list",
           "order": 90,
+          "list": true
+        },
+        {
+          "name": "announce",
+          "label": "Networks to originate",
+          "type": "string",
+          "widget": "list",
+          "order": 95,
+          "help": "Announced by this router when they are in its routing table",
           "list": true
         },
         {
@@ -4141,6 +4159,13 @@
           "required": true
         },
         {
+          "name": "router_id",
+          "label": "Router ID",
+          "type": "string",
+          "order": 35,
+          "help": "For BGP and OSPF; defaults to the cluster address when that is IPv4"
+        },
+        {
           "name": "vrrp_priority",
           "label": "VRRP priority",
           "type": "integer",
@@ -4568,6 +4593,175 @@
           "type": "string",
           "order": 60,
           "help": "The broker holds the credentials; none are stored here"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "policy_route",
+      "plural": "policy-routes",
+      "title": "Policy route",
+      "menu": "routing/policy",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "mark",
+          "label": "Firewall mark",
+          "type": "integer",
+          "order": 10,
+          "help": "Set by a filter rule; traffic carrying it follows this route",
+          "required": true
+        },
+        {
+          "name": "gateway",
+          "label": "Gateway",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "gateway",
+          "order": 20
+        },
+        {
+          "name": "gateway_group",
+          "label": "Gateway group",
+          "type": "string",
+          "order": 30,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "table",
+          "label": "Routing table",
+          "type": "integer",
+          "order": 40,
+          "help": "Chosen automatically when empty"
         },
         {
           "name": "scope",

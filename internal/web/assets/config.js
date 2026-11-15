@@ -70,7 +70,7 @@ function toast(msg, kind = '') {
 const PANE = {
   filter_rule: 'firewall', zone: 'firewall', alias: 'firewall', firewall_policy: 'firewall',
   nat_rule: 'nat', interface: 'ifaces',
-  route: 'routes', gateway: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
+  route: 'routes', gateway: 'routes', policy_route: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
   wg_tunnel: 'wireguard', wg_peer: 'wireguard',
   access_resource: 'access', access_policy: 'access',
   user: 'settings', group: 'settings', role: 'settings', certificate: 'settings',
@@ -79,7 +79,7 @@ const PANE = {
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
-  interface: 'Zone assignment', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs',
+  interface: 'Zone assignment', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies',
   user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
@@ -87,7 +87,8 @@ const LABEL = {
 };
 // What the running system is driven by today. Everything else is stored,
 // versioned and audited, and takes effect when its subsystem moves over.
-const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'nat_rule', 'interface']);
+const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'nat_rule', 'interface',
+  'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf']);
 // Sections that open on the model instead of their live view.
 const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'sites', changes: 'changesets' };
 const paneOf = seg => seg === 'changesets' || seg === 'history' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
@@ -198,19 +199,31 @@ async function listView(form) {
   // What the running system says about these objects: traffic matched per
   // rule, and how fresh a run-time alias is.
   const counters = rt.data?.counters, feeds = rt.data?.aliases || {};
+  const gwHealth = rt.data?.routing?.gateways || {}, sessions = rt.data?.routing?.bgp;
   const live = o => {
     if (form.kind === 'alias') {
       const st = feeds[o.id];
       return !st ? '' : st.error ? `${st.entries} entries · ${st.error}` : `${st.entries} entries · ${new Date(st.refreshed).toLocaleTimeString()}`;
     }
+    if (form.kind === 'gateway') {
+      const st = gwHealth[o.id];
+      return !st ? (o.monitor ? 'not probed yet' : 'not monitored') : st.error ? `unknown · ${st.error}` : `${st.down ? 'down' : 'up'} since ${new Date(st.since).toLocaleTimeString()}`;
+    }
+    if (form.kind === 'bgp_neighbor') {
+      const b = sessions?.[o.address];
+      return !sessions ? 'routing daemon not running' : !b ? 'not configured in the daemon' : `${b.state || 'unknown'} · ${b.received ?? 0} prefixes`;
+    }
     const c = counters?.[o.id];
     return c ? `${c.packets.toLocaleString()} pkts` : '';
   };
-  const showLiveCol = (form.kind === 'alias' && Object.keys(feeds).length) || (counters && (form.kind === 'filter_rule' || form.kind === 'nat_rule'));
+  const liveTitle = { alias: 'Content', gateway: 'Health', bgp_neighbor: 'Session' }[form.kind] || 'Matched';
+  const bad = o => feeds[o.id]?.error || gwHealth[o.id]?.down || (form.kind === 'bgp_neighbor' && sessions && sessions[o.address]?.state !== 'Established');
+  const showLiveCol = (form.kind === 'alias' && Object.keys(feeds).length) || (counters && (form.kind === 'filter_rule' || form.kind === 'nat_rule'))
+    || (rt.data?.routing && (form.kind === 'gateway' || form.kind === 'bgp_neighbor'));
   if (!r.ok) return fill(main, el('p', { class: 'err', text: r.data?.message || 'failed' }));
   const rows = (r.data || []).map(o => el('tr', { onclick: () => { location.hash = `#/${form.plural}/${o.id}`; } },
     cols.map(c => el('td', { text: show(c, o[c.name]) })),
-    showLiveCol ? el('td', { class: feeds[o.id]?.error ? 'err' : '', text: live(o) }) : null,
+    showLiveCol ? el('td', { class: bad(o) ? 'err' : '', text: live(o) }) : null,
     el('td', { text: o.scope }), el('td', { class: 'dim', text: `v${o.version} · ${o.updated_by || ''}` })));
   fill(main, 
     el('header', {},
@@ -218,7 +231,7 @@ async function listView(form) {
       can(form, 'write') ? el('button', { class: 'primary', text: 'New', onclick: () => { location.hash = `#/${form.plural}/new`; } }) : null),
     ENFORCED.has(form.kind) ? null : el('p', { class: 'cfg-planned', text: 'Stored, versioned and audited. Not applied to the running system yet; use Running state for what is in effect.' }),
     rows.length ? el('table', { class: 'cfg-table' },
-      el('thead', {}, el('tr', {}, cols.map(c => el('th', { text: c.label })), showLiveCol ? el('th', { text: form.kind === 'alias' ? 'Content' : 'Matched' }) : null, el('th', { text: 'Scope' }), el('th', { text: 'Version' }))),
+      el('thead', {}, el('tr', {}, cols.map(c => el('th', { text: c.label })), showLiveCol ? el('th', { text: liveTitle }) : null, el('th', { text: 'Scope' }), el('th', { text: 'Version' }))),
       el('tbody', {}, rows)) : el('p', { class: 'dim', text: 'No objects yet.' }));
 }
 

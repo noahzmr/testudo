@@ -167,3 +167,16 @@ func TestSecondWriterIsRefusedButReadersWork(t *testing.T) {
 		t.Fatalf("ReadState: %v", err)
 	}
 }
+
+func TestGatewayGroupMustHaveMembers(t *testing.T) {
+	s := open(t)
+	_, err := s.Create(ctx, "a", &model.Route{Meta: model.Meta{Name: "r"}, Enabled: true, Destination: "10.0.0.0/8", GatewayGroup: "wan"})
+	if err == nil || !strings.Contains(err.Error(), `no gateway belongs to group "wan"`) {
+		t.Errorf("route to an empty group: %v", err)
+	}
+	// One of gateway and group is required, and not both.
+	_, err = s.Create(ctx, "a", &model.Route{Meta: model.Meta{Name: "r"}, Enabled: true, Destination: "10.0.0.0/8"})
+	if err == nil || !strings.Contains(err.Error(), "required_without") {
+		t.Errorf("route without a next hop: %v", err)
+	}
+}
