@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/noahzmr/testudo/internal/model"
 )
@@ -132,4 +133,10 @@ func (s *Store) RestoreSnapshot(snap Snapshot) error {
 	s.state.Store(st)
 	s.publish(Record{Index: st.index, Time: s.now().UTC(), Actor: "cluster", Type: "restore"})
 	return nil
+}
+
+// Prepare returns the state ops would lead to from s, without committing
+// anything: all of the validation, none of the effects.
+func (s *State) Prepare(actor string, ops []Op) (*State, []Change, error) {
+	return s.prepare(s.index+1, actor, time.Now().UTC(), fillIDs(ops))
 }
