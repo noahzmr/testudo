@@ -19,9 +19,9 @@ been copied from any of them.**
 | wireguard-tools | GPL-2.0 | reference only; Testudo does not call `wg` or `wg-quick` | no |
 | wireguard-go, wgctrl-go | MIT | `wgctrl` is an existing dependency | yes, with attribution |
 | Traefik | MIT | runtime dependency: separate daemon, started by the runner and configured through files ([ADR 0001](adr/0001-managed-traefik-vs-native-proxy.md)); tested with v3.3.4 | yes, with attribution; nothing reused |
-| hashicorp/raft, raft-boltdb | MPL-2.0 | planned Go dependency ([ADR 0002](adr/0002-raft-library.md)) | as a module |
+| hashicorp/raft, raft-boltdb | MPL-2.0 | Go dependency: consensus and its log store ([ADR 0002](adr/0002-raft-library.md)) | as a module |
 | etcd-io/raft | Apache-2.0 | evaluated alternative | as a module |
-| etcd-io/bbolt | MIT | planned, through the Raft log store | as a module |
+| etcd-io/bbolt | MIT | Go dependency, through the Raft log store | as a module |
 | Linux-PAM (`libpam.so.0`) | BSD-3-Clause or GPL (dual) | runtime, optional: linked dynamically when built with the `pam` tag; no binding library, the few functions used are declared in `internal/pamauth` | not applicable; nothing copied |
 | Keycloak | Apache-2.0 | test only: the provider in `scripts/oidc-test` | no |
 | nftables (`nft`) | GPL-2.0 | runtime dependency: executed by the nft runner to check and load rulesets | no. Run as a separate program only |
@@ -47,6 +47,9 @@ or copied, so their terms do not extend to Testudo's source.
 | `github.com/google/gopacket` | v1.1.19 | BSD-3-Clause |
 | `github.com/google/nftables` | v0.3.0 | Apache-2.0 |
 | `github.com/google/uuid` | v1.6.0 | BSD-3-Clause |
+| `github.com/hashicorp/go-hclog` | v1.6.2 | MIT |
+| `github.com/hashicorp/raft` | v1.7.1 | MPL-2.0 |
+| `github.com/hashicorp/raft-boltdb/v2` | v2.3.0 | MPL-2.0 (brings `go.etcd.io/bbolt` v1.3.5, MIT) |
 | `github.com/mdlayher/netlink` | v1.8.0 | MIT |
 | `github.com/mdlayher/wifi` | v0.7.2 | MIT |
 | `github.com/oschwald/geoip2-golang` | v1.13.0 | ISC |

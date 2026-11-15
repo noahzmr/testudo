@@ -3,14 +3,15 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 6 complete. Packet filter, NAT, routing, WireGuard
+**Status: Phases 0 to 7 complete. Packet filter, NAT, routing, WireGuard
 with identity-aware access, and load balancing with SNI routing and
 certificates are driven by the model and verified against a real kernel
 ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
 [phase-4](phase-4-vpn.md), [phase-5](phase-5-load-balancing.md)). Logins
 go through PAM, OIDC or the built-in store and end in permissions from the
-model ([phase-6](phase-6-identity.md)). The Raft cluster core (Phase 7) is
-next.**
+model ([phase-6](phase-6-identity.md)). Nodes form a Raft cluster that
+replicates the model and applies changes canary first
+([phase-7](phase-7-cluster.md)). The multi-site fabric (Phase 8) is next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -26,7 +27,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 4 | WireGuard and identity-aware access | done | - | - |
 | 5 | Load balancing, SNI, certificates | done | - | - |
 | 6 | Linux-PAM, OIDC, RBAC, audit | done | - | - |
-| 7 | Raft cluster core | nothing | 10–12 weeks | very high |
+| 7 | Raft cluster core | done | - | - |
 | 8 | Multi-site SDN fabric | nothing | 8–10 weeks | high |
 | 9 | Flow analysis extensions | about 50 % | 5–6 weeks | medium |
 | 10 | Intra-site HA, hardening, operations | about 10 % | 5–6 weeks | medium |
@@ -133,11 +134,10 @@ The direct editing of firewall rules outside the model (Web UI, TUI,
 
 ## 7. Multi-site clustering
 
-Nothing exists. See [ADR 0002](adr/0002-raft-library.md) and
-[ADR 0004](adr/0004-ha-pairs-as-raft-members.md). This is the highest-risk
-area: consensus, membership security, cluster-wide apply with canary and
-rollback, and partition behaviour all have to be proven by tests, not by
-inspection.
+Done; see [phase-7-cluster.md](phase-7-cluster.md). Open: a rolling
+upgrade with two real builds has not been run, there is no backup of the
+whole cluster state including secrets, the canary is always the leader,
+and sessions are per member.
 
 ## 8. SDN fabric
 

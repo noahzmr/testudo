@@ -1,6 +1,8 @@
 # ADR 0002: hashicorp/raft for the control-plane log
 
-Status: proposed (Phase 0), to be confirmed by a spike at the start of Phase 7.
+Status: accepted (Phase 7). The spike confirmed what was open: v1.7.1 has
+pre-vote and it is on by default; non-voters, leadership transfer and
+`RecoverCluster` work as needed. See [phase-7-cluster.md](../phase-7-cluster.md).
 
 ## Context
 
