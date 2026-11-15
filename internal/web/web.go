@@ -53,6 +53,9 @@ type Server struct {
 	mu       sync.RWMutex
 	sessions map[string]*sessionRecord
 
+	// logins counts failed logins per address.
+	logins loginLimiter
+
 	// oidc is the identity-provider integration; OIDCHTTPClient replaces
 	// the HTTP client used towards the provider (tests, private CAs).
 	oidc           oidcState
@@ -457,9 +460,26 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		user := strings.TrimSpace(r.FormValue("username"))
 		pass := r.FormValue("password")
 		code := r.FormValue("code")
+		from := clientIP(r)
+		if !s.loginAllowed(from) {
+			s.Engine.Audit(user, "login", fmt.Sprintf(`{"result":"throttled","from":%q}`, from), errors.New("too many failed logins"))
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = s.loginTmpl.Execute(w, s.loginView(loginView{Error: "too many failed attempts; wait a few minutes", Username: user}))
+			return
+		}
+		// Names the built-in store knows are its own: that is how the
+		// first administrator gets in whatever the host's PAM stack or the
+		// identity provider are doing. Every other name is the host's.
+		if _, known := s.Users.Get(user); !known && netops.PAMAvailable() {
+			s.pamLogin(w, r, user, pass, code)
+			return
+		}
 		u, err := s.Users.Authenticate(user, pass, code)
 		if err != nil {
-			s.Engine.Audit(user, "login", fmt.Sprintf(`{"source":"local","result":"denied","from":%q}`, clientIP(r)), err)
+			if !errors.Is(err, auth.ErrTOTPRequired) {
+				s.loginFailed(from)
+			}
+			s.Engine.Audit(user, "login", fmt.Sprintf(`{"source":"local","result":"denied","from":%q}`, from), err)
 			w.WriteHeader(http.StatusUnauthorized)
 			view := loginView{Error: "invalid credentials", Username: user}
 			switch {
@@ -472,7 +492,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.startSession(w, identity.Local(u), nil, nil)
-		s.Engine.Audit(u.Name, "login", fmt.Sprintf(`{"source":"local","role":%q,"mfa":%v,"from":%q}`, u.Role, u.MFAEnrolled(), clientIP(r)), nil)
+		s.Engine.Audit(u.Name, "login", fmt.Sprintf(`{"source":"local","role":%q,"mfa":%v,"from":%q}`, u.Role, u.MFAEnrolled(), from), nil)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
