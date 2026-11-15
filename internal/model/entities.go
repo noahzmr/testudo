@@ -289,10 +289,11 @@ func (Role) Kind() Kind { return KindRole }
 // model; KeyRef names the entry in the node's secret store.
 type Certificate struct {
 	Meta        `yaml:",inline"`
-	Source      string     `json:"source" yaml:"source" validate:"required,oneof=acme import internal_ca" ui:"label=Source,widget=select,order=10"`
+	Source      string     `json:"source" yaml:"source" validate:"required,oneof=acme import internal_ca" ui:"label=Source,widget=select,order=10,help=acme: Let's Encrypt obtains and renews it. internal_ca: issued by this appliance's local authority. import: issued elsewhere"`
 	Domains     []string   `json:"domains" yaml:"domains" validate:"required,min=1,max=100,dive,fqdn_or_wildcard" ui:"label=Domains,widget=list,order=20"`
-	Challenge   string     `json:"challenge,omitempty" yaml:"challenge,omitempty" validate:"required_if=Source acme,omitempty,oneof=http-01 tls-alpn-01 dns-01" ui:"label=ACME challenge,widget=select,order=30"`
-	Email       string     `json:"email,omitempty" yaml:"email,omitempty" validate:"required_if=Source acme,omitempty,email" ui:"label=ACME account email,order=32"`
+	Challenge   string     `json:"challenge,omitempty" yaml:"challenge,omitempty" validate:"required_if=Source acme,omitempty,oneof=http-01 tls-alpn-01 dns-01" ui:"label=Let's Encrypt challenge,widget=select,order=30"`
+	Email       string     `json:"email,omitempty" yaml:"email,omitempty" validate:"required_if=Source acme,omitempty,email" ui:"label=Let's Encrypt account email,order=32"`
+	Staging     bool       `json:"staging,omitempty" yaml:"staging,omitempty" validate:"-" ui:"label=Use the Let's Encrypt staging environment,order=33,help=For trying a setup out: no rate limits and certificates browsers do not trust"`
 	DNSProvider string     `json:"dns_provider,omitempty" yaml:"dns_provider,omitempty" validate:"required_if=Challenge dns-01,omitempty,objname" ui:"label=DNS provider,order=34,help=Provider code for the DNS-01 challenge; its credentials come from the proxy's environment"`
 	ChainPEM    string     `json:"chain_pem,omitempty" yaml:"chain_pem,omitempty" validate:"required_if=Source import,max=65536" ui:"label=Certificate chain (PEM),widget=textarea,order=40"`
 	KeyRef      string     `json:"key_ref,omitempty" yaml:"key_ref,omitempty" validate:"omitempty,objname" ui:"label=Private key entry,widget=readonly,order=50" secret:"true"`

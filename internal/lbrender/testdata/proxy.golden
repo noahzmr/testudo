@@ -193,6 +193,7 @@ api:
 certificatesResolvers:
     acme-http-01:
         acme:
+            caServer: https://acme-v02.api.letsencrypt.org/directory
             email: ops@example.com
             httpChallenge:
                 entryPoint: svc-http-000000

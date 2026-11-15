@@ -919,7 +919,7 @@
               "tls-alpn-01",
               "dns-01"
             ],
-            "title": "ACME challenge",
+            "title": "Let's Encrypt challenge",
             "type": "string",
             "x-required-if": "Source acme"
           },
@@ -960,7 +960,7 @@
           },
           "email": {
             "format": "email",
-            "title": "ACME account email",
+            "title": "Let's Encrypt account email",
             "type": "string",
             "x-required-if": "Source acme"
           },
@@ -1042,6 +1042,7 @@
             "x-rule": "scope"
           },
           "source": {
+            "description": "acme: Let's Encrypt obtains and renews it. internal_ca: issued by this appliance's local authority. import: issued elsewhere",
             "enum": [
               "acme",
               "import",
@@ -1050,6 +1051,11 @@
             "minLength": 1,
             "title": "Source",
             "type": "string"
+          },
+          "staging": {
+            "description": "For trying a setup out: no rate limits and certificates browsers do not trust",
+            "title": "Use the Let's Encrypt staging environment",
+            "type": "boolean"
           },
           "updated_at": {
             "format": "date-time",

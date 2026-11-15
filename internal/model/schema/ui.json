@@ -2972,6 +2972,7 @@
           "type": "string",
           "widget": "select",
           "order": 10,
+          "help": "acme: Let's Encrypt obtains and renews it. internal_ca: issued by this appliance's local authority. import: issued elsewhere",
           "required": true,
           "enum": [
             "acme",
@@ -2993,7 +2994,7 @@
         },
         {
           "name": "challenge",
-          "label": "ACME challenge",
+          "label": "Let's Encrypt challenge",
           "type": "string",
           "widget": "select",
           "order": 30,
@@ -3005,9 +3006,16 @@
         },
         {
           "name": "email",
-          "label": "ACME account email",
+          "label": "Let's Encrypt account email",
           "type": "string",
           "order": 32
+        },
+        {
+          "name": "staging",
+          "label": "Use the Let's Encrypt staging environment",
+          "type": "boolean",
+          "order": 33,
+          "help": "For trying a setup out: no rate limits and certificates browsers do not trust"
         },
         {
           "name": "dns_provider",

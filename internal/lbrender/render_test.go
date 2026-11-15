@@ -130,6 +130,9 @@ func TestRenderGolden(t *testing.T) {
 			t.Errorf("dynamic configuration lacks %q", want)
 		}
 	}
+	if !strings.Contains(res.Static, "caServer: "+LetsEncrypt) {
+		t.Error("the certificate resolver does not name the Let's Encrypt directory")
+	}
 	// A draining backend, a disabled router and a kernel-mode service are
 	// not the proxy's business.
 	for _, not := range []string{"10.50.0.4", "off.example.com", "address: :9000", "svc-fast"} {
@@ -163,6 +166,14 @@ func TestProblemsAreNamed(t *testing.T) {
 		"needs an enabled HTTP service on port 80": {https,
 			&model.Certificate{Meta: meta(51, "c"), Source: "acme", Domains: []string{"a.example.com"}, Challenge: "http-01", Email: "o@example.com"},
 			&model.LBRouter{Meta: meta(70, "r"), Enabled: true, Service: svc(31), TLS: "terminate", Certificate: model.Ref[model.Certificate]{ID: id(51)}, Pool: pool(20)}},
+		"wildcard names only through the DNS-01 challenge": {https, service(30, "http", "http", 80),
+			&model.Certificate{Meta: meta(51, "c"), Source: "acme", Domains: []string{"*.example.com"}, Challenge: "http-01", Email: "o@example.com"},
+			&model.LBRouter{Meta: meta(70, "r"), Enabled: true, Service: svc(31), TLS: "terminate", Certificate: model.Ref[model.Certificate]{ID: id(51)}, Pool: pool(20)}},
+		"use the same account email": {https, service(30, "http", "http", 80),
+			&model.Certificate{Meta: meta(51, "c"), Source: "acme", Domains: []string{"a.example.com"}, Challenge: "http-01", Email: "o@example.com"},
+			&model.Certificate{Meta: meta(52, "d"), Source: "acme", Domains: []string{"b.example.com"}, Challenge: "http-01", Email: "other@example.com"},
+			&model.LBRouter{Meta: meta(70, "r"), Enabled: true, Service: svc(31), TLS: "terminate", Certificate: model.Ref[model.Certificate]{ID: id(51)}, Pool: pool(20)},
+			&model.LBRouter{Meta: meta(71, "s"), Enabled: true, Service: svc(31), Hosts: []string{"b.example.com"}, TLS: "terminate", Certificate: model.Ref[model.Certificate]{ID: id(52)}, Pool: pool(20)}},
 		"sticky sessions need an HTTP service": {service(32, "t", "tcp", 9443),
 			&model.LBRouter{Meta: meta(70, "r"), Enabled: true, Service: svc(32), TLS: "none", Pool: pool(20)}},
 	}

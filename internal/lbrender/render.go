@@ -35,7 +35,16 @@ type Options struct {
 	// AuthURL is where the proxy asks whether a request may pass, for
 	// routers that require a login.
 	AuthURL string
+	// ACMEDirectory replaces the Let's Encrypt directory, for tests against
+	// a local ACME server.
+	ACMEDirectory string
 }
+
+// The ACME directories of Let's Encrypt.
+const (
+	LetsEncrypt        = "https://acme-v02.api.letsencrypt.org/directory"
+	LetsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
+)
 
 // Result is everything the proxy stage writes.
 type Result struct {
@@ -305,8 +314,24 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 				usedCerts[c.ID] = true
 				return map[string]any{}
 			}
-			res := "acme-" + c.Challenge
-			acme := map[string]any{"email": c.Email, "storage": filepath.Join(r.opt.Dir, "acme.json")}
+			// Certificates come from Let's Encrypt. The directory is named
+			// explicitly so that the proxy's own default cannot change it.
+			res, dir, store := "acme-"+c.Challenge, LetsEncrypt, "acme.json"
+			if c.Staging {
+				res, dir, store = res+"-staging", LetsEncryptStaging, "acme-staging.json"
+			}
+			if r.opt.ACMEDirectory != "" {
+				dir = r.opt.ACMEDirectory
+			}
+			if prev, ok := resolvers[res].(map[string]any); ok && prev["acme"].(map[string]any)["email"] != c.Email {
+				r.fail(c, "certificates that use the same challenge share one Let's Encrypt account; use the same account email")
+			}
+			for _, d := range c.Domains {
+				if strings.HasPrefix(d, "*.") && c.Challenge != "dns-01" {
+					r.fail(c, "Let's Encrypt issues wildcard names only through the DNS-01 challenge")
+				}
+			}
+			acme := map[string]any{"email": c.Email, "caServer": dir, "storage": filepath.Join(r.opt.Dir, store)}
 			switch c.Challenge {
 			case "http-01":
 				web := ""
@@ -320,6 +345,13 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 				}
 				acme["httpChallenge"] = map[string]any{"entryPoint": web}
 			case "tls-alpn-01":
+				on443 := false
+				for _, s := range services {
+					on443 = on443 || (s.Enabled && s.Mode == "proxy" && s.Protocol != "udp" && s.Port == 443)
+				}
+				if !on443 {
+					r.fail(c, "the TLS-ALPN-01 challenge needs an enabled service on port 443")
+				}
 				acme["tlsChallenge"] = map[string]any{}
 			case "dns-01":
 				acme["dnsChallenge"] = map[string]any{"provider": c.DNSProvider}
