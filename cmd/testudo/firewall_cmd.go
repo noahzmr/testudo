@@ -1,9 +1,7 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -44,10 +42,12 @@ func protectedPortsFor(cfg config.Config) []uint16 {
 	return ports
 }
 
-// cmdFirewall handles `testudo firewall <status|rules|export|import|apply|enforce>`.
+// cmdFirewall handles `testudo firewall <status|rules|export|apply>`: a view
+// of what the manager enforces and a way to put it back into the kernel.
+// Changes are made through the configuration model.
 func cmdFirewall(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: testudo firewall <status|rules|export|import|apply|enforce> ...")
+		return fmt.Errorf("usage: testudo firewall <status|rules|export|apply>")
 	}
 	switch args[0] {
 	case "status":
@@ -99,32 +99,6 @@ func cmdFirewall(args []string) error {
 		_, err = os.Stdout.Write(append(data, '\n'))
 		return err
 
-	case "import":
-		fs := flag.NewFlagSet("firewall import", flag.ExitOnError)
-		file := fs.String("file", "-", "policy JSON to import ('-' = stdin)")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		var data []byte
-		var err error
-		if *file == "-" {
-			data, err = io.ReadAll(os.Stdin)
-		} else {
-			data, err = os.ReadFile(*file)
-		}
-		if err != nil {
-			return err
-		}
-		m, err := openDirectFirewall(true)
-		if err != nil {
-			return err
-		}
-		if err := m.Import(data); err != nil {
-			return err
-		}
-		fmt.Println("policy imported and applied")
-		return nil
-
 	case "apply":
 		m, err := openDirectFirewall(true)
 		if err != nil {
@@ -136,60 +110,8 @@ func cmdFirewall(args []string) error {
 		fmt.Println("policy applied")
 		return nil
 
-	case "enforce":
-		fs := flag.NewFlagSet("firewall enforce", flag.ExitOnError)
-		confirmSec := fs.Int("confirm-sec", 60, "auto-revert window in seconds when enabling (0 = no safety net)")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		rest := fs.Args()
-		if len(rest) != 1 || (rest[0] != "on" && rest[0] != "off") {
-			return fmt.Errorf("usage: testudo firewall enforce <on|off> [--confirm-sec N]")
-		}
-		m, err := openDirectFirewall(true)
-		if err != nil {
-			return err
-		}
-		if rest[0] == "off" {
-			if err := m.SetEnforce(false, 0); err != nil {
-				return err
-			}
-			fmt.Println("default-deny disabled")
-			return nil
-		}
-		window := time.Duration(*confirmSec) * time.Second
-		if err := m.SetEnforce(true, window); err != nil {
-			return err
-		}
-		if window == 0 {
-			fmt.Println("default-deny enabled")
-			return nil
-		}
-		// Commit-confirm from a terminal: the operator proves they are still
-		// connected by answering; silence (a cut session) reverts.
-		fmt.Printf("default-deny enabled - still connected? type 'yes' within %ds to keep it: ", *confirmSec)
-		answer := make(chan string, 1)
-		go func() {
-			var s string
-			_, _ = fmt.Fscanln(os.Stdin, &s)
-			answer <- strings.TrimSpace(strings.ToLower(s))
-		}()
-		select {
-		case s := <-answer:
-			if s == "yes" || s == "y" {
-				if err := m.ConfirmEnforce(); err != nil {
-					return err
-				}
-				fmt.Println("confirmed")
-				return nil
-			}
-			_ = m.SetEnforce(false, 0)
-			fmt.Println("not confirmed - reverted to default-accept")
-			return nil
-		case <-time.After(window + 2*time.Second):
-			fmt.Println("no answer - reverted to default-accept")
-			return nil
-		}
+	case "import", "enforce":
+		return fmt.Errorf("`testudo firewall %s` was removed: rules, NAT and the default-deny policy are configuration objects now (Web UI, or `testudo config`)", args[0])
 	}
 	return fmt.Errorf("unknown firewall subcommand: %s", args[0])
 }
