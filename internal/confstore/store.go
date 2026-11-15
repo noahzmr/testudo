@@ -30,12 +30,16 @@ type Event struct {
 // Store is the node-local implementation: an append-only JSON-lines log
 // (mode 0600, fsynced per record) that is replayed on open.
 type Store struct {
-	mu    sync.Mutex // serialises writers
-	state atomic.Pointer[State]
-	log   *os.File
-	dir   string
-	path  string
-	now   func() time.Time
+	mu sync.Mutex // serialises writers
+	// repl, when set, gets records agreed on by a group before they are
+	// applied; propose serialises the writes of this member meanwhile.
+	repl    Replicator
+	propose sync.Mutex
+	state   atomic.Pointer[State]
+	log     *os.File
+	dir     string
+	path    string
+	now     func() time.Time
 
 	subMu sync.Mutex
 	subs  map[*subscriber]struct{}
@@ -185,8 +189,17 @@ func (s *Store) commit(ctx context.Context, r Record, ops []Op, csVersion int64)
 	if err := ctx.Err(); err != nil {
 		return Record{}, err
 	}
+	s.propose.Lock()
+	defer s.propose.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Unlocked by hand: a replicated record is applied by the group's
+	// state machine, which takes the lock itself.
+	locked := true
+	defer func() {
+		if locked {
+			s.mu.Unlock()
+		}
+	}()
 	cur := s.Current()
 	r.Index, r.Time, r.Schema = cur.index+1, s.now().UTC(), model.SchemaVersion
 	if cs := r.PutChangeSet; cs != nil {
@@ -210,18 +223,21 @@ func (s *Store) commit(ctx context.Context, r Record, ops []Op, csVersion int64)
 	if err != nil {
 		return Record{}, err
 	}
-	line, err := json.Marshal(r)
-	if err != nil {
+	if repl := s.repl; repl != nil {
+		s.mu.Unlock()
+		locked = false
+		// Had another record taken this index first, applying ours fails
+		// as a duplicate on every member alike.
+		if err := repl.Replicate(ctx, r); errors.Is(err, ErrDuplicate) {
+			return Record{}, ErrStale
+		} else if err != nil {
+			return Record{}, err
+		}
+		return r, nil
+	}
+	if err := s.appendLocked(r, next); err != nil {
 		return Record{}, err
 	}
-	if _, err := s.log.Write(append(line, '\n')); err != nil {
-		return Record{}, fmt.Errorf("confstore: append: %w", err)
-	}
-	if err := s.log.Sync(); err != nil {
-		return Record{}, fmt.Errorf("confstore: sync: %w", err)
-	}
-	s.state.Store(next)
-	s.publish(r)
 	return r, nil
 }
 
