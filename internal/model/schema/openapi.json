@@ -8989,6 +8989,49 @@
         }
       ]
     },
+    "/api/v1/lb/firewall-hints": {
+      "get": {
+        "operationId": "lb_firewall_hints",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "covered": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "rule": {
+                        "type": "object"
+                      },
+                      "service": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "covered",
+                      "name",
+                      "service"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Hints"
+          }
+        },
+        "summary": "Per load-balancer service: whether a filter rule lets clients in, and the rule that would; nothing is created",
+        "tags": [
+          "loadbalancer"
+        ]
+      }
+    },
     "/api/v1/middlewares": {
       "get": {
         "operationId": "list_middleware",
@@ -9804,6 +9847,170 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/pki/ca": {
+      "get": {
+        "operationId": "pki_ca",
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-pem-file": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "PEM certificate"
+          }
+        },
+        "summary": "The internal authority's certificate in PEM, for clients to trust",
+        "tags": [
+          "certificates"
+        ]
+      }
+    },
+    "/api/v1/pki/import": {
+      "post": {
+        "operationId": "pki_import",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "chain_pem": {
+                    "type": "string"
+                  },
+                  "key_pem": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chain_pem",
+                  "key_pem"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "chain_pem": {
+                      "type": "string"
+                    },
+                    "domains": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "key_ref": {
+                      "type": "string"
+                    },
+                    "not_after": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "chain_pem",
+                    "key_ref",
+                    "not_after",
+                    "source"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Certificate fields"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Store the private key of a certificate issued elsewhere, after checking that it belongs to the certificate; the key is never returned",
+        "tags": [
+          "certificates"
+        ]
+      }
+    },
+    "/api/v1/pki/issue": {
+      "post": {
+        "operationId": "pki_issue",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "domains": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "domains"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "chain_pem": {
+                      "type": "string"
+                    },
+                    "domains": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "key_ref": {
+                      "type": "string"
+                    },
+                    "not_after": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "chain_pem",
+                    "key_ref",
+                    "not_after",
+                    "source"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Certificate fields"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Issue a certificate from the internal authority; the key stays in the node's secret store and the answer holds the fields of a certificate object",
+        "tags": [
+          "certificates"
+        ]
+      }
     },
     "/api/v1/plan": {
       "post": {

@@ -24,6 +24,7 @@ import (
 	"github.com/noahzmr/testudo/internal/lbhealth"
 	"github.com/noahzmr/testudo/internal/lbstage"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/pki"
 	"github.com/noahzmr/testudo/internal/secrets"
 	"github.com/noahzmr/testudo/internal/storage"
 	"github.com/noahzmr/testudo/internal/wgstage"
@@ -294,6 +295,60 @@ func (e *Engine) peerExpiryLoop(ctx context.Context) {
 	}
 }
 
+// IssueCertificate issues a server certificate from the internal authority
+// and keeps its key in the secret store.
+func (e *Engine) IssueCertificate(names []string) (chainPEM, keyRef string, notAfter time.Time, err error) {
+	issued, err := pki.CA{Secrets: e.conf.secrets}.Issue(names)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	keyRef = "cert-" + confstore.NewID()
+	if err := e.conf.secrets.Put(keyRef, issued.KeyPEM); err != nil {
+		return "", "", time.Time{}, err
+	}
+	return issued.ChainPEM, keyRef, issued.NotAfter, nil
+}
+
+// ImportCertificateKey stores the key of a certificate issued elsewhere
+// once it is known to belong to that certificate.
+func (e *Engine) ImportCertificateKey(chainPEM string, keyPEM []byte) (keyRef string, notAfter time.Time, err error) {
+	if err := pki.CheckPair(chainPEM, keyPEM); err != nil {
+		return "", time.Time{}, err
+	}
+	if notAfter, err = pki.NotAfter(chainPEM); err != nil {
+		return "", time.Time{}, err
+	}
+	keyRef = "cert-" + confstore.NewID()
+	return keyRef, notAfter, e.conf.secrets.Put(keyRef, keyPEM)
+}
+
+// CACertificate returns the internal authority's certificate.
+func (e *Engine) CACertificate() ([]byte, error) {
+	return pki.CA{Secrets: e.conf.secrets}.Certificate()
+}
+
+// certificateRuntime reports when each certificate held in the model
+// expires. Certificates the proxy obtains by ACME are renewed by it and are
+// not listed.
+func (e *Engine) certificateRuntime() map[string]any {
+	out := map[string]any{}
+	for _, c := range e.conf.store.Current().List(model.KindCertificate) {
+		cert := c.(*model.Certificate)
+		if cert.ChainPEM == "" {
+			continue
+		}
+		entry := map[string]any{}
+		if na, err := pki.NotAfter(cert.ChainPEM); err == nil {
+			entry["not_after"] = na
+			entry["days_left"] = int(time.Until(na).Hours() / 24)
+		} else {
+			entry["error"] = "the certificate cannot be read"
+		}
+		out[cert.ID] = entry
+	}
+	return out
+}
+
 // NewTunnelKey creates a tunnel's private key in the secret store.
 func (e *Engine) NewTunnelKey() (ref, publicKey string, err error) {
 	key, err := wgtypes.GeneratePrivateKey()
@@ -450,6 +505,9 @@ func (e *Engine) ConfigRuntime() map[string]any {
 	}
 	if e.conf.gateways != nil {
 		out["routing"] = e.routingRuntime()
+	}
+	if e.conf.store != nil {
+		out["certificates"] = e.certificateRuntime()
 	}
 	if e.conf.proxy != nil {
 		lb := map[string]any{"backends": e.conf.backends.Status()}

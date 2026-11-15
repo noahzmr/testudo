@@ -593,6 +593,21 @@ func OpenAPI() ([]byte, error) {
 	paths["/api/v1/wg-peers/{id}/client-config"] = map[string]any{"parameters": []any{pr("id")},
 		"get": op("wg_client_config", "A peer's client configuration, with placeholders where its two secrets go",
 			map[string]any{"200": resp("Configuration", strs("config", "private_key_placeholder", "preshared_key_placeholder")), "404": rr("NotFound")})}
+	tagged := func(o map[string]any, tag string) map[string]any { o["tags"] = []string{tag}; return o }
+	certFields := obj(map[string]any{"source": map[string]any{"type": "string"}, "chain_pem": map[string]any{"type": "string"},
+		"key_ref": map[string]any{"type": "string"}, "not_after": map[string]any{"type": "string", "format": "date-time"},
+		"domains": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "source", "chain_pem", "key_ref", "not_after")
+	paths["/api/v1/pki/issue"] = map[string]any{"post": tagged(op("pki_issue", "Issue a certificate from the internal authority; the key stays in the node's secret store and the answer holds the fields of a certificate object",
+		map[string]any{"201": resp("Certificate fields", certFields), "422": rr("Invalid")},
+		map[string]any{"requestBody": jsonBody(obj(map[string]any{"domains": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "domains"))}), "certificates")}
+	paths["/api/v1/pki/import"] = map[string]any{"post": tagged(op("pki_import", "Store the private key of a certificate issued elsewhere, after checking that it belongs to the certificate; the key is never returned",
+		map[string]any{"201": resp("Certificate fields", certFields), "422": rr("Invalid")},
+		map[string]any{"requestBody": jsonBody(strs("chain_pem", "key_pem"))}), "certificates")}
+	paths["/api/v1/pki/ca"] = map[string]any{"get": tagged(op("pki_ca", "The internal authority's certificate in PEM, for clients to trust",
+		map[string]any{"200": map[string]any{"description": "PEM certificate", "content": map[string]any{"application/x-pem-file": map[string]any{"schema": map[string]any{"type": "string"}}}}}), "certificates")}
+	paths["/api/v1/lb/firewall-hints"] = map[string]any{"get": tagged(op("lb_firewall_hints", "Per load-balancer service: whether a filter rule lets clients in, and the rule that would; nothing is created",
+		ok("Hints", map[string]any{"type": "array", "items": obj(map[string]any{"service": map[string]any{"type": "string"}, "name": map[string]any{"type": "string"},
+			"covered": map[string]any{"type": "boolean"}, "rule": map[string]any{"type": "object"}}, "service", "name", "covered")})), "loadbalancer")}
 	paths["/api/v1/changesets"] = map[string]any{
 		"get": op("list_changesets", "List change sets", ok("Change sets", map[string]any{"type": "array", "items": map[string]any{"type": "object"}})),
 		"post": op("create_changeset", "Create an empty change set", map[string]any{"201": resp("Change set", map[string]any{"type": "object"})},

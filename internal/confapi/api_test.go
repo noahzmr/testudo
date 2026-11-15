@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -549,5 +551,101 @@ func TestOpenAPIDescribesEveryRoute(t *testing.T) {
 		if !served[r] {
 			t.Errorf("openapi.json describes %q, which the server does not serve", r)
 		}
+	}
+}
+
+type fakeCerts struct{ imported []byte }
+
+func (f *fakeCerts) IssueCertificate(names []string) (string, string, time.Time, error) {
+	return "CHAIN for " + strings.Join(names, ","), "cert-issued", time.Unix(2000000000, 0).UTC(), nil
+}
+func (f *fakeCerts) ImportCertificateKey(chain string, key []byte) (string, time.Time, error) {
+	if !strings.Contains(string(key), "MATCHING") {
+		return "", time.Time{}, errors.New("the private key does not belong to the certificate")
+	}
+	f.imported = key
+	return "cert-imported", time.Unix(2000000000, 0).UTC(), nil
+}
+func (f *fakeCerts) CACertificate() ([]byte, error) { return []byte("CA PEM"), nil }
+
+func TestCertificateEndpointsKeepKeysOutOfAnswers(t *testing.T) {
+	r := newRig(t)
+	if res := r.do("admin", "POST", "/api/v1/pki/issue", map[string]any{"domains": []string{"a.example.com"}}); res.status != 503 {
+		t.Fatalf("without a certificate backend: %d", res.status)
+	}
+	certs := &fakeCerts{}
+	r.srv.Config.Handler.(*Server).Certs = certs
+
+	// Certificates are a system matter: an operator of the network may not.
+	if res := r.do("alice", "POST", "/api/v1/pki/issue", map[string]any{"domains": []string{"a.example.com"}}); res.status != 403 {
+		t.Errorf("issue without system:write: %d", res.status)
+	}
+	if res := r.do("admin", "POST", "/api/v1/pki/issue", map[string]any{"domains": []string{"not a name"}}); res.status != 422 {
+		t.Errorf("issue for an invalid name: %d %s", res.status, res.body)
+	}
+	res := r.do("admin", "POST", "/api/v1/pki/issue", map[string]any{"domains": []string{"a.example.com", "*.b.example.com"}})
+	if res.status != 201 || res.json(t)["key_ref"] != "cert-issued" || res.json(t)["source"] != "internal_ca" {
+		t.Fatalf("issue: %d %s", res.status, res.body)
+	}
+	// The answer is what a certificate object needs, and creating it works.
+	obj := res.json(t)
+	obj["name"] = "a"
+	created := r.mustCreate("admin", "certificates", obj)
+	if created["key_ref"] == "cert-issued" {
+		t.Error("the name of the key entry is shown when the object is read back")
+	}
+
+	res = r.do("admin", "POST", "/api/v1/pki/import", map[string]string{"chain_pem": "CHAIN", "key_pem": "WRONG KEY"})
+	if res.status != 422 || !strings.Contains(string(res.body), "does not belong") {
+		t.Errorf("import of a key that does not match: %d %s", res.status, res.body)
+	}
+	res = r.do("admin", "POST", "/api/v1/pki/import", map[string]string{"chain_pem": "CHAIN", "key_pem": "MATCHING KEY"})
+	if res.status != 201 || strings.Contains(string(res.body), "MATCHING") || res.json(t)["key_ref"] != "cert-imported" {
+		t.Errorf("import: %d %s", res.status, res.body)
+	}
+	if string(certs.imported) != "MATCHING KEY" {
+		t.Error("the key did not reach the secret store")
+	}
+	if res := r.do("viewer", "GET", "/api/v1/pki/ca", nil); res.status != 200 || string(res.body) != "CA PEM" {
+		t.Errorf("CA certificate: %d %s", res.status, res.body)
+	}
+}
+
+func TestFirewallHintsProposeAndCreateNothing(t *testing.T) {
+	r := newRig(t)
+	zone := r.mustCreate("admin", "zones", map[string]any{"name": "wan", "default_action": "drop"})
+	zref := zone["id"]
+	r.mustCreate("admin", "lb-services", map[string]any{"name": "web", "enabled": true, "zone": zref, "port": 443, "protocol": "https", "mode": "proxy"})
+	r.mustCreate("admin", "lb-services", map[string]any{"name": "dns", "enabled": true, "zone": zref, "port": 53, "protocol": "udp", "mode": "proxy"})
+	// An existing rule for a port range that includes 443.
+	r.mustCreate("admin", "filter-rules", map[string]any{"name": "web-in", "enabled": true, "action": "accept", "direction": "in",
+		"protocol": "tcp", "source_zone": zref, "ports": []string{"400-500"}})
+
+	res := r.do("alice", "GET", "/api/v1/lb/firewall-hints", nil)
+	var hints []map[string]any
+	if res.status != 200 || json.Unmarshal(res.body, &hints) != nil || len(hints) != 2 {
+		t.Fatalf("hints: %d %s", res.status, res.body)
+	}
+	dns, web := hints[0], hints[1]
+	if web["covered"] != true || web["rule"] != nil {
+		t.Errorf("web is covered by the existing rule: %v", web)
+	}
+	rule, _ := dns["rule"].(map[string]any)
+	if dns["covered"] != false || rule == nil || rule["protocol"] != "udp" || fmt.Sprint(rule["ports"]) != "[53]" || rule["direction"] != "in" {
+		t.Fatalf("dns needs a rule: %v", dns)
+	}
+	// Asking created nothing; creating the proposal is an ordinary write.
+	before := len(r.store.Current().List(model.KindFilterRule))
+	r.mustCreate("alice", "filter-rules", rule)
+	if before != 1 {
+		t.Errorf("asking for hints created %d rules", before-1)
+	}
+	res = r.do("alice", "GET", "/api/v1/lb/firewall-hints", nil)
+	json.Unmarshal(res.body, &hints)
+	if hints[0]["covered"] != true {
+		t.Errorf("after creating the proposed rule: %v", hints[0])
+	}
+	if res := r.do("fwonly", "GET", "/api/v1/lb/firewall-hints", nil); res.status != 403 {
+		t.Errorf("hints without loadbalancer:read: %d", res.status)
 	}
 }

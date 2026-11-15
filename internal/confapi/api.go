@@ -82,6 +82,9 @@ type Server struct {
 	// Keys creates WireGuard key material on the node; nil disables the
 	// key endpoints.
 	Keys KeyMaker
+	// Certs issues and imports certificates on the node; nil disables the
+	// certificate endpoints.
+	Certs CertMaker
 	// Heartbeat is the interval of keep-alive comments on the event stream.
 	Heartbeat time.Duration
 	// Done, when closed, ends every open event stream. Set it to the
@@ -237,6 +240,10 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/v1/wg/preshared-key", s.wgPresharedKey)
 	m.HandleFunc("POST /api/v1/wg/client-keypair", s.wgClientKeypair)
 	m.HandleFunc("GET /api/v1/wg-peers/{id}/client-config", s.wgClientConfig)
+	m.HandleFunc("POST /api/v1/pki/issue", s.pkiIssue)
+	m.HandleFunc("POST /api/v1/pki/import", s.pkiImport)
+	m.HandleFunc("GET /api/v1/pki/ca", s.pkiCA)
+	m.HandleFunc("GET /api/v1/lb/firewall-hints", s.lbFirewallHints)
 	m.HandleFunc("GET /api/v1/changesets", s.listChangeSets)
 	m.HandleFunc("POST /api/v1/changesets", s.createChangeSet)
 	m.HandleFunc("GET /api/v1/changesets/{id}", s.getChangeSet)
