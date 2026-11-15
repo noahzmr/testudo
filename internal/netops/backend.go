@@ -131,6 +131,7 @@ type Op struct {
 	Routing *RoutingSpec  `json:"routing,omitempty"`
 	WG      *WGSpec       `json:"wg,omitempty"`
 	Proxy   *ProxyRequest `json:"proxy,omitempty"`
+	PAM     *PAMRequest   `json:"pam,omitempty"`
 	TxQLen  int           `json:"txqlen,omitempty"` // interface transmit queue length
 
 	// Sysctl write (performance tuning; key allowlisted).
@@ -272,6 +273,11 @@ func (w *Writer) queryDirect(op Op) ([]byte, error) {
 		return frrQueryDirect(op)
 	case OpQueryProxyStatus:
 		return marshalResult(runProxy(ProxyRequest{Mode: ProxyStatus}))
+	case OpQueryPAMAuth:
+		if op.PAM == nil {
+			return nil, fmt.Errorf("pam login missing request")
+		}
+		return marshalResult(runPAM(*op.PAM))
 	case OpQueryFirewallSummary:
 		return marshalResult(w.listFirewallDirect())
 	case OpQueryFirewallRules:

@@ -26,6 +26,7 @@ import (
 	"github.com/noahzmr/testudo/internal/lbhealth"
 	"github.com/noahzmr/testudo/internal/lbstage"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/pki"
 	"github.com/noahzmr/testudo/internal/secrets"
 	"github.com/noahzmr/testudo/internal/storage"
@@ -340,6 +341,16 @@ func (e *Engine) peerExpiryLoop(ctx context.Context) {
 			log.Printf("config: routes after peer expiry: %v", err)
 		}
 	}
+}
+
+// PAMLogin asks the host's PAM stack about a login, on the privileged
+// side where there is one.
+func (e *Engine) PAMLogin(user, password, code, from string) (netops.PAMResult, error) {
+	req := netops.PAMRequest{User: user, Password: password, Code: code, RemoteHost: from}
+	if e.netops != nil {
+		return e.netops.PAMLogin(req)
+	}
+	return (&netops.Writer{}).PAMLogin(req)
 }
 
 // Secret reads an entry of the node's secret store.

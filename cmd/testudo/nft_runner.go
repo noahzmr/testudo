@@ -69,6 +69,8 @@ func runNftRunner() error {
 			res = netops.RunFrr(*req.Frr)
 		case req.Proxy != nil:
 			res = netops.RunProxy(*req.Proxy)
+		case req.PAM != nil:
+			res = netops.RunPAM(*req.PAM)
 		default:
 			res = netops.NftResult{Error: "empty request"}
 		}
@@ -83,6 +85,7 @@ type runnerRequest struct {
 	Nft   *netops.NftRequest   `json:"nft,omitempty"`
 	Frr   *netops.FrrRequest   `json:"frr,omitempty"`
 	Proxy *netops.ProxyRequest `json:"proxy,omitempty"`
+	PAM   *netops.PAMRequest   `json:"pam,omitempty"`
 }
 
 func readLine(r *bufio.Reader) ([]byte, error) {
@@ -142,6 +145,11 @@ func (p *nftRunnerProc) RunFrr(req netops.FrrRequest) netops.NftResult {
 // RunProxy sends one request for the proxy supervisor.
 func (p *nftRunnerProc) RunProxy(req netops.ProxyRequest) netops.NftResult {
 	return p.send(runnerRequest{Proxy: &req})
+}
+
+// RunPAM sends one login attempt to the PAM stack.
+func (p *nftRunnerProc) RunPAM(req netops.PAMRequest) netops.NftResult {
+	return p.send(runnerRequest{PAM: &req})
 }
 
 // send serialises requests: one at a time over the pipe.
