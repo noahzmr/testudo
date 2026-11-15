@@ -3,10 +3,12 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 4 complete. Packet filter, NAT, routing and WireGuard
-with identity-aware access are driven by the model and verified against a
-real kernel ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
-[phase-4](phase-4-vpn.md)). Load balancing (Phase 5) is next.**
+**Status: Phases 0 to 5 complete. Packet filter, NAT, routing, WireGuard
+with identity-aware access, and load balancing with SNI routing and
+certificates are driven by the model and verified against a real kernel
+([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
+[phase-4](phase-4-vpn.md), [phase-5](phase-5-load-balancing.md)).
+Authentication and authorisation (Phase 6) is next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -20,7 +22,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 2 | Stateful packet filter and NAT | done | - | - |
 | 3 | Routing (FRR), multi-WAN, PBR | done | - | - |
 | 4 | WireGuard and identity-aware access | done | - | - |
-| 5 | Load balancing, SNI, certificates | nothing | 7–9 weeks | medium |
+| 5 | Load balancing, SNI, certificates | done | - | - |
 | 6 | Linux-PAM, OIDC, RBAC, audit | about 25 % | 5–6 weeks | high |
 | 7 | Raft cluster core | nothing | 10–12 weeks | very high |
 | 8 | Multi-site SDN fabric | nothing | 8–10 weeks | high |
@@ -112,8 +114,10 @@ become login identities with Phase 6.
 
 ## 5. Load balancing and SNI
 
-Nothing exists. See [ADR 0001](adr/0001-managed-traefik-vs-native-proxy.md).
-The only TLS code is the Web UI's own certificate handling.
+Done; see [phase-5-load-balancing.md](phase-5-load-balancing.md). Open:
+obtaining a certificate from Let's Encrypt on a host with network access
+has not been tried, routers that require a login stay closed until Phase 6
+provides the login service, and `least_connections` is not available.
 
 ## 6. Authentication and authorisation
 

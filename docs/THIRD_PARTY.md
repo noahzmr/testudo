@@ -18,7 +18,7 @@ been copied from any of them.**
 | WireGuard kernel module | GPL-2.0 | runtime: kernel data plane | not applicable (kernel) |
 | wireguard-tools | GPL-2.0 | reference only; Testudo does not call `wg` or `wg-quick` | no |
 | wireguard-go, wgctrl-go | MIT | `wgctrl` is an existing dependency | yes, with attribution |
-| Traefik | MIT | planned runtime dependency: separate daemon ([ADR 0001](adr/0001-managed-traefik-vs-native-proxy.md)) | yes, with attribution; none planned |
+| Traefik | MIT | runtime dependency: separate daemon, started by the runner and configured through files ([ADR 0001](adr/0001-managed-traefik-vs-native-proxy.md)); tested with v3.3.4 | yes, with attribution; nothing reused |
 | hashicorp/raft, raft-boltdb | MPL-2.0 | planned Go dependency ([ADR 0002](adr/0002-raft-library.md)) | as a module |
 | etcd-io/raft | Apache-2.0 | evaluated alternative | as a module |
 | etcd-io/bbolt | MIT | planned, through the Raft log store | as a module |
