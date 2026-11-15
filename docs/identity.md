@@ -4,6 +4,11 @@ Every privileged action in Testudo is attributable to a **human**: the Web UI
 session user, the OS user at the TUI, or the CLI caller. This is the layer the
 firewall policy, WireGuard provisioning and (later) PAM grants hang off.
 
+> This page describes the built-in user store and the older endpoints.
+> Logins through the host's PAM stack and an identity provider, roles from
+> the configuration model, API tokens and the audit endpoint are described
+> in [phase-6-identity.md](phase-6-identity.md).
+
 ## Users and roles
 
 Accounts live in `~/.testudo/users.json` (0600): bcrypt password hash, role,

@@ -3,12 +3,14 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 5 complete. Packet filter, NAT, routing, WireGuard
+**Status: Phases 0 to 6 complete. Packet filter, NAT, routing, WireGuard
 with identity-aware access, and load balancing with SNI routing and
 certificates are driven by the model and verified against a real kernel
 ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
-[phase-4](phase-4-vpn.md), [phase-5](phase-5-load-balancing.md)).
-Authentication and authorisation (Phase 6) is next.**
+[phase-4](phase-4-vpn.md), [phase-5](phase-5-load-balancing.md)). Logins
+go through PAM, OIDC or the built-in store and end in permissions from the
+model ([phase-6](phase-6-identity.md)). The Raft cluster core (Phase 7) is
+next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -23,7 +25,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 3 | Routing (FRR), multi-WAN, PBR | done | - | - |
 | 4 | WireGuard and identity-aware access | done | - | - |
 | 5 | Load balancing, SNI, certificates | done | - | - |
-| 6 | Linux-PAM, OIDC, RBAC, audit | about 25 % | 5–6 weeks | high |
+| 6 | Linux-PAM, OIDC, RBAC, audit | done | - | - |
 | 7 | Raft cluster core | nothing | 10–12 weeks | very high |
 | 8 | Multi-site SDN fabric | nothing | 8–10 weeks | high |
 | 9 | Flow analysis extensions | about 50 % | 5–6 weeks | medium |
@@ -121,19 +123,13 @@ provides the login service, and `least_connections` is not available.
 
 ## 6. Authentication and authorisation
 
-| Target | Today |
-| --- | --- |
-| Local users, roles, TOTP | present, in-house store |
-| Linux-PAM service for all local logins | absent |
-| OIDC with PKCE, discovery, JWKS rotation, logout | absent |
-| Claim and group to role mapping, groups at all | absent (no groups) |
-| RBAC enforced in the API per object | per URL prefix |
-| API tokens | absent |
-| Break-glass local admin | bootstrap admin exists; no IdP to fail yet |
-| Audit with before/after | operation and argument summary only |
+Done; see [phase-6-identity.md](phase-6-identity.md). Open: sessions are
+in memory until the cluster holds them, PAM is an opt-in build tag, and
+directory or one-time-code modules behind PAM have not been tried.
 
-Risk is high: authentication defects are security defects, and Linux-PAM
-forces a decision about cgo (see open questions).
+The direct editing of firewall rules outside the model (Web UI, TUI,
+`testudo firewall import|enforce`) was removed on request; see
+[firewall.md](firewall.md).
 
 ## 7. Multi-site clustering
 
