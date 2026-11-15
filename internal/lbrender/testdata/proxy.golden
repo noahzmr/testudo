@@ -1,0 +1,228 @@
+### certs/00000000-0000-4000-8000-000000000050.pem
+-----BEGIN CERTIFICATE-----
+MIIB
+-----END CERTIFICATE-----
+
+### dynamic/testudo.yml
+http:
+    middlewares:
+        mw-breaker-000000:
+            circuitBreaker:
+                expression: NetworkErrorRatio() > 0.30
+        mw-gzip-000000:
+            compress: {}
+        mw-limit-000000:
+            rateLimit:
+                average: 100
+                burst: 50
+        mw-office-only-000000:
+            ipAllowList:
+                sourceRange:
+                    - 10.0.0.0/8
+                    - 192.0.2.0/24
+        mw-retry-000000:
+            retry:
+                attempts: 3
+        mw-secure-headers-000000:
+            headers:
+                customRequestHeaders:
+                    X-Forwarded-Proto: https
+                customResponseHeaders:
+                    Strict-Transport-Security: max-age=31536000
+        mw-to-https-000000:
+            redirectScheme:
+                permanent: true
+                scheme: https
+        rt-app-000000-auth:
+            forwardAuth:
+                address: http://127.0.0.1:8080/api/v1/forward-auth?groups=00000000-0000-4000-8000-000000000040
+                authResponseHeaders:
+                    - X-Forwarded-User
+    routers:
+        rt-app-000000:
+            entryPoints:
+                - svc-https-000000
+            middlewares:
+                - rt-app-000000-auth
+                - mw-office-only-000000
+            rule: (Host(`app.example.com`) || HostRegexp(`^.+\.apps\.example\.com$`)) && PathPrefix(`/api`)
+            service: pool-api-000000
+            tls: {}
+        rt-redirect-000000:
+            entryPoints:
+                - svc-http-000000
+            middlewares:
+                - mw-to-https-000000
+            priority: 50
+            rule: Host(`www.example.com`)
+            service: pool-web-000000
+        rt-www-000000:
+            entryPoints:
+                - svc-https-000000
+            middlewares:
+                - mw-secure-headers-000000
+                - mw-limit-000000
+                - mw-retry-000000
+                - mw-breaker-000000
+                - mw-gzip-000000
+            rule: (Host(`www.example.com`) || Host(`example.com`))
+            service: pool-web-000000
+            tls:
+                certResolver: acme-http-01
+                domains:
+                    - main: www.example.com
+                      sans:
+                        - example.com
+        svc-http-000000-fallback:
+            entryPoints:
+                - svc-http-000000
+            priority: 1
+            rule: PathPrefix(`/`)
+            service: pool-web-000000
+    services:
+        pool-api-000000:
+            loadBalancer:
+                passHostHeader: true
+                servers:
+                    - url: http://10.50.0.6:9000
+                      weight: 1
+        pool-web-000000:
+            loadBalancer:
+                healthCheck:
+                    interval: 5s
+                    path: /healthz
+                    timeout: 2s
+                passHostHeader: true
+                servers:
+                    - url: http://10.50.0.2:8080
+                      weight: 3
+                    - url: http://10.50.0.3:8080
+                      weight: 1
+                sticky:
+                    cookie:
+                        httpOnly: true
+                        name: testudo_lb
+tcp:
+    routers:
+        rt-sni-a-000000:
+            entryPoints:
+                - svc-tls-000000
+            rule: HostSNI(`a.example.com`)
+            service: pool-tls-a-000000
+            tls:
+                passthrough: true
+        rt-sni-b-000000:
+            entryPoints:
+                - svc-tls-000000
+            rule: (HostSNI(`b.example.com`) || HostSNIRegexp(`^.+\.b\.example\.com$`))
+            service: pool-tls-b-000000
+            tls:
+                passthrough: true
+        rt-sni-term-000000:
+            entryPoints:
+                - svc-tls-000000
+            rule: HostSNI(`app.example.com`)
+            service: pool-api-000000
+            tls: {}
+        svc-tls-000000-fallback:
+            entryPoints:
+                - svc-tls-000000
+            priority: 1
+            rule: HostSNI(`*`)
+            service: pool-tls-a-000000
+        svc-tls-000000-fallback-tls:
+            entryPoints:
+                - svc-tls-000000
+            priority: 1
+            rule: HostSNI(`*`)
+            service: pool-tls-a-000000
+            tls:
+                passthrough: true
+    services:
+        pool-api-000000:
+            loadBalancer:
+                servers:
+                    - address: 10.50.0.6:9000
+        pool-tls-a-000000:
+            loadBalancer:
+                servers:
+                    - address: 10.50.0.2:8443
+        pool-tls-b-000000:
+            weighted:
+                services:
+                    - name: pool-tls-b-000000-b0
+                      weight: 2
+                    - name: pool-tls-b-000000-b1
+                      weight: 1
+        pool-tls-b-000000-b0:
+            loadBalancer:
+                proxyProtocol:
+                    version: 2
+                servers:
+                    - address: 10.50.0.3:8443
+        pool-tls-b-000000-b1:
+            loadBalancer:
+                proxyProtocol:
+                    version: 2
+                servers:
+                    - address: 10.50.0.5:8443
+tls:
+    certificates:
+        - certFile: /var/lib/testudo/proxy/certs/00000000-0000-4000-8000-000000000050.pem
+          keyFile: /var/lib/testudo/secrets/cert-app
+udp:
+    routers:
+        svc-dns-000000-fallback:
+            entryPoints:
+                - svc-dns-000000
+            service: pool-dns-000000
+    services:
+        pool-dns-000000:
+            loadBalancer:
+                servers:
+                    - address: 10.50.0.2:53
+                    - address: 10.50.0.3:53
+
+### traefik.yml
+accessLog:
+    filePath: /var/lib/testudo/proxy/access.log
+    format: json
+api:
+    dashboard: false
+    insecure: true
+certificatesResolvers:
+    acme-http-01:
+        acme:
+            email: ops@example.com
+            httpChallenge:
+                entryPoint: svc-http-000000
+            storage: /var/lib/testudo/proxy/acme.json
+entryPoints:
+    svc-dns-000000:
+        address: 192.0.2.1:53/udp
+    svc-http-000000:
+        address: :80
+    svc-https-000000:
+        address: :443
+        http3: {}
+    svc-tls-000000:
+        address: :8443
+    traefik:
+        address: 127.0.0.1:18089
+global:
+    checkNewVersion: false
+    sendAnonymousUsage: false
+log:
+    level: INFO
+metrics:
+    prometheus:
+        addRoutersLabels: true
+        addServicesLabels: true
+        entryPoint: traefik
+ping:
+    entryPoint: traefik
+providers:
+    file:
+        directory: /var/lib/testudo/proxy/dynamic
+        watch: true
+
