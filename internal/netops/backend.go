@@ -129,6 +129,7 @@ type Op struct {
 	// contain session passwords; audit rows record size and hash only.
 	Frr     string       `json:"frr,omitempty"`
 	Routing *RoutingSpec `json:"routing,omitempty"`
+	WG      *WGSpec      `json:"wg,omitempty"`
 	TxQLen  int          `json:"txqlen,omitempty"` // interface transmit queue length
 
 	// Sysctl write (performance tuning; key allowlisted).
@@ -341,6 +342,11 @@ func (w *Writer) applyDirect(op Op) error {
 	case OpFrrReload:
 		_, err := runFrr(FrrRequest{Mode: FrrReload, Conf: op.Frr})
 		return err
+	case OpSyncWG:
+		if op.WG == nil {
+			return fmt.Errorf("wireguard sync missing spec")
+		}
+		return w.syncWGDirect(*op.WG)
 	case OpSyncRouting:
 		if op.Routing == nil {
 			return fmt.Errorf("routing sync missing spec")
