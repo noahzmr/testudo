@@ -191,6 +191,30 @@ func (s *Store) commit(ctx context.Context, r Record, ops []Op, csVersion int64)
 	}
 	s.propose.Lock()
 	defer s.propose.Unlock()
+	// In a group, another record can take the index while ours is being
+	// agreed on (a new leader finishing what the old one began). Then the
+	// change is prepared again against the state that includes it: all of
+	// the validation, and the version check that turns a real conflict
+	// into a conflict.
+	orig := r.PutChangeSet
+	for attempt := 0; ; attempt++ {
+		rec, err := s.commitOnce(ctx, r, ops, csVersion)
+		if errors.Is(err, ErrStale) && attempt < 3 {
+			continue
+		}
+		if err == nil && orig != nil {
+			*orig = *rec.PutChangeSet // callers read owner and version back
+			rec.PutChangeSet = orig
+		}
+		return rec, err
+	}
+}
+
+func (s *Store) commitOnce(ctx context.Context, r Record, ops []Op, csVersion int64) (Record, error) {
+	if cs := r.PutChangeSet; cs != nil {
+		c := *cs // an attempt must not see what the one before wrote into it
+		r.PutChangeSet = &c
+	}
 	s.mu.Lock()
 	// Unlocked by hand: a replicated record is applied by the group's
 	// state machine, which takes the lock itself.

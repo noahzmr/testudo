@@ -113,18 +113,38 @@ func TestLosingTheRaceForAnIndexIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.steal = &rec
-	if _, err := a.Create(ctx, "alice", alias("ours", "10.0.0.1")); !errors.Is(err, ErrStale) {
-		t.Fatalf("losing the race: %v", err)
+	// Our change is prepared again on top of theirs and lands on the next
+	// index; nothing is lost and nothing is applied twice.
+	ours := mustCreate(t, a, "alice", alias("ours", "10.0.0.1"))
+	if ours.Version != 2 {
+		t.Fatalf("our record has version %d", ours.Version)
 	}
 	for _, s := range []*Store{a, b} {
 		list := s.Current().List(model.KindAlias)
-		if len(list) != 1 || list[0].GetMeta().Name != "theirs" {
+		if len(list) != 2 || s.Current().Index() != 2 {
 			t.Errorf("after the race a member holds %v", list)
 		}
 	}
-	// Trying again works and lands on the next index.
-	if got := mustCreate(t, a, "alice", alias("ours", "10.0.0.1")); got.Version != 2 {
-		t.Errorf("second attempt has version %d", got.Version)
+	// A real conflict stays a conflict: their record changed the object
+	// our update was based on.
+	theirs := *ours
+	theirs.Entries = []string{"10.7.7.7"}
+	upd, err := other.Commit(ctx, "carol", "", []Op{{Type: OpCreate, Kind: model.KindAlias, Object: mustJSON(alias("unrelated", "10.3.3.3"))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upd.Index = 3
+	upd.Changes = []Change{{Type: OpUpdate, Kind: model.KindAlias, ID: ours.ID, Name: "ours", After: mustJSON(func() *model.Alias {
+		c := theirs
+		c.Version = 3
+		return &c
+	}())}}
+	g.steal = &upd
+	mine := *ours
+	mine.Entries = []string{"10.1.1.1"}
+	var conflict *ConflictError
+	if _, err := a.Update(ctx, "alice", &mine, ours.Version); !errors.As(err, &conflict) {
+		t.Fatalf("update based on a version that was overtaken: %v", err)
 	}
 }
 
