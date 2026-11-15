@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,10 @@ import (
 	"github.com/noahzmr/testudo/internal/frrender"
 	"github.com/noahzmr/testudo/internal/frrstage"
 	"github.com/noahzmr/testudo/internal/fwbridge"
+	"github.com/noahzmr/testudo/internal/fwrender"
 	"github.com/noahzmr/testudo/internal/gwmon"
+	"github.com/noahzmr/testudo/internal/lbhealth"
+	"github.com/noahzmr/testudo/internal/lbstage"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/secrets"
 	"github.com/noahzmr/testudo/internal/storage"
@@ -50,7 +54,21 @@ type confCore struct {
 	routingMu    sync.Mutex
 	routingState map[string]any
 	routingAt    time.Time
+	// proxy is the load-balancer stage; forwardAuth answers the proxy's
+	// questions about logins on a loopback listener of its own.
+	proxy       *lbstage.Stage
+	backends    *lbhealth.Monitor
+	forwardAuth atomic.Pointer[http.Handler]
+	proxyMu     sync.Mutex
+	proxyState  map[string]any
+	proxyAt     time.Time
 }
+
+// Loopback addresses the proxy and this program talk on.
+const (
+	proxyAPIAddr    = "127.0.0.1:18089"
+	forwardAuthAddr = "127.0.0.1:18090"
+)
 
 // ConfigDir is where the configuration log and the pending-apply marker live.
 func ConfigDir(cfg config.Config) string { return filepath.Join(cfg.StorageDir, "config") }
@@ -67,9 +85,10 @@ func (e *Engine) openConfig() {
 	// bridge into the netlink path otherwise.
 	c.feed = aliasfeed.New(filepath.Join(dir, "alias-cache.json"))
 	c.feed.GeoDBDir = func() string { return e.settings.Snapshot().MaxMindDBDir }
+	c.backends = &lbhealth.Monitor{}
 	var stage confapply.Stage
 	if e.fwNft != nil {
-		e.fwNft.Locate, e.fwNft.Elements = localNode, c.feed.Snapshot
+		e.fwNft.Locate, e.fwNft.Elements, e.fwNft.BackendDown = localNode, c.feed.Snapshot, c.backends.Down
 		stage = e.fwNft
 	} else {
 		// A typed nil must not reach the interface, hence the explicit check.
@@ -92,7 +111,14 @@ func (e *Engine) openConfig() {
 	if e.netops != nil {
 		c.routing.Runner = e.netops
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing)
+	// The proxy comes last: its backends are reached over the routes and
+	// tunnels the earlier stages set up.
+	c.proxy = &lbstage.Stage{Locate: localNode, Dir: filepath.Join(e.cfg.StorageDir, "proxy"), SecretsDir: c.secrets.Dir,
+		APIAddr: proxyAPIAddr, AuthURL: "http://" + forwardAuthAddr + "/"}
+	if e.netops != nil {
+		c.proxy.Runner = e.netops
+	}
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing, c.proxy)
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
@@ -145,11 +171,98 @@ func (e *Engine) startConfig(ctx context.Context) {
 	}
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)
+		go e.backendHealthLoop(ctx)
 	}
 	if e.netops != nil {
 		go e.gatewayLoop(ctx)
 		go e.peerExpiryLoop(ctx)
+		go e.forwardAuthLoop(ctx)
 	}
+}
+
+// backendHealthLoop checks the backends of services balanced in the packet
+// filter and reloads the ruleset when one changes state.
+func (e *Engine) backendHealthLoop(ctx context.Context) {
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		st := e.conf.store.Current()
+		site, node := localNode(st)
+		pools := fwrender.KernelBackends(st, fwrender.Options{SiteID: site, NodeID: node})
+		if !e.conf.backends.Check(ctx, pools, time.Now()) {
+			continue
+		}
+		for addr, s := range e.conf.backends.Status() {
+			if s.Down {
+				log.Printf("config: backend %s is down: %s", addr, s.Error)
+			}
+		}
+		if _, pending := e.conf.apply.Pending(); pending {
+			continue
+		}
+		if err := e.fwNft.Refresh(st); err != nil {
+			log.Printf("config: reload after backend health change: %v", err)
+		}
+	}
+}
+
+// SetForwardAuth installs the handler that decides whether a request to a
+// router that requires a login may pass. Without one every such request is
+// refused.
+func (e *Engine) SetForwardAuth(h http.Handler) { e.conf.forwardAuth.Store(&h) }
+
+// forwardAuthLoop serves the proxy's login questions on loopback. It is a
+// listener of its own so that the answer never depends on how the console
+// is exposed, and it fails closed: no handler, no access.
+func (e *Engine) forwardAuthLoop(ctx context.Context) {
+	srv := &http.Server{Addr: forwardAuthAddr, ReadHeaderTimeout: 5 * time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if h := e.conf.forwardAuth.Load(); h != nil && *h != nil {
+				(*h).ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "this service requires a login, and no login service is configured", http.StatusForbidden)
+		})}
+	go func() {
+		<-ctx.Done()
+		srv.Close()
+	}()
+	if err := srv.ListenAndServe(); err != nil && ctx.Err() == nil {
+		log.Printf("config: forward-auth listener: %v", err)
+	}
+}
+
+// proxyRuntime reports the proxy process and, per backend pool, its traffic
+// and the health of its backends. The proxy is asked at most every five
+// seconds.
+func (e *Engine) proxyRuntime() map[string]any {
+	c := &e.conf
+	c.proxyMu.Lock()
+	defer c.proxyMu.Unlock()
+	if time.Since(c.proxyAt) > 5*time.Second {
+		state := map[string]any{"process": "unavailable"}
+		if e.netops != nil {
+			if ps, err := e.netops.ProxyState(); err == nil {
+				state["process"] = ps
+				if ps == "running" {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					if pools, err := c.proxy.State(ctx); err == nil {
+						state["pools"] = pools
+					} else {
+						state["error"] = err.Error()
+					}
+					cancel()
+				}
+			}
+		}
+		c.proxyState, c.proxyAt = state, time.Now()
+	}
+	return c.proxyState
 }
 
 // peerExpiryLoop removes peers from their devices when they expire.
@@ -337,6 +450,13 @@ func (e *Engine) ConfigRuntime() map[string]any {
 	}
 	if e.conf.gateways != nil {
 		out["routing"] = e.routingRuntime()
+	}
+	if e.conf.proxy != nil {
+		lb := map[string]any{"backends": e.conf.backends.Status()}
+		for k, v := range e.proxyRuntime() {
+			lb[k] = v
+		}
+		out["load_balancer"] = lb
 	}
 	return out
 }
