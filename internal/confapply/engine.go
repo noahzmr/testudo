@@ -131,6 +131,8 @@ type Engine struct {
 	failed    int64
 	override  *LocalOverride
 	overFile  string
+	// overrideTold is when the cluster was last told about the override.
+	overrideTold time.Time
 }
 
 // stateT and Op keep cluster.go readable.

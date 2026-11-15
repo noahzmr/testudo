@@ -79,8 +79,15 @@ func (e *Engine) Sync(ctx context.Context) {
 	}
 	view := c.View()
 	e.leadLocked(ctx, c, view)
-	if e.override != nil {
-		return // the local override stays until someone resolves it
+	if o := e.override; o != nil {
+		// The local override stays until someone resolves it. The cluster
+		// is told again and again: the first report was made while this
+		// member could not reach anyone.
+		if time.Since(e.overrideTold) > 10*time.Second {
+			e.overrideTold = time.Now()
+			c.Report(e.store.Current().Index(), nil, "local override by "+o.Actor+": "+o.Reason)
+		}
+		return
 	}
 	head := e.store.Current()
 	idx := head.Index()
@@ -237,4 +244,41 @@ func (e *Engine) ResolveOverride(ctx context.Context, actor string) (LocalOverri
 	e.override, e.applied, e.failed = nil, 0, 0
 	e.notify(Notice{Event: "override_resolved", Index: o.Base, Actor: actor})
 	return o, nil
+}
+
+// Repair compares the running system with the model: every stage is asked
+// whether it still runs what was applied. A member that drifted is brought
+// back by applying the model again; the drift and the outcome are reported
+// to the cluster either way. It returns what differed, or "".
+func (e *Engine) Repair(ctx context.Context) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var drift []string
+	for _, s := range e.stages {
+		if err := s.Healthy(ctx); err != nil {
+			drift = append(drift, s.Name()+": "+err.Error())
+		}
+	}
+	if len(drift) == 0 || e.override != nil || e.pending != nil {
+		return ""
+	}
+	what := strings.Join(drift, "; ")
+	head := e.store.Current()
+	err := e.convergeLocked(ctx, head)
+	if e.cluster != nil {
+		note := "repaired: " + what
+		if err != nil {
+			note = "not repaired: " + what
+		}
+		e.cluster.Report(head.Index(), err, note)
+	}
+	e.notify(Notice{Event: "drift", Index: head.Index(), Actor: SystemActor, Reason: what, Err: err})
+	return what
+}
+
+// Applied returns the model index this member last put into effect.
+func (e *Engine) Applied() int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.applied
 }
