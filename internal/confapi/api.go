@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/noahzmr/testudo/internal/cluster"
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
@@ -34,6 +35,10 @@ type Identity struct {
 	Permissions []string `json:"permissions"`
 	// Token is set when the caller presented an API token, not a login.
 	Token bool `json:"token,omitempty"`
+	// BreakGlass is set for the built-in administrator and for host
+	// accounts in the break-glass group: the ones who may act when the
+	// cluster cannot.
+	BreakGlass bool `json:"break_glass,omitempty"`
 }
 
 // Can reports whether the identity may read or write the area.
@@ -90,6 +95,8 @@ type Server struct {
 	// Secrets stores secrets on the node; nil disables the endpoints that
 	// take one.
 	Secrets SecretKeeper
+	// Cluster is this node's cluster membership; nil disables clustering.
+	Cluster ClusterAdmin
 	// Audit reads the audit log; nil disables the endpoint.
 	Audit AuditReader
 	// Heartbeat is the interval of keep-alive comments on the event stream.
@@ -182,6 +189,18 @@ func (s *Server) writeErr(w http.ResponseWriter, err error) {
 			p.Pending = &pend
 		}
 		writeJSON(w, http.StatusLocked, p)
+	case errors.Is(err, cluster.ErrNoQuorum):
+		fail(w, http.StatusServiceUnavailable, "no_quorum", "the cluster has no leader: this member is read-only until it can reach a majority")
+	case errors.Is(err, confapply.ErrNotLeader), errors.Is(err, cluster.ErrNotLeader):
+		fail(w, http.StatusServiceUnavailable, "not_leader", "this member does not lead the cluster; the change has to be made through the leader")
+	case errors.Is(err, cluster.ErrGate):
+		fail(w, http.StatusConflict, "upgrade_in_progress", err.Error())
+	case errors.Is(err, cluster.ErrHalted):
+		fail(w, http.StatusServiceUnavailable, "halted", err.Error())
+	case errors.Is(err, confapply.ErrOverride):
+		fail(w, http.StatusConflict, "override", "a local override is in force on this member; resolve it first")
+	case errors.Is(err, confstore.ErrStale):
+		fail(w, http.StatusConflict, "stale", "the model changed while the change was being agreed on; try again")
 	case errors.Is(err, confapply.ErrNothingPending):
 		fail(w, http.StatusConflict, "nothing_pending", "no change is waiting for confirmation")
 	case errors.Is(err, confstore.ErrIfMatchNeeded):
@@ -254,6 +273,15 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/v1/oidc/client-secret", s.oidcClientSecret)
 	m.HandleFunc("POST /api/v1/tokens", s.createToken)
 	m.HandleFunc("GET /api/v1/audit", s.audit)
+	m.HandleFunc("GET /api/v1/cluster", s.clusterStatus)
+	m.HandleFunc("POST /api/v1/cluster/init", s.clusterInit)
+	m.HandleFunc("POST /api/v1/cluster/join", s.clusterJoin)
+	m.HandleFunc("POST /api/v1/cluster/token", s.clusterToken)
+	m.HandleFunc("POST /api/v1/cluster/transfer", s.clusterTransfer)
+	m.HandleFunc("POST /api/v1/cluster/members/{id}/{action}", s.clusterMember)
+	m.HandleFunc("DELETE /api/v1/cluster/members/{id}", s.clusterMember)
+	m.HandleFunc("POST /api/v1/cluster/override", s.clusterOverride)
+	m.HandleFunc("DELETE /api/v1/cluster/override", s.clusterResolveOverride)
 	m.HandleFunc("GET /api/v1/changesets", s.listChangeSets)
 	m.HandleFunc("POST /api/v1/changesets", s.createChangeSet)
 	m.HandleFunc("GET /api/v1/changesets/{id}", s.getChangeSet)

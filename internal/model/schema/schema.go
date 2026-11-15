@@ -610,6 +610,30 @@ func OpenAPI() ([]byte, error) {
 			"covered": map[string]any{"type": "boolean"}, "rule": map[string]any{"type": "object"}}, "service", "name", "covered")})), "loadbalancer")}
 	paths["/api/v1/oidc/client-secret"] = map[string]any{"post": tagged(op("oidc_client_secret", "Store the identity provider's client secret on the node; returns the entry name for the provider object",
 		map[string]any{"201": resp("Entry name", strs("client_secret_ref"))}, map[string]any{"requestBody": jsonBody(strs("secret"))}), "identity")}
+	clusterStatus := map[string]any{"type": "object", "description": "Members with role and last apply report, leader, quorum, pending change, rollout, consensus numbers, local override"}
+	cl := func(id, summary string, extra ...map[string]any) map[string]any {
+		return tagged(op(id, summary, map[string]any{"200": resp("Cluster status", clusterStatus), "409": problem("Refused; the message says why.", nil)}, extra...), "cluster")
+	}
+	paths["/api/v1/cluster"] = map[string]any{"get": tagged(op("cluster_status", "The cluster as this member sees it", ok("Cluster status", clusterStatus)), "cluster")}
+	paths["/api/v1/cluster/init"] = map[string]any{"post": cl("cluster_init", "Make this node the first member of a new cluster; its model becomes the cluster's")}
+	paths["/api/v1/cluster/join"] = map[string]any{"post": cl("cluster_join", "Make this node a member of the cluster a join token is for; the node has to be empty",
+		map[string]any{"requestBody": jsonBody(strs("token"))})}
+	paths["/api/v1/cluster/token"] = map[string]any{"post": tagged(op("cluster_token", "Issue a join token: good once, for a limited time",
+		map[string]any{"201": resp("Token", obj(map[string]any{"token": map[string]any{"type": "string"}, "voter": map[string]any{"type": "boolean"},
+			"expires_in_minutes": map[string]any{"type": "integer"}}, "token", "voter", "expires_in_minutes")), "409": problem("Refused.", nil)},
+		map[string]any{"requestBody": jsonBody(obj(map[string]any{"ttl_minutes": map[string]any{"type": "integer"}, "voter": map[string]any{"type": "boolean"}}))}), "cluster")}
+	paths["/api/v1/cluster/transfer"] = map[string]any{"post": cl("cluster_transfer", "Hand leadership to another voter")}
+	paths["/api/v1/cluster/members/{id}"] = map[string]any{"parameters": []any{pr("id")},
+		"delete": cl("cluster_remove_member", "Remove a member and revoke its certificate")}
+	paths["/api/v1/cluster/members/{id}/{action}"] = map[string]any{"parameters": []any{pr("id"), pr("action")},
+		"post": cl("cluster_member_action", "promote a member to voter or demote it")}
+	paths["/api/v1/cluster/override"] = map[string]any{
+		"post": tagged(op("cluster_override", "Change what runs on this member only while it is cut off; break-glass administrators only; the model is not touched",
+			map[string]any{"200": resp("The override in force", map[string]any{"type": "object"}), "403": problem("Not a break-glass administrator.", nil)},
+			map[string]any{"requestBody": jsonBody(obj(map[string]any{"reason": map[string]any{"type": "string"}, "ops": map[string]any{"type": "array", "items": map[string]any{"type": "object"}}}, "reason", "ops"))}), "cluster"),
+		"delete": tagged(op("cluster_resolve_override", "End the local override; returns its changes for review",
+			map[string]any{"200": resp("The override that was in force", map[string]any{"type": "object"}), "409": problem("No override is in force.", nil)}), "cluster"),
+	}
 	paths["/api/v1/audit"] = map[string]any{"get": tagged(op("audit", "The newest audit rows: logins, configuration changes, applies, rollbacks and privileged operations. Query: limit, op (prefix)",
 		ok("Rows", map[string]any{"type": "array", "items": obj(map[string]any{"time": map[string]any{"type": "string", "format": "date-time"},
 			"actor": map[string]any{"type": "string"}, "op": map[string]any{"type": "string"}, "detail": map[string]any{"type": "string"},

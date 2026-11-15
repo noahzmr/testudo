@@ -7014,6 +7014,28 @@
         }
       ]
     },
+    "/api/v1/cluster": {
+      "get": {
+        "operationId": "cluster_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Members with role and last apply report, leader, quorum, pending change, rollout, consensus numbers, local override",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Cluster status"
+          }
+        },
+        "summary": "The cluster as this member sees it",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
     "/api/v1/cluster-nodes": {
       "get": {
         "operationId": "list_cluster_node",
@@ -7285,6 +7307,345 @@
           "$ref": "#/components/parameters/id"
         }
       ]
+    },
+    "/api/v1/cluster/init": {
+      "post": {
+        "operationId": "cluster_init",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Members with role and last apply report, leader, quorum, pending change, rollout, consensus numbers, local override",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Cluster status"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Refused; the message says why."
+          }
+        },
+        "summary": "Make this node the first member of a new cluster; its model becomes the cluster's",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/cluster/join": {
+      "post": {
+        "operationId": "cluster_join",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Members with role and last apply report, leader, quorum, pending change, rollout, consensus numbers, local override",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Cluster status"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Refused; the message says why."
+          }
+        },
+        "summary": "Make this node a member of the cluster a join token is for; the node has to be empty",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/cluster/members/{id}": {
+      "delete": {
+        "operationId": "cluster_remove_member",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Members with role and last apply report, leader, quorum, pending change, rollout, consensus numbers, local override",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Cluster status"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Refused; the message says why."
+          }
+        },
+        "summary": "Remove a member and revoke its certificate",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/cluster/members/{id}/{action}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "$ref": "#/components/parameters/action"
+        }
+      ],
+      "post": {
+        "operationId": "cluster_member_action",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Members with role and last apply report, leader, quorum, pending change, rollout, consensus numbers, local override",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Cluster status"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Refused; the message says why."
+          }
+        },
+        "summary": "promote a member to voter or demote it",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/cluster/override": {
+      "delete": {
+        "operationId": "cluster_resolve_override",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The override that was in force"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No override is in force."
+          }
+        },
+        "summary": "End the local override; returns its changes for review",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "post": {
+        "operationId": "cluster_override",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "ops": {
+                    "items": {
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ops",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The override in force"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not a break-glass administrator."
+          }
+        },
+        "summary": "Change what runs on this member only while it is cut off; break-glass administrators only; the model is not touched",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/cluster/token": {
+      "post": {
+        "operationId": "cluster_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "ttl_minutes": {
+                    "type": "integer"
+                  },
+                  "voter": {
+                    "type": "boolean"
+                  }
+                },
+                "required": null,
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "expires_in_minutes": {
+                      "type": "integer"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "voter": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "expires_in_minutes",
+                    "token",
+                    "voter"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Token"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Refused."
+          }
+        },
+        "summary": "Issue a join token: good once, for a limited time",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/cluster/transfer": {
+      "post": {
+        "operationId": "cluster_transfer",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Members with role and last apply report, leader, quorum, pending change, rollout, consensus numbers, local override",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Cluster status"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Refused; the message says why."
+          }
+        },
+        "summary": "Hand leadership to another voter",
+        "tags": [
+          "cluster"
+        ]
+      }
     },
     "/api/v1/events": {
       "get": {
