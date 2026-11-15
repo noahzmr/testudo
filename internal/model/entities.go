@@ -229,7 +229,7 @@ type WGTunnel struct {
 	Zone         Ref[Zone] `json:"zone" yaml:"zone" validate:"required" ui:"label=Zone,widget=ref-picker,ref=zone,order=70"`
 	MTU          int       `json:"mtu,omitempty" yaml:"mtu,omitempty" validate:"omitempty,min=1280,max=9000" ui:"label=MTU,order=80"`
 	DNS          []string  `json:"dns,omitempty" yaml:"dns,omitempty" validate:"max=4,dive,ip" ui:"label=DNS servers pushed to clients,widget=list,order=90"`
-	Endpoint     string    `json:"endpoint,omitempty" yaml:"endpoint,omitempty" validate:"omitempty,hostname_port" ui:"label=Public endpoint,order=95,help=host:port that clients connect to; written into client configurations"`
+	Endpoint     string    `json:"endpoint,omitempty" yaml:"endpoint,omitempty" validate:"omitempty,hostport" ui:"label=Public endpoint,order=95,help=host:port that clients connect to; written into client configurations"`
 	ClientRoutes []string  `json:"client_routes,omitempty" yaml:"client_routes,omitempty" validate:"max=64,dive,cidr" ui:"label=Networks reachable through the tunnel,widget=list,order=96,help=Pushed to split-tunnel clients; full-tunnel clients route everything"`
 }
 
@@ -243,7 +243,7 @@ type WGPeer struct {
 	PublicKey    string        `json:"public_key" yaml:"public_key" validate:"required,wgkey" ui:"label=Public key,order=20"`
 	PresharedRef string        `json:"preshared_ref,omitempty" yaml:"preshared_ref,omitempty" validate:"omitempty,objname" ui:"label=Preshared key entry,widget=readonly,order=30" secret:"true"`
 	AllowedIPs   []string      `json:"allowed_ips" yaml:"allowed_ips" validate:"required,min=1,max=64,dive,cidr" ui:"label=Allowed IPs,widget=list,order=40"`
-	Endpoint     string        `json:"endpoint,omitempty" yaml:"endpoint,omitempty" validate:"omitempty,hostname_port" ui:"label=Endpoint,order=50"`
+	Endpoint     string        `json:"endpoint,omitempty" yaml:"endpoint,omitempty" validate:"omitempty,hostport" ui:"label=Endpoint,order=50"`
 	Keepalive    int           `json:"keepalive,omitempty" yaml:"keepalive,omitempty" validate:"min=0,max=65535" ui:"label=Persistent keepalive (s),order=60"`
 	FullTunnel   bool          `json:"full_tunnel,omitempty" yaml:"full_tunnel,omitempty" validate:"-" ui:"label=Full tunnel,order=70"`
 	User         Ref[User]     `json:"user,omitzero" yaml:"user,omitempty" validate:"-" ui:"label=User,widget=ref-picker,ref=user,group=Identity,order=80"`
@@ -288,20 +288,22 @@ func (Role) Kind() Kind { return KindRole }
 // Certificate is a TLS certificate. The private key is not part of the
 // model; KeyRef names the entry in the node's secret store.
 type Certificate struct {
-	Meta      `yaml:",inline"`
-	Source    string     `json:"source" yaml:"source" validate:"required,oneof=acme import internal_ca" ui:"label=Source,widget=select,order=10"`
-	Domains   []string   `json:"domains" yaml:"domains" validate:"required,min=1,max=100,dive,fqdn_or_wildcard" ui:"label=Domains,widget=list,order=20"`
-	Challenge string     `json:"challenge,omitempty" yaml:"challenge,omitempty" validate:"required_if=Source acme,omitempty,oneof=http-01 tls-alpn-01 dns-01" ui:"label=ACME challenge,widget=select,order=30"`
-	ChainPEM  string     `json:"chain_pem,omitempty" yaml:"chain_pem,omitempty" validate:"required_if=Source import,max=65536" ui:"label=Certificate chain (PEM),widget=textarea,order=40"`
-	KeyRef    string     `json:"key_ref,omitempty" yaml:"key_ref,omitempty" validate:"omitempty,objname" ui:"label=Private key entry,widget=readonly,order=50" secret:"true"`
-	NotAfter  *time.Time `json:"not_after,omitempty" yaml:"not_after,omitempty" validate:"-" ui:"label=Expires,widget=readonly,order=60"`
+	Meta        `yaml:",inline"`
+	Source      string     `json:"source" yaml:"source" validate:"required,oneof=acme import internal_ca" ui:"label=Source,widget=select,order=10"`
+	Domains     []string   `json:"domains" yaml:"domains" validate:"required,min=1,max=100,dive,fqdn_or_wildcard" ui:"label=Domains,widget=list,order=20"`
+	Challenge   string     `json:"challenge,omitempty" yaml:"challenge,omitempty" validate:"required_if=Source acme,omitempty,oneof=http-01 tls-alpn-01 dns-01" ui:"label=ACME challenge,widget=select,order=30"`
+	Email       string     `json:"email,omitempty" yaml:"email,omitempty" validate:"required_if=Source acme,omitempty,email" ui:"label=ACME account email,order=32"`
+	DNSProvider string     `json:"dns_provider,omitempty" yaml:"dns_provider,omitempty" validate:"required_if=Challenge dns-01,omitempty,objname" ui:"label=DNS provider,order=34,help=Provider code for the DNS-01 challenge; its credentials come from the proxy's environment"`
+	ChainPEM    string     `json:"chain_pem,omitempty" yaml:"chain_pem,omitempty" validate:"required_if=Source import,max=65536" ui:"label=Certificate chain (PEM),widget=textarea,order=40"`
+	KeyRef      string     `json:"key_ref,omitempty" yaml:"key_ref,omitempty" validate:"omitempty,objname" ui:"label=Private key entry,widget=readonly,order=50" secret:"true"`
+	NotAfter    *time.Time `json:"not_after,omitempty" yaml:"not_after,omitempty" validate:"-" ui:"label=Expires,widget=readonly,order=60"`
 }
 
 func (Certificate) Kind() Kind { return KindCertificate }
 
 // LBBackend is one server in a pool.
 type LBBackend struct {
-	Address string    `json:"address" yaml:"address" validate:"required,hostname_port" ui:"label=Address,order=10,help=host:port"`
+	Address string    `json:"address" yaml:"address" validate:"required,hostport" ui:"label=Address,order=10,help=host:port"`
 	Weight  int       `json:"weight,omitempty" yaml:"weight,omitempty" validate:"min=0,max=1000" ui:"label=Weight,order=20"`
 	Drain   bool      `json:"drain,omitempty" yaml:"drain,omitempty" validate:"-" ui:"label=Drain,order=30,help=Finish existing sessions and accept no new ones"`
 	Site    Ref[Site] `json:"site,omitzero" yaml:"site,omitempty" validate:"-" ui:"label=Site,widget=ref-picker,ref=site,order=40"`
@@ -375,7 +377,7 @@ type Site struct {
 	Location     string           `json:"location,omitempty" yaml:"location,omitempty" validate:"max=128" ui:"label=Location,order=10"`
 	Voter        Ref[ClusterNode] `json:"voter,omitzero" yaml:"voter,omitempty" validate:"-" ui:"label=Voting node,widget=ref-picker,ref=cluster_node,order=20"`
 	Witness      bool             `json:"witness,omitempty" yaml:"witness,omitempty" validate:"-" ui:"label=Witness only,order=30,help=Votes but carries no traffic"`
-	MeshEndpoint string           `json:"mesh_endpoint,omitempty" yaml:"mesh_endpoint,omitempty" validate:"omitempty,hostname_port" ui:"label=Mesh endpoint,order=40"`
+	MeshEndpoint string           `json:"mesh_endpoint,omitempty" yaml:"mesh_endpoint,omitempty" validate:"omitempty,hostport" ui:"label=Mesh endpoint,order=40"`
 	ASN          uint32           `json:"asn,omitempty" yaml:"asn,omitempty" validate:"-" ui:"label=AS number,order=50"`
 }
 

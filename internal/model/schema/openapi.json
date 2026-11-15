@@ -939,6 +939,14 @@
             "title": "Description",
             "type": "string"
           },
+          "dns_provider": {
+            "description": "Provider code for the DNS-01 challenge; its credentials come from the proxy's environment",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "DNS provider",
+            "type": "string",
+            "x-required-if": "Challenge dns-01",
+            "x-rule": "objname"
+          },
           "domains": {
             "items": {
               "description": "host name, optionally with a leading *. label",
@@ -949,6 +957,12 @@
             "minItems": 1,
             "title": "Domains",
             "type": "array"
+          },
+          "email": {
+            "format": "email",
+            "title": "ACME account email",
+            "type": "string",
+            "x-required-if": "Source acme"
           },
           "id": {
             "format": "uuid",
@@ -2196,10 +2210,10 @@
               "properties": {
                 "address": {
                   "description": "host:port",
-                  "format": "host-port",
                   "minLength": 1,
                   "title": "Address",
-                  "type": "string"
+                  "type": "string",
+                  "x-rule": "hostport"
                 },
                 "drain": {
                   "description": "Finish existing sessions and accept no new ones",
@@ -3746,9 +3760,10 @@
             "type": "string"
           },
           "mesh_endpoint": {
-            "format": "host-port",
+            "description": "host:port; an IPv6 address goes in brackets",
             "title": "Mesh endpoint",
-            "type": "string"
+            "type": "string",
+            "x-rule": "hostport"
           },
           "name": {
             "description": "Unique per type; letters digits dot dash underscore",
@@ -4178,9 +4193,10 @@
             "type": "boolean"
           },
           "endpoint": {
-            "format": "host-port",
+            "description": "host:port; an IPv6 address goes in brackets",
             "title": "Endpoint",
-            "type": "string"
+            "type": "string",
+            "x-rule": "hostport"
           },
           "expires_at": {
             "format": "date-time",
@@ -4395,9 +4411,9 @@
           },
           "endpoint": {
             "description": "host:port that clients connect to; written into client configurations",
-            "format": "host-port",
             "title": "Public endpoint",
-            "type": "string"
+            "type": "string",
+            "x-rule": "hostport"
           },
           "id": {
             "format": "uuid",

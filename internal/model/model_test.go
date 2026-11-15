@@ -142,7 +142,7 @@ func TestValidate(t *testing.T) {
 		Backends:    []LBBackend{{Address: "10.0.0.1:80"}, {Address: "no-port"}},
 		HealthCheck: LBHealthCheck{Type: "http"}}
 	got = fieldRules(t, Validate(p))
-	want = map[string]string{"backends[1].address": "hostname_port", "health_check.path": "required_if"}
+	want = map[string]string{"backends[1].address": "hostport", "health_check.path": "required_if"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("field errors = %v, want %v", got, want)
 	}
@@ -166,6 +166,7 @@ func TestCustomRules(t *testing.T) {
 		"cidr_or_ip":       {[]string{"10.0.0.1", "10.0.0.0/8", "2001:db8::/32", "::1"}, []string{"10.0.0", "10.0.0.0/33", "host"}},
 		"duration":         {[]string{"30s", "5m", "1h30m"}, []string{"0s", "-1s", "5", "soon"}},
 		"scope":            {[]string{"global", "site:" + idA, "node:" + idA}, []string{"", "site:", "site:x", "rack:" + idA}},
+		"hostport":         {[]string{"example.com:443", "10.0.0.2:80", "[2001:db8::1]:8080", "backend-1:9000"}, []string{"", "example.com", "10.0.0.2", "2001:db8::1:80", "[10.0.0.2]:80", "host:0", "host:70000", "*.x.com:80"}},
 		"ospfarea":         {[]string{"0", "0.0.0.0", "51"}, []string{"backbone", "::1", "-1"}},
 		"permission":       {[]string{"firewall:write", "*:read"}, []string{"firewall", "firewall:admin", "Fire:read"}},
 		"ratelimit":        {[]string{"10/second", "1/day"}, []string{"0/second", "10/fortnight", "ten/second"}},

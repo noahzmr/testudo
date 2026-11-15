@@ -2124,7 +2124,10 @@
           "label": "Public endpoint",
           "type": "string",
           "order": 95,
-          "help": "host:port that clients connect to; written into client configurations"
+          "help": "host:port that clients connect to; written into client configurations",
+          "rules": [
+            "hostport"
+          ]
         },
         {
           "name": "client_routes",
@@ -2315,7 +2318,10 @@
           "name": "endpoint",
           "label": "Endpoint",
           "type": "string",
-          "order": 50
+          "order": 50,
+          "rules": [
+            "hostport"
+          ]
         },
         {
           "name": "keepalive",
@@ -2998,6 +3004,22 @@
           ]
         },
         {
+          "name": "email",
+          "label": "ACME account email",
+          "type": "string",
+          "order": 32
+        },
+        {
+          "name": "dns_provider",
+          "label": "DNS provider",
+          "type": "string",
+          "order": 34,
+          "help": "Provider code for the DNS-01 challenge; its credentials come from the proxy's environment",
+          "rules": [
+            "objname"
+          ]
+        },
+        {
           "name": "chain_pem",
           "label": "Certificate chain (PEM)",
           "type": "string",
@@ -3382,7 +3404,10 @@
               "type": "string",
               "order": 10,
               "help": "host:port",
-              "required": true
+              "required": true,
+              "rules": [
+                "hostport"
+              ]
             },
             {
               "name": "weight",
@@ -4013,7 +4038,10 @@
           "name": "mesh_endpoint",
           "label": "Mesh endpoint",
           "type": "string",
-          "order": 40
+          "order": 40,
+          "rules": [
+            "hostport"
+          ]
         },
         {
           "name": "asn",

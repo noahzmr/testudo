@@ -64,6 +64,7 @@ var CustomRules = map[string]struct {
 	"ratelimit":        {"rate such as 10/second", rateRe.String(), rateRe.MatchString},
 	"wgkey":            {"WireGuard key: 32 bytes, base64", `^[A-Za-z0-9+/]{43}=$`, validWGKey},
 	"fqdn_or_wildcard": {"host name, optionally with a leading *. label", "", validFQDNOrWildcard},
+	"hostport":         {"host:port; an IPv6 address goes in brackets", "", validHostPort},
 	"community":        {"BGP community (standard, large or well-known)", communityRe.String(), communityRe.MatchString},
 	"ospfarea":         {"OSPF area as dotted quad or number", "", validOSPFArea},
 	"permission":       {"<area>:read or <area>:write; area may be *", permRe.String(), permRe.MatchString},
@@ -119,6 +120,22 @@ func validFQDNOrWildcard(s string) bool {
 		}
 	}
 	return true
+}
+
+// validHostPort accepts name:port, 192.0.2.1:port and [2001:db8::1]:port.
+func validHostPort(s string) bool {
+	host, port, err := net.SplitHostPort(s)
+	if err != nil {
+		return false
+	}
+	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+		return false
+	}
+	if strings.HasPrefix(s, "[") {
+		ip := net.ParseIP(host)
+		return ip != nil && ip.To4() == nil
+	}
+	return net.ParseIP(host) != nil || (!strings.HasPrefix(host, "*") && validFQDNOrWildcard(host))
 }
 
 func validOSPFArea(s string) bool {
