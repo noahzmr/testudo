@@ -82,6 +82,8 @@ func run() error {
 		return cmdUser(args)
 	case "config":
 		return cmdConfig(args)
+	case "cluster":
+		return cmdCluster(args)
 	case "web":
 		return cmdWeb(args)
 	case "discover":
@@ -120,6 +122,7 @@ func usage() {
 	fmt.Println("  config status | history [-n N] | export        the configuration model (read)")
 	fmt.Println("  config import-legacy [--apply]                 translate firewall.json, users and tunnels into the model")
 	fmt.Println("  config compact [--keep N]                      fold old history into a snapshot")
+	fmt.Println("  cluster recover --unsafe --cluster-raft ADDR   lost quorum: make this member a cluster of one (daemon stopped)")
 	fmt.Println("  firewall status                                policy mode, counts, kernel drift")
 	fmt.Println("  firewall rules                                 render the policy nft-style")
 	fmt.Println("  firewall export                                policy JSON out")
