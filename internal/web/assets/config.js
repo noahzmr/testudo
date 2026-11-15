@@ -97,8 +97,8 @@ const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'na
   'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate',
   'user', 'group', 'role', 'oidc_provider', 'api_token']);
 // Sections that open on the model instead of their live view.
-const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'sites', changes: 'changesets' };
-const paneOf = seg => seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
+const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'cluster-overview', changes: 'changesets' };
+const paneOf = seg => seg === 'cluster-overview' ? 'cluster' : seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
 const paneEl = name => document.querySelector(`.pane[data-pane="${name}"]`);
 
 // buildBars gives every section its row of tabs.
@@ -109,6 +109,7 @@ function buildBars() {
     if (f && can(f, 'read')) (byPane[pane] ||= []).push(f);
   }
   byPane.changes = [{ plural: 'changesets', label: 'Change sets' }, { plural: 'history', label: 'History' }, { plural: 'audit', label: 'Audit log' }];
+  (byPane.cluster ||= []).unshift({ plural: 'cluster-overview', label: 'Overview' });
   for (const [pane, forms] of Object.entries(byPane)) {
     const host = paneEl(pane);
     if (!host || host.querySelector('.cfg-bar')) continue;
@@ -163,6 +164,7 @@ async function route() {
   if (seg === 'changesets') { S.form = null; return changeSetsView(); }
   if (seg === 'history') { S.form = null; return historyView(); }
   if (seg === 'audit') { S.form = null; return auditView(); }
+  if (seg === 'cluster-overview') { S.form = null; return clusterView(); }
   S.form = S.forms.find(f => f.plural === seg);
   if (!S.form || !can(S.form, 'read')) return fill($('#cfg-main'), el('p', { text: 'Nothing you may read here.' }));
   if (id === 'new') return S.form.kind === 'api_token' ? tokenView() : editView(S.form, null);
@@ -765,6 +767,79 @@ async function historyView() {
           if (x.ok) { afterWrite(x); historyView(); } else toast(x.data?.message || 'failed', 'err');
         } }) : null),
       changeRows(rec.changes))));
+}
+
+// clusterView is the cluster as this member sees it: who is in it, who
+// leads, what each member runs, and whether changes can be made at all.
+async function clusterView() {
+  const g = gen;
+  const r = await api('GET', '/cluster');
+  if (g !== gen) return;
+  const main = $('#cfg-main'), c = r.data || {};
+  const head = el('header', {}, el('h2', { text: 'Cluster' }));
+  if (!r.ok) return fill(main, head, el('p', { class: 'err', text: r.data?.message || 'failed' }));
+  const act = async (method, path, body, done) => {
+    const x = await api(method, path, body);
+    if (!x.ok) return toast(x.data?.message || 'failed', 'err');
+    done ? done(x.data) : clusterView();
+  };
+  const admin = (S.who?.permissions || []).some(p => p === '*:write' || p === 'cluster:write');
+  if (!c.enabled) {
+    return fill(main, head, el('p', { text: 'This node runs alone. To make it part of a cluster, start it with --cluster-raft and --cluster-api (addresses on the site mesh, never on a WAN interface).' }));
+  }
+  if (!c.member) {
+    const token = el('textarea', { rows: 3, placeholder: 'tdj1.…', spellcheck: 'false' });
+    return fill(main, head,
+      el('p', { text: 'This node is ready for a cluster and belongs to none.' }),
+      admin ? el('section', { class: 'cfg-card' }, el('h3', { text: 'Start a new cluster here' }),
+        el('p', { class: 'dim', text: 'This node becomes the first member. Its configuration becomes the cluster\'s.' }),
+        el('button', { type: 'button', class: 'primary', text: 'Start a cluster', onclick: () => { if (confirm('Make this node the first member of a new cluster?')) act('POST', '/cluster/init'); } })) : null,
+      admin ? el('section', { class: 'cfg-card' }, el('h3', { text: 'Join an existing cluster' }),
+        el('p', { class: 'dim', text: 'Paste a join token from a member of that cluster. This node has to be empty; it receives the cluster\'s configuration.' }),
+        token, el('div', { class: 'actions' }, el('button', { type: 'button', text: 'Join', onclick: () => act('POST', '/cluster/join', { token: token.value }) }))) : null);
+  }
+  const st = c.stats || {};
+  const voters = (c.members || []).filter(m => m.role !== 'non-voter').length;
+  const warn = [];
+  if (!c.quorum) warn.push('This member cannot reach a majority. It keeps running its last configuration and accepts no changes.');
+  if (st.halted) warn.push('This member stopped following the cluster: ' + st.halted);
+  if (c.quorum && voters === 2) warn.push('Two voters cannot survive the loss of either: one alone is not a majority. Add a third voter at another location; a small witness is enough.');
+  if (c.quorum && voters % 2 === 0 && voters > 2) warn.push(`${voters} voters tolerate no more failures than ${voters - 1} would. Use three or five.`);
+  const ov = c.override;
+  const tokenOut = el('div');
+  const mkToken = voter => act('POST', '/cluster/token', { voter, ttl_minutes: 30 }, d => fill(tokenOut,
+    el('p', { text: `Join token for a ${voter ? 'voter' : 'member without a vote'}, good once and for 30 minutes:` }), el('pre', { class: 'cfg-secret', text: d.token })));
+  const stateText = m => ({ applied: 'applied', pending: 'not there yet', failed: 'failed', drift: 'differs', unknown: 'no report' }[m.state] || m.state)
+    + (m.result ? ` · record ${m.result.index}` : '') + (m.result?.error ? ` · ${m.result.error}` : '') + (m.result?.drift ? ` · ${m.result.drift}` : '');
+  fill(main, head,
+    warn.map(w => el('p', { class: 'err', text: w })),
+    ov ? el('section', { class: 'cfg-card' }, el('h3', { text: 'Local override in force on this member' }),
+      el('p', { text: `${ov.actor} changed what runs here on ${new Date(ov.at).toLocaleString()}: "${ov.reason}". The configuration was not changed, and this member does not follow the cluster until the override is resolved.` }),
+      el('pre', { text: JSON.stringify(ov.ops, null, 1) }),
+      admin ? el('button', { type: 'button', text: 'Resolve: go back to the cluster\'s configuration', onclick: () => {
+        if (confirm('End the override? Its changes are shown above; make them again as a normal change if they should stay.')) act('DELETE', '/cluster/override');
+      } }) : null) : null,
+    el('p', { class: 'dim', text: `This member: ${c.id} · leader: ${c.leader || 'none'} · term ${st.term ?? '-'} · committed ${st.commit_index ?? '-'} · applied ${st.applied_index ?? '-'} · configuration record ${c.model_index}` +
+      (c.pending ? ` · change ${c.pending.index} by ${c.pending.actor} waits for confirmation` : '') +
+      (c.rollout && c.rollout.phase === 'canary' ? ` · rollout: only ${c.rollout.canary} so far` : '') +
+      (c.cert_expiry ? ` · certificate until ${new Date(c.cert_expiry).toLocaleDateString()}` : '') }),
+    el('table', { class: 'cfg-table' },
+      el('thead', {}, el('tr', {}, ['Member', 'Role', 'Configuration', 'Build', 'Address', ''].map(h => el('th', { text: h })))),
+      el('tbody', {}, (c.members || []).map(m => el('tr', {},
+        el('td', { text: m.name || m.id }), el('td', { text: m.in_group ? m.role : 'left' }),
+        el('td', { class: m.state === 'failed' || m.state === 'drift' ? 'err' : '', text: stateText(m) }),
+        el('td', { class: 'dim', text: m.build || '' }), el('td', { class: 'dim', text: m.raft || '' }),
+        el('td', {}, admin && c.quorum && m.id !== c.leader ? [
+          m.role === 'non-voter' ? el('button', { type: 'button', text: 'Make voter', onclick: () => act('POST', `/cluster/members/${encodeURIComponent(m.id)}/promote`) })
+            : el('button', { type: 'button', text: 'Take vote', onclick: () => act('POST', `/cluster/members/${encodeURIComponent(m.id)}/demote`) }),
+          el('button', { type: 'button', text: 'Remove', onclick: () => { if (confirm(`Remove ${m.id} from the cluster? Its certificate is revoked.`)) act('DELETE', `/cluster/members/${encodeURIComponent(m.id)}`); } }),
+        ] : null))))),
+    admin && c.quorum ? el('div', { class: 'actions' },
+      el('button', { type: 'button', text: 'Token for a voter', onclick: () => mkToken(true) }),
+      el('button', { type: 'button', text: 'Token for a member without a vote', onclick: () => mkToken(false) }),
+      el('button', { type: 'button', text: 'Hand over leadership', onclick: () => act('POST', '/cluster/transfer') })) : null,
+    tokenOut,
+    el('p', { class: 'dim', text: 'Voters decide: keep three or five, at three locations or more. Members without a vote receive the configuration and do not affect the majority.' }));
 }
 
 // auditView lists who did what: logins with their source, configuration
