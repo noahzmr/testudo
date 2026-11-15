@@ -3,9 +3,10 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0, 1 and 2 complete. The packet filter and NAT are driven by
-the model ([phase-2-packet-filter.md](phase-2-packet-filter.md)), verified
-against a real kernel. Routing (Phase 3) is next.**
+**Status: Phases 0 to 3 complete. The packet filter, NAT and routing are
+driven by the model ([phase-2-packet-filter.md](phase-2-packet-filter.md),
+[phase-3-routing.md](phase-3-routing.md)), verified against a real kernel
+and real FRR. WireGuard and identity-aware access (Phase 4) are next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -17,7 +18,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | --- | --- | --- | --- | --- |
 | 1 | Data model, generation, config core | done | - | - |
 | 2 | Stateful packet filter and NAT | done | - | - |
-| 3 | Routing (FRR), multi-WAN, PBR | about 5 % | 6–8 weeks | medium |
+| 3 | Routing (FRR), multi-WAN, PBR | done | - | - |
 | 4 | WireGuard and identity-aware access | about 45 % | 5–6 weeks | medium |
 | 5 | Load balancing, SNI, certificates | nothing | 7–9 weeks | medium |
 | 6 | Linux-PAM, OIDC, RBAC, audit | about 25 % | 5–6 weeks | high |
@@ -98,10 +99,10 @@ firewall manager and move into the model in Phases 4 and 6.
 
 ## 3. Routing
 
-Today: static routes in the main table, runtime-only. Everything else is
-missing: FRR lifecycle and configuration rendering, OSPFv2/v3, BGP with
-policy, BFD, ECMP, VRFs, `ip rule` policy routing tied to firewall marks,
-gateway groups with health monitoring, state read-back through `vtysh` JSON.
+Done; see [phase-3-routing.md](phase-3-routing.md) for what is driven, how,
+what the host needs, and the parts that are rendered and parsed but not
+exercised in a kernel test (OSPF adjacency, BFD, equal-cost routes, VRF
+routes, IPv6 routes).
 
 ## 4. VPN (WireGuard)
 

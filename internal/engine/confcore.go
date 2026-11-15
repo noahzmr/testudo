@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,7 +15,10 @@ import (
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/frrender"
+	"github.com/noahzmr/testudo/internal/frrstage"
 	"github.com/noahzmr/testudo/internal/fwbridge"
+	"github.com/noahzmr/testudo/internal/gwmon"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/storage"
 )
@@ -30,6 +34,15 @@ type confCore struct {
 	notify atomic.Pointer[func(confapply.Notice)]
 	// feed holds the content of URL-table and GeoIP aliases.
 	feed *aliasfeed.Feed
+	// routing is the routing stage; gateways watches the gateways whose
+	// health decides which routes it renders.
+	routing  *frrstage.Stage
+	gateways *gwmon.Monitor
+	// routingState caches what the routing daemon reports, so that showing
+	// it does not run a command per request.
+	routingMu    sync.Mutex
+	routingState map[string]any
+	routingAt    time.Time
 }
 
 // ConfigDir is where the configuration log and the pending-apply marker live.
@@ -59,7 +72,13 @@ func (e *Engine) openConfig() {
 		}
 		stage = &fwbridge.Stage{Manager: fw, Locate: localNode}
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, stage)
+	// Routing follows the packet filter: marks are set there and used here.
+	c.gateways = &gwmon.Monitor{}
+	c.routing = &frrstage.Stage{Locate: localNode, Down: c.gateways.Down, StateDir: dir}
+	if e.netops != nil {
+		c.routing.Runner = e.netops
+	}
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, stage, c.routing)
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
@@ -113,6 +132,85 @@ func (e *Engine) startConfig(ctx context.Context) {
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)
 	}
+	if e.netops != nil {
+		go e.gatewayLoop(ctx)
+	}
+}
+
+// gatewayLoop probes the monitored gateways and moves routes when one goes
+// down or comes back.
+func (e *Engine) gatewayLoop(ctx context.Context) {
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		st := e.conf.store.Current()
+		site, node := localNode(st)
+		gws := frrender.Gateways(st, frrender.Options{SiteID: site, NodeID: node})
+		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		changed := e.conf.gateways.Check(probeCtx, gws, time.Now())
+		cancel()
+		if !changed {
+			continue
+		}
+		for id, s := range e.conf.gateways.Status() {
+			state := "up"
+			if s.Down {
+				state = "down"
+			}
+			log.Printf("config: gateway %s (monitor %s) is %s", id, s.Monitor, state)
+		}
+		if _, pending := e.conf.apply.Pending(); pending {
+			continue // the pending change is settled first; the next round catches up
+		}
+		if err := e.conf.routing.Refresh(ctx, st); err != nil {
+			log.Printf("config: move routes after gateway change: %v", err)
+		}
+	}
+}
+
+// routingRuntime reports gateway health and, when the routing daemon runs,
+// its BGP sessions. The daemon is asked at most every five seconds.
+func (e *Engine) routingRuntime() map[string]any {
+	c := &e.conf
+	out := map[string]any{"gateways": c.gateways.Status()}
+	if e.netops == nil {
+		return out
+	}
+	c.routingMu.Lock()
+	defer c.routingMu.Unlock()
+	if time.Since(c.routingAt) > 5*time.Second {
+		state := map[string]any{"daemon": false}
+		if raw, err := e.netops.FrrShow("bgp"); err == nil {
+			state["daemon"] = true
+			// {"ipv4Unicast": {"peers": {"<address>": {"state": ..., "pfxRcd": ...}}}, ...}
+			var doc map[string]struct {
+				Peers map[string]struct {
+					State    string `json:"state"`
+					Received int    `json:"pfxRcd"`
+					Uptime   string `json:"peerUptime"`
+				} `json:"peers"`
+			}
+			sessions := map[string]any{}
+			if json.Unmarshal([]byte(raw), &doc) == nil {
+				for _, fam := range doc {
+					for addr, p := range fam.Peers {
+						sessions[addr] = map[string]any{"state": p.State, "received": p.Received, "uptime": p.Uptime}
+					}
+				}
+			}
+			state["bgp"] = sessions
+		}
+		c.routingState, c.routingAt = state, time.Now()
+	}
+	for k, v := range c.routingState {
+		out[k] = v
+	}
+	return out
 }
 
 // aliasFeedLoop refreshes run-time aliases and reloads the ruleset when their
@@ -156,6 +254,9 @@ func (e *Engine) ConfigRuntime() map[string]any {
 	}
 	if e.conf.feed != nil {
 		out["aliases"] = e.conf.feed.StatusOf()
+	}
+	if e.conf.gateways != nil {
+		out["routing"] = e.routingRuntime()
 	}
 	return out
 }

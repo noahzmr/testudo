@@ -13,7 +13,7 @@ been copied from any of them.**
 | Project | License | Use | May code be reused in Testudo? |
 | --- | --- | --- | --- |
 | OPNsense (`opnsense/core`) | BSD-2-Clause | reference: rule model, aliases, apply and rollback | compatible with attribution; nothing reused |
-| FRRouting | GPL-2.0-or-later for most files (per-file SPDX headers) | planned runtime dependency: separate daemon, driven through its configuration file and `vtysh` | no. Run as a separate program only; do not copy or link |
+| FRRouting | GPL-2.0-or-later for most files (per-file SPDX headers) | runtime dependency: separate daemon, driven through `vtysh` and `frr-reload.py` by the runner | no. Run as a separate program only; do not copy or link |
 | Pangolin (`fosrl/pangolin`) | AGPL-3.0 for most files, a commercial license for marked files | reference: identity-aware access over WireGuard | no. Ideas only |
 | WireGuard kernel module | GPL-2.0 | runtime: kernel data plane | not applicable (kernel) |
 | wireguard-tools | GPL-2.0 | reference only; Testudo does not call `wg` or `wg-quick` | no |
