@@ -247,6 +247,8 @@ func (e *Engine) startConfig(ctx context.Context) {
 	e.seedRoles(ctx)
 	e.prepareLocalUsers(ctx)
 	e.migrateFirewallFile(ctx)
+	e.migrateSettings(ctx)
+	e.syncSettings(ctx)
 	go e.grantLoop(ctx)
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)
