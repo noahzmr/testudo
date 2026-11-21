@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -186,6 +187,38 @@ func TestPrivilegedPathEndToEnd(t *testing.T) {
 	}
 	if _, rt := call("GET", "/api/v1/runtime", nil); rt["counters"] == nil {
 		t.Errorf("no counters from the running ruleset: %v", rt)
+	}
+	// A rule with logging on: the packets it matches reach the console,
+	// read from the log group the helper opened, with the rule's name.
+	write("/api/v1/filter-rules", map[string]any{"name": "log-probe", "enabled": true, "action": "accept",
+		"direction": "in", "protocol": "udp", "ports": []string{"9999"}, "log": true})
+	// Loopback is accepted before any rule, so the probe comes from a
+	// neighbour.
+	peer := testnet.NewNS(t, "peer")
+	testnet.Veth(t, "probe0", peer, "eth0")
+	testnet.Must(t, testnet.Addr("probe0", "10.98.0.1/24"))
+	var probe net.Conn
+	testnet.Must(t, peer.Do(func() error {
+		if err := testnet.Addr("eth0", "10.98.0.2/24"); err != nil {
+			return err
+		}
+		var err error
+		probe, err = net.Dial("udp", "10.98.0.1:9999")
+		return err
+	}))
+	defer probe.Close()
+	logged := false
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline) && !logged; time.Sleep(300 * time.Millisecond) {
+		probe.Write([]byte("probe"))
+		_, snap := call("GET", "/api/snapshot", nil)
+		entries, _ := snap["firewall_log"].([]any)
+		for _, e := range entries {
+			m, _ := e.(map[string]any)
+			logged = logged || (m["rule"] == "log-probe" && m["dst_port"] == 9999.0 && m["proto"] == "udp")
+		}
+	}
+	if !logged {
+		t.Errorf("the logged packet did not reach the console\n%s", stderr.String())
 	}
 	// The apply shows up in the audit log without the ruleset text.
 	if strings.Contains(stderr.String(), "nft runner unavailable") {
