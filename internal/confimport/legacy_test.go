@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/noahzmr/testudo/internal/auth"
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/model"
@@ -22,10 +21,6 @@ const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 func sample() Legacy {
 	return Legacy{
 		Hostname: "fw1", NodeAddress: "10.0.0.1",
-		Users: []auth.User{
-			{Name: "testudo", Role: auth.RoleAdmin, Hash: "$2a$10$secret-hash", TOTPSecret: "JBSWY3DPEHPK3PXP"},
-			{Name: "olivia", Role: auth.RoleOperator, Hash: "$2a$10$other-hash", Disabled: true},
-		},
 		Firewall: &firewall.Policy{
 			Enforce:  true,
 			Baseline: netops.FilterBaseline{AllowEstablished: true, DropInvalid: true, AllowLoopback: true, AllowICMP: true, AllowTCPPorts: []uint16{22, 8080}},
@@ -71,7 +66,7 @@ func TestTranslateProducesAModelTheStoreAccepts(t *testing.T) {
 	st := store.Current()
 	count := func(k model.Kind) int { return len(st.List(k)) }
 	for kind, want := range map[model.Kind]int{
-		model.KindSite: 1, model.KindClusterNode: 1, model.KindRole: 4, model.KindUser: 2,
+		model.KindSite: 1, model.KindClusterNode: 1, model.KindRole: 0, model.KindUser: 0,
 		model.KindFirewallPolicy: 1, model.KindFilterRule: 3, model.KindNATRule: 2,
 		model.KindZone: 2, model.KindInterface: 2, model.KindWGTunnel: 1, model.KindWGPeer: 2,
 	} {
@@ -102,8 +97,8 @@ func TestTranslateProducesAModelTheStoreAccepts(t *testing.T) {
 	}
 	// Everything that was not carried over is named.
 	notes := strings.Join(res.Notes, "\n")
-	for _, want := range []string{"rule 5", "over the rate", "rule 6", "action \"log\"", "password hashes",
-		"second factor", "wg1", "no allowed IPs", "private key stays"} {
+	for _, want := range []string{"rule 5", "over the rate", "rule 6", "action \"log\"",
+		"wg1", "no allowed IPs", "private key stays"} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("notes do not mention %q:\n%s", want, notes)
 		}

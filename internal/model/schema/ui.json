@@ -2528,8 +2528,10 @@
           "type": "string",
           "widget": "select",
           "order": 30,
+          "help": "local: a password (and code) kept by Testudo on every member; host: the host's PAM stack; oidc: the identity provider",
           "required": true,
           "enum": [
+            "local",
             "host",
             "oidc"
           ]

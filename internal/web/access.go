@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/noahzmr/testudo/internal/identity"
 	"github.com/noahzmr/testudo/internal/model"
 )
 
@@ -168,11 +167,7 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 		if ok && g.host == hostOnly(host) {
 			if rec := s.liveSession(r, g.sid); rec != nil {
-				groups := rec.principal.Groups
-				if rec.principal.Source == identity.SourceLocal {
-					groups = identity.ModelGroups(s.modelState(), rec.user)
-				}
-				for _, id := range groups {
+				for _, id := range rec.principal.Groups {
 					if required[id] {
 						w.Header().Set("X-Forwarded-User", rec.user)
 						w.WriteHeader(http.StatusOK)

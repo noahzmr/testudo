@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/noahzmr/testudo/internal/auth"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/confimport"
 	"github.com/noahzmr/testudo/internal/confstore"
@@ -196,13 +195,8 @@ func loadLegacy(cfg config.Config) (confimport.Legacy, error) {
 		return in, err
 	}
 
-	if _, err := os.Stat(filepath.Join(cfg.StorageDir, "users.json")); err == nil {
-		users, err := auth.Open(filepath.Join(cfg.StorageDir, "users.json"))
-		if err != nil {
-			return in, fmt.Errorf("users: %w", err)
-		}
-		in.Users = users.List()
-	}
+	// Users of users.json move into the model by themselves when the daemon
+	// starts, with their passwords and second factors.
 
 	// Live WireGuard devices are best effort: reading them needs privileges.
 	devs, err := (&netops.Writer{}).ListWGDevices()

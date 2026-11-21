@@ -21,98 +21,9 @@
   "hostname": "fw1",
   "address": "10.0.0.1"
 }
-## role
-{
-  "id": "00000000-0000-4000-8000-000000000003",
-  "name": "admin",
-  "description": "Imported built-in role",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "permissions": [
-    "*:write"
-  ]
-}
-## role
-{
-  "id": "00000000-0000-4000-8000-000000000004",
-  "name": "operator",
-  "description": "Imported built-in role",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "permissions": [
-    "*:read",
-    "firewall:write",
-    "routing:write",
-    "vpn:write",
-    "loadbalancer:write",
-    "interfaces:write",
-    "access:write",
-    "services:write"
-  ]
-}
-## role
-{
-  "id": "00000000-0000-4000-8000-000000000005",
-  "name": "approver",
-  "description": "Imported built-in role",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "permissions": [
-    "*:read",
-    "access:write"
-  ]
-}
-## role
-{
-  "id": "00000000-0000-4000-8000-000000000006",
-  "name": "viewer",
-  "description": "Imported built-in role",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "permissions": [
-    "*:read"
-  ]
-}
-## user
-{
-  "id": "00000000-0000-4000-8000-000000000007",
-  "name": "olivia",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "username": "olivia",
-  "source": "host",
-  "roles": [
-    "00000000-0000-4000-8000-000000000004"
-  ],
-  "disabled": true
-}
-## user
-{
-  "id": "00000000-0000-4000-8000-000000000008",
-  "name": "testudo",
-  "version": 0,
-  "created_at": "0001-01-01T00:00:00Z",
-  "updated_at": "0001-01-01T00:00:00Z",
-  "scope": "global",
-  "username": "testudo",
-  "source": "host",
-  "roles": [
-    "00000000-0000-4000-8000-000000000003"
-  ]
-}
 ## firewall_policy
 {
-  "id": "00000000-0000-4000-8000-000000000009",
+  "id": "00000000-0000-4000-8000-000000000003",
   "name": "default",
   "description": "Imported from firewall.json",
   "version": 0,
@@ -131,7 +42,7 @@
 }
 ## filter_rule
 {
-  "id": "00000000-0000-4000-8000-000000000010",
+  "id": "00000000-0000-4000-8000-000000000004",
   "name": "rule-001",
   "description": "web",
   "version": 0,
@@ -149,7 +60,7 @@
 }
 ## filter_rule
 {
-  "id": "00000000-0000-4000-8000-000000000011",
+  "id": "00000000-0000-4000-8000-000000000005",
   "name": "rule-004",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -167,7 +78,7 @@
 }
 ## filter_rule
 {
-  "id": "00000000-0000-4000-8000-000000000012",
+  "id": "00000000-0000-4000-8000-000000000006",
   "name": "rule-007",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -187,7 +98,7 @@
 }
 ## zone
 {
-  "id": "00000000-0000-4000-8000-000000000013",
+  "id": "00000000-0000-4000-8000-000000000007",
   "name": "zone-eth0",
   "description": "Imported: stands for interface eth0",
   "version": 0,
@@ -198,19 +109,19 @@
 }
 ## interface
 {
-  "id": "00000000-0000-4000-8000-000000000014",
+  "id": "00000000-0000-4000-8000-000000000008",
   "name": "eth0",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
   "updated_at": "0001-01-01T00:00:00Z",
   "scope": "node:00000000-0000-4000-8000-000000000002",
   "device": "eth0",
-  "zone": "00000000-0000-4000-8000-000000000013",
+  "zone": "00000000-0000-4000-8000-000000000007",
   "enabled": true
 }
 ## nat_rule
 {
-  "id": "00000000-0000-4000-8000-000000000015",
+  "id": "00000000-0000-4000-8000-000000000009",
   "name": "forward-001",
   "description": "nas",
   "version": 0,
@@ -220,7 +131,7 @@
   "enabled": true,
   "sequence": 10,
   "type": "dnat",
-  "zone": "00000000-0000-4000-8000-000000000013",
+  "zone": "00000000-0000-4000-8000-000000000007",
   "protocol": "tcp",
   "port": "443",
   "translate_to": "192.168.1.10",
@@ -228,7 +139,7 @@
 }
 ## nat_rule
 {
-  "id": "00000000-0000-4000-8000-000000000016",
+  "id": "00000000-0000-4000-8000-000000000010",
   "name": "masquerade-001",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -237,7 +148,7 @@
   "enabled": true,
   "sequence": 1010,
   "type": "masquerade",
-  "zone": "00000000-0000-4000-8000-000000000013",
+  "zone": "00000000-0000-4000-8000-000000000007",
   "protocol": "any",
   "source_nets": [
     "10.8.0.0/24"
@@ -245,7 +156,7 @@
 }
 ## zone
 {
-  "id": "00000000-0000-4000-8000-000000000017",
+  "id": "00000000-0000-4000-8000-000000000011",
   "name": "zone-wg0",
   "description": "Imported: stands for interface wg0",
   "version": 0,
@@ -256,19 +167,19 @@
 }
 ## interface
 {
-  "id": "00000000-0000-4000-8000-000000000018",
+  "id": "00000000-0000-4000-8000-000000000012",
   "name": "wg0",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
   "updated_at": "0001-01-01T00:00:00Z",
   "scope": "node:00000000-0000-4000-8000-000000000002",
   "device": "wg0",
-  "zone": "00000000-0000-4000-8000-000000000017",
+  "zone": "00000000-0000-4000-8000-000000000011",
   "enabled": true
 }
 ## wg_tunnel
 {
-  "id": "00000000-0000-4000-8000-000000000019",
+  "id": "00000000-0000-4000-8000-000000000013",
   "name": "wg0",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
@@ -282,18 +193,18 @@
     "10.8.0.1/24"
   ],
   "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-  "zone": "00000000-0000-4000-8000-000000000017"
+  "zone": "00000000-0000-4000-8000-000000000011"
 }
 ## wg_peer
 {
-  "id": "00000000-0000-4000-8000-000000000020",
+  "id": "00000000-0000-4000-8000-000000000014",
   "name": "wg0-peer-01",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
   "updated_at": "0001-01-01T00:00:00Z",
   "scope": "global",
   "enabled": true,
-  "tunnel": "00000000-0000-4000-8000-000000000019",
+  "tunnel": "00000000-0000-4000-8000-000000000013",
   "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   "allowed_ips": [
     "10.8.0.2/32"
@@ -302,14 +213,14 @@
 }
 ## wg_peer
 {
-  "id": "00000000-0000-4000-8000-000000000021",
+  "id": "00000000-0000-4000-8000-000000000015",
   "name": "wg0-peer-02",
   "version": 0,
   "created_at": "0001-01-01T00:00:00Z",
   "updated_at": "0001-01-01T00:00:00Z",
   "scope": "global",
   "enabled": true,
-  "tunnel": "00000000-0000-4000-8000-000000000019",
+  "tunnel": "00000000-0000-4000-8000-000000000013",
   "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   "allowed_ips": [
     "0.0.0.0/0",
@@ -319,8 +230,6 @@
   "full_tunnel": true
 }
 ## notes
-user "testudo": the second factor stays in the existing user store; the model holds no credentials
-password hashes are not imported: the model holds identities and roles, not credentials
 rule 5 (77c31cedb396): matches traffic over the rate "5/minute", which is not modelled yet; not imported, because without the threshold it would match all traffic
 rule 6 (6bf218784510): action "log" has no equivalent (a rule must decide); not imported
 tunnel wg0: the private key stays on the node; the model only references it

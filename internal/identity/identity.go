@@ -35,6 +35,7 @@ const (
 	RoleOperator = "operator"
 	RoleReadOnly = "read-only"
 	RoleVPNUser  = "vpn-user"
+	RoleApprover = "approver"
 )
 
 // BuiltinRoles maps the built-in role names to their permissions.
@@ -43,6 +44,8 @@ var BuiltinRoles = map[string][]string{
 	RoleOperator: {"*:read", "firewall:write", "routing:write", "vpn:write", "loadbalancer:write",
 		"interfaces:write", "access:write", "services:write"},
 	RoleReadOnly: {"*:read"},
+	// An approver decides on access requests and reads the rest.
+	RoleApprover: {"*:read", "access:write"},
 	// A VPN user may use tunnels and published services, not the console.
 	RoleVPNUser: {"self:read"},
 }
@@ -106,24 +109,6 @@ func anyWrite(perms []string) bool {
 	return false
 }
 
-// LocalPermissions maps a role of the built-in user store to permissions.
-func LocalPermissions(role auth.Role) []string {
-	switch role {
-	case auth.RoleAdmin:
-		return BuiltinRoles[RoleAdmin]
-	case auth.RoleOperator:
-		return BuiltinRoles[RoleOperator]
-	case auth.RoleApprover:
-		return []string{"*:read", "access:write"}
-	}
-	return BuiltinRoles[RoleReadOnly]
-}
-
-// Local is the principal of a user of the built-in store.
-func Local(u auth.User) Principal {
-	return Principal{Name: u.Name, Source: SourceLocal, Permissions: LocalPermissions(u.Role)}
-}
-
 // Login describes a login that was proven outside the model.
 type Login struct {
 	Source   string
@@ -158,8 +143,11 @@ func Resolve(st *confstore.State, in Login) (Principal, error) {
 		return p, ErrNoRole
 	}
 	want := "host"
-	if in.Source == SourceOIDC {
+	switch in.Source {
+	case SourceOIDC:
 		want = "oidc"
+	case SourceLocal:
+		want = "local"
 	}
 	var user *model.User
 	for _, e := range st.List(model.KindUser) {
@@ -227,26 +215,6 @@ func Resolve(st *confstore.State, in Login) (Principal, error) {
 	return p, nil
 }
 
-// ModelGroups returns the ids of the groups a user object puts a user of
-// the built-in store or of the host in. Permissions of built-in users come
-// from their role there; their groups, which decide about published
-// services, come from here.
-func ModelGroups(st *confstore.State, username string) []string {
-	if st == nil {
-		return nil
-	}
-	var out []string
-	for _, e := range st.List(model.KindUser) {
-		if u := e.(*model.User); u.Source == "host" && u.Username == username && !u.Disabled {
-			for _, g := range u.Groups {
-				out = append(out, g.ID)
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // Cap returns the permissions of want that the holder of have also has, so
 // nobody can hand out more than they hold.
 func Cap(have Principal, want []string) (granted []string, refused []string) {
@@ -269,7 +237,7 @@ func MissingBuiltinRoles(st *confstore.State) []*model.Role {
 		have[e.GetMeta().Name] = true
 	}
 	var out []*model.Role
-	for _, name := range []string{RoleAdmin, RoleOperator, RoleReadOnly, RoleVPNUser} {
+	for _, name := range []string{RoleAdmin, RoleOperator, RoleReadOnly, RoleApprover, RoleVPNUser} {
 		if !have[name] {
 			out = append(out, &model.Role{Meta: model.Meta{Name: name, Description: "Built-in role"}, Permissions: BuiltinRoles[name]})
 		}

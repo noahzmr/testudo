@@ -134,16 +134,18 @@ func TestBreakGlassNeedsNoModel(t *testing.T) {
 	}
 }
 
-func TestCapAndLocal(t *testing.T) {
-	op := Local(auth.User{Name: "o", Role: auth.RoleOperator})
+func TestCapAndLegacyRoles(t *testing.T) {
+	op := Principal{Name: "o", Source: SourceLocal, Permissions: BuiltinRoles[RoleOperator]}
 	granted, refused := Cap(op, []string{"firewall:write", "routing:read", "system:write", "*:write"})
 	if !reflect.DeepEqual(granted, []string{"firewall:write", "routing:read"}) || !reflect.DeepEqual(refused, []string{"system:write", "*:write"}) {
 		t.Errorf("cap: granted %v refused %v", granted, refused)
 	}
-	for role, want := range map[auth.Role]auth.Role{auth.RoleAdmin: auth.RoleAdmin, auth.RoleOperator: auth.RoleOperator,
-		auth.RoleApprover: auth.RoleApprover, auth.RoleViewer: auth.RoleViewer} {
-		if got := Local(auth.User{Role: role}).LegacyRole(); got != want {
-			t.Errorf("local %s maps back to %s", role, got)
+	// The built-in roles of the model map onto the old role names the
+	// access manager still uses.
+	for role, want := range map[string]auth.Role{RoleAdmin: auth.RoleAdmin, RoleOperator: auth.RoleOperator,
+		RoleApprover: auth.RoleApprover, RoleReadOnly: auth.RoleViewer} {
+		if got := (Principal{Permissions: BuiltinRoles[role]}).LegacyRole(); got != want {
+			t.Errorf("role %s maps back to %s", role, got)
 		}
 	}
 	s, _ := fixture(t)

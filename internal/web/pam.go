@@ -10,6 +10,10 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/auth"
+	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/identity"
+	"github.com/noahzmr/testudo/internal/localauth"
+	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/pam"
 	"github.com/noahzmr/testudo/internal/storage"
 )
@@ -26,8 +30,13 @@ func (s *Server) subjectFrom(r *http.Request) pam.Subject {
 	if rec == nil {
 		return pam.Subject{Role: auth.RoleViewer}
 	}
-	u, _ := s.Users.Get(rec.user)
-	return pam.Subject{Name: rec.user, Role: rec.role, MFA: u.MFAEnrolled()}
+	mfa := false
+	if rec.principal.Source == identity.SourceLocal {
+		if u := localauth.Find(s.modelState(), rec.user); u != nil {
+			mfa = localauth.MFAEnrolled(s.Engine.LocalSecrets(), u.ID)
+		}
+	}
+	return pam.Subject{Name: rec.user, Role: rec.role, MFA: mfa}
 }
 
 func (s *Server) pamManager(w http.ResponseWriter) (*pam.Manager, bool) {
@@ -309,7 +318,7 @@ func (s *Server) handlePAMPeerBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.User != "" {
-		if _, exists := s.Users.Get(strings.TrimSpace(b.User)); !exists {
+		if !modelUserExists(s.modelState(), strings.TrimSpace(b.User)) {
 			http.Error(w, fmt.Sprintf("no such user %q", b.User), http.StatusNotFound)
 			return
 		}
@@ -328,3 +337,16 @@ func writeGrant(w http.ResponseWriter, g storage.PAMGrant) {
 
 // ensure the context import is used even if handlers change shape.
 var _ = context.Background
+
+// modelUserExists reports whether the model has a user with that name.
+func modelUserExists(st *confstore.State, name string) bool {
+	if st == nil {
+		return false
+	}
+	for _, e := range st.List(model.KindUser) {
+		if e.(*model.User).Username == name {
+			return true
+		}
+	}
+	return false
+}

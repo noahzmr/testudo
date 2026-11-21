@@ -98,6 +98,9 @@ type Engine struct {
 	// ("running unprivileged; privileged ops via helper (pid N)"). Set once at
 	// startup before the UIs run, then read-only.
 	privsepInfo string
+	// firstPassword is the first administrator's password when this start
+	// created it.
+	firstPassword string
 	// started is when Start ran, for the uptime metric.
 	started time.Time
 

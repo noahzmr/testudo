@@ -186,6 +186,9 @@ func (e *Engine) configNotice(n confapply.Notice) {
 		// A start that failed is over once a change applies.
 		e.conf.started.Store(true)
 	}
+	if n.Event == "confirmed" && n.Err == nil {
+		go e.forgetDeletedUsers()
+	}
 	detail := map[string]any{"record": n.Index, "reason": n.Reason}
 	// Say what changed. The values before and after are in the history
 	// record the row names (GET /api/v1/history), with secrets masked.
@@ -241,6 +244,7 @@ func (e *Engine) startConfig(ctx context.Context) {
 		e.conf.started.Store(true)
 	}
 	e.seedRoles(ctx)
+	e.prepareLocalUsers(ctx)
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)
 		go e.backendHealthLoop(ctx)

@@ -478,6 +478,11 @@ async function editView(form, obj, origins) {
     extra.append(host);
     showClientConfig(host, obj.id, null);
   }
+  if (form.kind === 'user' && obj.source === 'local' && !origins) {
+    const host = el('section', { class: 'cfg-card' });
+    extra.append(host);
+    credentialsCard(host, obj, writable);
+  }
   const used = await api('GET', `/${form.plural}/${obj.id}/used-by`);
   extra.append(el('h3', { text: 'Used by' }), (used.data || []).length
     ? el('ul', {}, used.data.map(u => el('li', {}, el('a', { href: `#/${S.byKind[u.kind]?.plural}/${u.id}`, text: `${u.kind} "${u.name}"` }), ` (${u.field})`)))
@@ -875,6 +880,38 @@ async function siteFlowsView() {
         el('td', { text: (c.paths || []).join(', ') }), el('td', { text: fmt(c.bytes || 0) }),
         el('td', {}, (c.sightings || []).map(s => el('div', { class: 'dim', text: `${s.node} ${s.iface || '(socket)'}${where(s) ? ' · ' + where(s) : ''}` }))))))) :
       el('p', { class: 'dim', text: 'No connection was seen at more than one member in the last minutes. Flow capture has to run on the members (Flows tab).' }));
+}
+
+// credentialsCard shows whether a local user has a password and a second
+// factor, and lets an administrator set them. Nothing secret comes back
+// except a new second factor's otpauth URI, shown once.
+async function credentialsCard(host, obj, writable) {
+  const r = await api('GET', `/users/${obj.id}/credentials`);
+  const c = r.ok ? r.data : {};
+  const out = el('div');
+  const act = async (method, path, body, after) => {
+    const x = await api(method, path, body);
+    if (!x.ok) return toast(x.data?.message || 'failed', 'err');
+    toast('Done');
+    if (after) after(x.data); else credentialsCard(host, obj, writable);
+  };
+  fill(host, el('h3', { text: 'Credentials' }),
+    el('p', { class: c.password ? '' : 'err', text: c.password ? 'Has a password.' : 'No password yet: this user cannot log in.' }),
+    el('p', { text: c.mfa ? 'Second factor (TOTP) enrolled.' : 'No second factor.' }),
+    writable ? el('div', { class: 'actions' },
+      el('button', { type: 'button', text: 'Set password', onclick: () => {
+        const pw = prompt(`New password for ${obj.username} (at least 10 characters)`);
+        if (!pw) return;
+        if (prompt('Again') !== pw) return toast('The passwords differ', 'err');
+        act('POST', `/users/${obj.id}/password`, { password: pw });
+      } }),
+      el('button', { type: 'button', text: c.mfa ? 'Replace second factor' : 'Enroll second factor', onclick: () =>
+        act('POST', `/users/${obj.id}/totp`, null, d => fill(out, el('p', { text: 'Add this to the authenticator app; it is shown once:' }),
+          el('pre', { class: 'cfg-secret', text: d.otpauth }))) }),
+      c.mfa ? el('button', { type: 'button', class: 'danger', text: 'Remove second factor', onclick: () => {
+        if (confirm(`Remove ${obj.username}'s second factor?`)) act('DELETE', `/users/${obj.id}/totp`);
+      } }) : null) : null,
+    out);
 }
 
 // servicesView shows which network services run on this node, on which

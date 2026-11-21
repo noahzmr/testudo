@@ -1,6 +1,7 @@
 // Package confimport translates the state Testudo kept before the
-// configuration model existed (firewall.json, users.json, live WireGuard
-// devices) into model objects. The translation is one-way and produces
+// configuration model existed (firewall.json, live WireGuard devices) into
+// model objects. Users of users.json move by themselves when the daemon
+// starts (internal/engine), with their credentials. The translation is one-way and produces
 // ordinary ops, so the result goes through validation, review and apply like
 // any other change.
 package confimport
@@ -10,12 +11,9 @@ import (
 	"fmt"
 	"net"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/noahzmr/testudo/internal/auth"
-	"github.com/noahzmr/testudo/internal/confapi"
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/model"
@@ -35,7 +33,6 @@ type Legacy struct {
 	Hostname    string
 	NodeAddress string // address of this node for the cluster record
 	Firewall    *firewall.Policy
-	Users       []auth.User
 	Tunnels     []Tunnel
 }
 
@@ -171,7 +168,6 @@ func Translate(in Legacy, newID func() string) Result {
 		b.res.Ops = append(b.res.Ops, confstore.Op{Type: confstore.OpCreate, Kind: e.Kind(), ID: e.GetMeta().ID, Object: obj})
 	}
 
-	b.users(in.Users)
 	if in.Firewall != nil {
 		b.firewall(in.Firewall)
 	}
@@ -179,31 +175,6 @@ func Translate(in Legacy, newID func() string) Result {
 		b.tunnel(t)
 	}
 	return b.res
-}
-
-func (b *builder) users(users []auth.User) {
-	if len(users) == 0 {
-		return
-	}
-	roles := map[string]string{}
-	for _, name := range []string{"admin", "operator", "approver", "viewer"} {
-		roles[name] = b.add(&model.Role{Meta: model.Meta{Name: name, Description: "Imported built-in role"},
-			Permissions: confapi.RolePermissions(name)})
-	}
-	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })
-	for _, u := range users {
-		role, ok := roles[string(u.Role)]
-		if !ok {
-			role = roles["viewer"]
-			b.note("user %q has unknown role %q; imported as viewer", u.Name, u.Role)
-		}
-		b.add(&model.User{Meta: model.Meta{Name: safeName(u.Name)}, Username: safeName(u.Name), Source: "host",
-			Roles: []model.Ref[model.Role]{{ID: role}}, Disabled: u.Disabled})
-		if u.TOTPSecret != "" {
-			b.note("user %q: the second factor stays in the existing user store; the model holds no credentials", u.Name)
-		}
-	}
-	b.note("password hashes are not imported: the model holds identities and roles, not credentials")
 }
 
 func (b *builder) firewall(p *firewall.Policy) {

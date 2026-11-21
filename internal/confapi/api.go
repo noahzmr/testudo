@@ -23,6 +23,7 @@ import (
 	"github.com/noahzmr/testudo/internal/cluster"
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/localauth"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/model/schema"
 )
@@ -99,6 +100,13 @@ type Server struct {
 	Cluster ClusterAdmin
 	// SiteFlows correlates the members' flows; nil disables it.
 	SiteFlows func(ctx context.Context, all bool) any
+	// LocalSecrets keeps local users' password hashes and second factors;
+	// nil disables the credential endpoints. Issuer names the system in
+	// authenticator apps.
+	LocalSecrets localauth.Secrets
+	Issuer       string
+	// AuditWrite records an operation in the audit log.
+	AuditWrite func(actor, op, args string, err error)
 	// DHCPLeases lists the node's DHCP leases; nil disables it.
 	DHCPLeases func(ctx context.Context) (any, error)
 	// Audit reads the audit log; nil disables the endpoint.
@@ -280,6 +288,10 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/cluster", s.clusterStatus)
 	m.HandleFunc("GET /api/v1/flows/sites", s.siteFlows)
 	m.HandleFunc("GET /api/v1/dhcp/leases", s.dhcpLeases)
+	m.HandleFunc("GET /api/v1/users/{id}/credentials", s.userCredentials)
+	m.HandleFunc("POST /api/v1/users/{id}/password", s.setUserPassword)
+	m.HandleFunc("POST /api/v1/users/{id}/totp", s.enrollUserTOTP)
+	m.HandleFunc("DELETE /api/v1/users/{id}/totp", s.disableUserTOTP)
 	m.HandleFunc("POST /api/v1/cluster/init", s.clusterInit)
 	m.HandleFunc("POST /api/v1/cluster/join", s.clusterJoin)
 	m.HandleFunc("POST /api/v1/cluster/token", s.clusterToken)

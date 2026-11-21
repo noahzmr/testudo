@@ -447,3 +447,23 @@ func randomPassword(bytes int) string {
 // dummyHash is a valid bcrypt hash compared against when the user does not
 // exist, so the response time does not reveal which names are real.
 const dummyHash = "$2a$10$7EqJtq98hPqEX7fNZaFWoOhi5XSS5xUx8c1bFw7p8m0gv0qJg9v5W"
+
+// ReadFile returns the users of a users.json with their password hashes
+// and TOTP secrets, for moving them elsewhere. Nothing else should need the
+// secrets in this form.
+func ReadFile(path string) ([]User, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var raw []User
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse users file: %w", err)
+	}
+	for i := range raw {
+		if !raw[i].Role.Valid() {
+			raw[i].Role = RoleAdmin
+		}
+	}
+	return raw, nil
+}

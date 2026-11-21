@@ -886,7 +886,7 @@
         <h2>My account <span class="muted">· <span id="me-summary">—</span></span></h2>
         <div class="form-grid">
           <label>current password<input id="me-cur" type="password" autocomplete="current-password"/></label>
-          <label>new password<input id="me-new" type="password" autocomplete="new-password" placeholder="min 8 characters"/></label>
+          <label>new password<input id="me-new" type="password" autocomplete="new-password" placeholder="at least 10 characters"/></label>
         </div>
         <div class="row">
           <button data-action="me-passwd" class="btn">Change password</button>
@@ -900,21 +900,9 @@
         </div>
       </div>
 
-      <div class="card" id="users-card" data-admin-only hidden>
-        <h2>Users <span class="muted">· roles: viewer · approver · operator · admin</span></h2>
-        <div class="form-grid">
-          <label>name<input id="u-name" placeholder="letters, digits, . _ - @"/></label>
-          <label>password<input id="u-pass" type="password" autocomplete="new-password"/></label>
-          <label>role<select id="u-role"><option>viewer</option><option>approver</option><option>operator</option><option>admin</option></select></label>
-        </div>
-        <div class="row"><button data-action="user-add" class="btn btn-go">Add user</button></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Name</th><th>Role</th><th>MFA</th><th>State</th><th>Updated</th><th></th></tr></thead>
-            <tbody id="users-body"></tbody>
-          </table>
-        </div>
-        <p class="muted">Admins manage users and settings, enable default-deny and import policies. Operators change network state. Approvers approve access requests. Viewers read. Demoting, disabling or deleting a user ends their sessions.</p>
+      <div class="card">
+        <h2>Users</h2>
+        <p class="muted">Users, groups and roles live in the configuration model: <a href="#/users">Settings → Users</a>. A local user's password and second factor are set on the user's page.</p>
       </div>
     </section>
       </main>

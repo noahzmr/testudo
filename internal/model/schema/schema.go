@@ -617,6 +617,16 @@ func OpenAPI() ([]byte, error) {
 	paths["/api/v1/cluster"] = map[string]any{"get": tagged(op("cluster_status", "The cluster as this member sees it", ok("Cluster status", clusterStatus)), "cluster")}
 	paths["/api/v1/flows/sites"] = map[string]any{"get": tagged(op("site_flows", "Connections seen at more than one member, with where, over which tunnel and path; query all=1 adds the rest",
 		ok("Correlated connections", map[string]any{"type": "object"})), "cluster")}
+	paths["/api/v1/users/{id}/credentials"] = map[string]any{"get": tagged(op("user_credentials", "Whether a local user has a password and a second factor",
+		ok("Credentials", obj(map[string]any{"password": map[string]any{"type": "boolean"}, "mfa": map[string]any{"type": "boolean"}}, "password", "mfa"))), "identity")}
+	paths["/api/v1/users/{id}/password"] = map[string]any{"post": tagged(op("user_password", "Set a local user's password (at least 10 characters); kept as a bcrypt hash in the replicated secret store",
+		map[string]any{"204": map[string]any{"description": "Set"}, "422": problem("Refused; the message says why.", nil)},
+		map[string]any{"requestBody": jsonBody(strs("password"))}), "identity")}
+	paths["/api/v1/users/{id}/totp"] = map[string]any{
+		"post": tagged(op("user_totp_enroll", "Give a local user a new second factor; the otpauth URI is returned once",
+			map[string]any{"201": resp("Enrolled", obj(map[string]any{"otpauth": map[string]any{"type": "string"}}, "otpauth"))}), "identity"),
+		"delete": tagged(op("user_totp_disable", "Remove a local user's second factor",
+			map[string]any{"204": map[string]any{"description": "Removed"}}), "identity")}
 	paths["/api/v1/dhcp/leases"] = map[string]any{"get": tagged(op("dhcp_leases", "The addresses this node's DHCP servers handed out, newest expiry first",
 		ok("Leases", map[string]any{"type": "array", "items": map[string]any{"type": "object"}})), "services")}
 	paths["/api/v1/cluster/init"] = map[string]any{"post": cl("cluster_init", "Make this node the first member of a new cluster; its model becomes the cluster's")}

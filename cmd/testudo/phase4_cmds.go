@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/noahzmr/testudo/internal/auth"
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/engine"
@@ -21,133 +20,15 @@ import (
 	"github.com/noahzmr/testudo/internal/web"
 )
 
-// cmdUser manages Web UI accounts: list, add, del, role, disable/enable,
-// passwd, totp enroll/disable. Password input is read from a terminal prompt
-// (no echo suppression - echo-suppress on TTYs requires golang.org/x/term,
-// which we'd rather not pull in for a one-shot; pipe via stdin instead).
-func cmdUser(args []string) error {
-	usage := "usage: testudo user <list|add|del|role|disable|enable|passwd|totp> ..."
-	if len(args) == 0 {
-		return fmt.Errorf("%s", usage)
-	}
-	cfg := config.Default()
-	if err := cfg.EnsureDirs(); err != nil {
-		return err
-	}
-	usersPath := filepath.Join(cfg.StorageDir, "users.json")
-	store, err := auth.Open(usersPath)
-	if err != nil {
-		return err
-	}
-	switch args[0] {
-	case "list":
-		users := store.List()
-		if len(users) == 0 {
-			fmt.Println("no users configured")
-			return nil
-		}
-		fmt.Printf("  %-20s %-10s %-5s %s\n", "NAME", "ROLE", "MFA", "STATE")
-		for _, u := range users {
-			mfa, state := "-", "enabled"
-			if u.MFAEnrolled() {
-				mfa = "totp"
-			}
-			if u.Disabled {
-				state = "DISABLED"
-			}
-			fmt.Printf("  %-20s %-10s %-5s %s\n", u.Name, u.Role, mfa, state)
-		}
-		return nil
-	case "add":
-		fs := flag.NewFlagSet("user add", flag.ExitOnError)
-		role := fs.String("role", string(auth.RoleViewer), "viewer / approver / operator / admin")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 1 {
-			return fmt.Errorf("usage: testudo user add <name> [--role viewer|approver|operator|admin]")
-		}
-		name := fs.Arg(0)
-		pw, err := promptPassword("Password for " + name)
-		if err != nil {
-			return err
-		}
-		if err := store.Add(name, pw, auth.Role(*role)); err != nil {
-			return err
-		}
-		fmt.Printf("user %q created with role %s\n", name, *role)
-		return nil
-	case "del":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: testudo user del <name>")
-		}
-		if err := store.Delete(args[1]); err != nil {
-			return err
-		}
-		fmt.Printf("user %q deleted\n", args[1])
-		return nil
-	case "role":
-		if len(args) != 3 {
-			return fmt.Errorf("usage: testudo user role <name> <viewer|approver|operator|admin>")
-		}
-		if err := store.SetRole(args[1], auth.Role(args[2])); err != nil {
-			return err
-		}
-		fmt.Printf("user %q is now %s\n", args[1], args[2])
-		return nil
-	case "disable", "enable":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: testudo user %s <name>", args[0])
-		}
-		if err := store.SetDisabled(args[1], args[0] == "disable"); err != nil {
-			return err
-		}
-		fmt.Printf("user %q %sd\n", args[1], args[0])
-		return nil
-	case "passwd":
-		name := "testudo"
-		if len(args) >= 2 {
-			name = args[1]
-		}
-		pw, err := promptPassword("New password for " + name)
-		if err != nil {
-			return err
-		}
-		if err := store.SetPassword(name, pw); err != nil {
-			return err
-		}
-		fmt.Printf("password updated for user %q\n", name)
-		return nil
-	case "totp":
-		if len(args) != 3 || (args[1] != "enroll" && args[1] != "disable") {
-			return fmt.Errorf("usage: testudo user totp <enroll|disable> <name>")
-		}
-		if args[1] == "disable" {
-			if err := store.DisableTOTP(args[2]); err != nil {
-				return err
-			}
-			fmt.Printf("MFA disabled for user %q\n", args[2])
-			return nil
-		}
-		uri, err := store.EnrollTOTP(args[2], "Testudo")
-		if err != nil {
-			return err
-		}
-		// Shown exactly once; the secret is not recoverable afterwards except by
-		// re-enrolling. Printed to stdout only, never logged.
-		fmt.Printf("MFA enrolled for user %q. Add this to an authenticator app (shown once):\n\n  %s\n\n", args[2], uri)
-		return nil
-	}
-	return fmt.Errorf("unknown user subcommand %q\n%s", args[0], usage)
-}
-
-// promptPassword reads a password from stdin after a prompt on stderr.
+// promptPassword reads a password line from stdin after a prompt on
+// stderr; pipe it in for scripts.
 func promptPassword(prompt string) (string, error) {
 	fmt.Fprintf(os.Stderr, "%s: ", prompt)
-	var pw string
-	if _, err := fmt.Fscanln(os.Stdin, &pw); err != nil {
+	line, err := stdinReader.ReadString('\n')
+	if err != nil && line == "" {
 		return "", fmt.Errorf("read password: %w", err)
 	}
+	pw := strings.TrimRight(line, "\r\n")
 	if pw == "" {
 		return "", fmt.Errorf("empty password")
 	}
@@ -203,17 +84,6 @@ func cmdWeb(args []string) error {
 	}
 	defer store.Close()
 
-	users, err := auth.Open(filepath.Join(cfg.StorageDir, "users.json"))
-	if err != nil {
-		return err
-	}
-	if pw, err := users.Bootstrap("testudo"); err != nil {
-		return err
-	} else if pw != "" {
-		fmt.Fprintf(os.Stderr, "⚠ first run - created default user 'testudo' with password: %s\n", pw)
-		fmt.Fprintln(os.Stderr, "  rotate with: testudo user passwd")
-	}
-
 	settings := config.NewSettingsStore(cfg.SettingsPath)
 	_ = settings.Load()
 	// --allow-netops-write=true wins; otherwise the persisted setting stands.
@@ -244,14 +114,19 @@ func cmdWeb(args []string) error {
 		return err
 	}
 	helperState.report(eng)
+	if pw := eng.FirstRunPassword(); pw != "" {
+		fmt.Fprintf(os.Stderr, "⚠ first run - created default user 'testudo' with password: %s\n", pw)
+		fmt.Fprintln(os.Stderr, "  change it in the console (your user menu) or with: testudo user passwd testudo")
+	}
 	defer func() {
 		shutdownCtx, c := context.WithTimeout(context.Background(), 3*time.Second)
 		defer c()
 		_ = eng.Stop(shutdownCtx)
 	}()
 
-	srv := web.New(eng, users, cfg.WebListen)
+	srv := web.New(eng, cfg.WebListen)
 	srv.PublicURL = *publicURL
+	srv.ControlSocket = controlSocketPath(cfg.StorageDir)
 	srv.TLS = web.TLSConfig{
 		CertFile: *tlsCert, KeyFile: *tlsKey, Auto: *tlsAuto,
 		Dir:   filepath.Join(cfg.StorageDir, "tls"),

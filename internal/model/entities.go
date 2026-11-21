@@ -283,7 +283,7 @@ type User struct {
 	Meta     `yaml:",inline"`
 	Username string       `json:"username" yaml:"username" validate:"required,objname" ui:"label=Username,order=10"`
 	Email    string       `json:"email,omitempty" yaml:"email,omitempty" validate:"omitempty,email" ui:"label=Email,order=20"`
-	Source   string       `json:"source" yaml:"source" validate:"required,oneof=host oidc" ui:"label=Identity source,widget=select,order=30"`
+	Source   string       `json:"source" yaml:"source" validate:"required,oneof=local host oidc" ui:"label=Identity source,widget=select,order=30,help=local: a password (and code) kept by Testudo on every member; host: the host's PAM stack; oidc: the identity provider"`
 	Subject  string       `json:"subject,omitempty" yaml:"subject,omitempty" validate:"max=255" ui:"label=OIDC subject,widget=readonly,order=40"`
 	Groups   []Ref[Group] `json:"groups,omitempty" yaml:"groups,omitempty" validate:"max=64" ui:"label=Groups,widget=ref-picker,ref=group,order=50"`
 	Roles    []Ref[Role]  `json:"roles,omitempty" yaml:"roles,omitempty" validate:"max=16" ui:"label=Roles,widget=ref-picker,ref=role,order=60"`

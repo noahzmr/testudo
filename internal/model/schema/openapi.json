@@ -5833,7 +5833,9 @@
             "x-rule": "scope"
           },
           "source": {
+            "description": "local: a password (and code) kept by Testudo on every member; host: the host's PAM stack; oidc: the identity provider",
             "enum": [
+              "local",
               "host",
               "oidc"
             ],
@@ -16586,6 +16588,39 @@
         ]
       }
     },
+    "/api/v1/users/{id}/credentials": {
+      "get": {
+        "operationId": "user_credentials",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "mfa": {
+                      "type": "boolean"
+                    },
+                    "password": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "mfa",
+                    "password"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Credentials"
+          }
+        },
+        "summary": "Whether a local user has a password and a second factor",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
     "/api/v1/users/{id}/effective": {
       "get": {
         "operationId": "effective_user",
@@ -16651,6 +16686,88 @@
           }
         }
       ]
+    },
+    "/api/v1/users/{id}/password": {
+      "post": {
+        "operationId": "user_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "password"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Set"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Refused; the message says why."
+          }
+        },
+        "summary": "Set a local user's password (at least 10 characters); kept as a bcrypt hash in the replicated secret store",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/totp": {
+      "delete": {
+        "operationId": "user_totp_disable",
+        "responses": {
+          "204": {
+            "description": "Removed"
+          }
+        },
+        "summary": "Remove a local user's second factor",
+        "tags": [
+          "identity"
+        ]
+      },
+      "post": {
+        "operationId": "user_totp_enroll",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "otpauth": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "otpauth"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Enrolled"
+          }
+        },
+        "summary": "Give a local user a new second factor; the otpauth URI is returned once",
+        "tags": [
+          "identity"
+        ]
+      }
     },
     "/api/v1/users/{id}/used-by": {
       "get": {

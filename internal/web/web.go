@@ -29,6 +29,7 @@ import (
 	"github.com/noahzmr/testudo/internal/engine"
 	"github.com/noahzmr/testudo/internal/identity"
 	sentryx "github.com/noahzmr/testudo/internal/integrations/sentry"
+	"github.com/noahzmr/testudo/internal/localauth"
 	"github.com/noahzmr/testudo/internal/netops"
 )
 
@@ -38,7 +39,6 @@ var assetsFS embed.FS
 // Server is the HTTP UI. Build one per process and call ListenAndServe.
 type Server struct {
 	Engine *engine.Engine
-	Users  *auth.Store
 	Addr   string
 	// TLS selects HTTPS (operator cert or auto self-signed). Zero = plain HTTP.
 	TLS TLSConfig
@@ -57,7 +57,10 @@ type Server struct {
 	// visitors of published services here to log in. Empty uses the
 	// address the identity provider redirects to.
 	PublicURL string
-	access    accessState
+	// ControlSocket is the path of the control socket for the command line;
+	// "" serves none.
+	ControlSocket string
+	access        accessState
 
 	// logins counts failed logins per address.
 	logins loginLimiter
@@ -122,9 +125,9 @@ func (s *Server) netops(r *http.Request) *netops.Writer {
 }
 
 // New constructs an unstarted Server. Mux is built lazily on first ListenAndServe.
-func New(eng *engine.Engine, users *auth.Store, addr string) *Server {
+func New(eng *engine.Engine, addr string) *Server {
 	return &Server{
-		Engine: eng, Users: users, Addr: addr, Issuer: "Testudo",
+		Engine: eng, Addr: addr, Issuer: "Testudo",
 		sessions: make(map[string]*sessionRecord),
 	}
 }
@@ -180,14 +183,6 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/me/totp/disable", s.protect(s.handleMeTOTPDisable))
 
 	// User management (admin only - see adminOnly).
-	mux.HandleFunc("/api/users", s.protect(s.handleUsers))
-	mux.HandleFunc("/api/users/add", s.protect(s.handleUserAdd))
-	mux.HandleFunc("/api/users/del", s.protect(s.handleUserDel))
-	mux.HandleFunc("/api/users/role", s.protect(s.handleUserRole))
-	mux.HandleFunc("/api/users/disable", s.protect(s.handleUserDisable))
-	mux.HandleFunc("/api/users/passwd", s.protect(s.handleUserPasswd))
-	mux.HandleFunc("/api/users/totp/enroll", s.protect(s.handleUserTOTPEnroll))
-	mux.HandleFunc("/api/users/totp/disable", s.protect(s.handleUserTOTPDisable))
 
 	// Privileged access: JIT grants compiled into firewall rules for the
 	// requester's WireGuard peers. See internal/pam and docs/pam.md.
@@ -311,6 +306,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 
 	go s.gcSessionsLoop(ctx)
+	if s.ControlSocket != "" {
+		go s.serveControl(ctx, s.ControlSocket)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -331,7 +329,6 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // security posture of the host itself; operators cannot touch them.
 var adminOnly = []string{
 	"/api/settings",
-	"/api/users",
 	"/api/pam/resource",
 	"/api/pam/policy",
 	"/api/pam/breakglass",
@@ -420,6 +417,9 @@ func sameOrigin(r *http.Request) bool {
 
 // session returns the live session for the request, or nil.
 func (s *Server) session(r *http.Request) *sessionRecord {
+	if rec := controlSession(r); rec != nil {
+		return rec
+	}
 	if rec := s.tokenSession(r); rec != nil {
 		return rec
 	}
@@ -478,32 +478,43 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			_ = s.loginTmpl.Execute(w, s.loginView(loginView{Error: "too many failed attempts; wait a few minutes", Username: user}))
 			return
 		}
-		// Names the built-in store knows are its own: that is how the
-		// first administrator gets in whatever the host's PAM stack or the
-		// identity provider are doing. Every other name is the host's.
-		if _, known := s.Users.Get(user); !known && netops.PAMAvailable() {
+		// A local user of the model logs in with the password Testudo
+		// keeps; every other name is the host's (PAM).
+		st := s.modelState()
+		if localauth.Find(st, user) == nil && netops.PAMAvailable() {
 			s.pamLogin(w, r, user, pass, code)
 			return
 		}
-		u, err := s.Users.Authenticate(user, pass, code)
+		sec := s.Engine.LocalSecrets()
+		u, err := localauth.Authenticate(st, sec, user, pass, code, time.Now())
+		var p identity.Principal
+		login := identity.Login{Source: identity.SourceLocal, Username: user}
+		if err == nil {
+			p, err = identity.Resolve(st, login)
+			if err == nil && !consoleAccess(p) {
+				err = identity.ErrNoRole
+			}
+		}
 		if err != nil {
-			if !errors.Is(err, auth.ErrTOTPRequired) {
+			if !errors.Is(err, localauth.ErrTOTPRequired) {
 				s.loginFailed(from)
 			}
 			s.Engine.Audit(user, "login", fmt.Sprintf(`{"source":"local","result":"denied","from":%q}`, from), err)
-			w.WriteHeader(http.StatusUnauthorized)
-			view := loginView{Error: "invalid credentials", Username: user}
+			status, view := http.StatusUnauthorized, loginView{Error: "invalid credentials", Username: user}
 			switch {
-			case errors.Is(err, auth.ErrTOTPRequired):
+			case errors.Is(err, localauth.ErrTOTPRequired):
 				view.Error, view.NeedCode = "enter the one-time code from your authenticator", true
-			case errors.Is(err, auth.ErrDisabled):
+			case errors.Is(err, localauth.ErrDisabled), errors.Is(err, identity.ErrDisabled):
 				view.Error = "account disabled"
+			case errors.Is(err, identity.ErrNoRole):
+				status, view.Error = http.StatusForbidden, "your account has no role on this system; ask an administrator"
 			}
+			w.WriteHeader(status)
 			_ = s.loginTmpl.Execute(w, s.loginView(view))
 			return
 		}
-		s.startSession(w, identity.Local(u), nil, nil)
-		s.Engine.Audit(u.Name, "login", fmt.Sprintf(`{"source":"local","role":%q,"mfa":%v,"from":%q}`, u.Role, u.MFAEnrolled(), from), nil)
+		s.startSession(w, p, &login, nil)
+		s.Engine.Audit(u.Username, "login", fmt.Sprintf(`{"source":"local","role":%q,"mfa":%v,"from":%q}`, p.LegacyRole(), localauth.MFAEnrolled(sec, u.ID), from), nil)
 		http.Redirect(w, r, s.afterLogin(w, r), http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -513,7 +524,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // handleMe tells the page who is logged in and what they may do.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	rec := r.Context().Value(sessionCtxKey).(*sessionRecord)
-	u, _ := s.Users.Get(rec.user)
+	mfa := false
+	if rec.principal.Source == identity.SourceLocal {
+		if u := localauth.Find(s.modelState(), rec.user); u != nil {
+			mfa = localauth.MFAEnrolled(s.Engine.LocalSecrets(), u.ID)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user":         rec.user,
@@ -521,7 +537,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"source":       rec.principal.Source,
 		"permissions":  rec.principal.Permissions,
 		"break_glass":  rec.principal.BreakGlass,
-		"mfa_enrolled": u.MFAEnrolled(),
+		"mfa_enrolled": mfa,
 		"can_approve":  rec.role.CanApprove(),
 		"tls":          s.TLS.Enabled(),
 	})

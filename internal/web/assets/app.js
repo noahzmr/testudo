@@ -295,43 +295,6 @@
         loadMe();
         break;
       }
-      case 'user-add':
-        await post('/api/users/add', { name: val('u-name'), password: val('u-pass'), role: val('u-role') });
-        showToast('user added');
-        clearInputs(['u-name', 'u-pass']);
-        await renderUsers();
-        break;
-      case 'user-del':
-        if (!confirm('Delete user ' + btn.dataset.name + '? Their sessions end immediately.')) return;
-        await post('/api/users/del', { name: btn.dataset.name });
-        showToast('user deleted');
-        await renderUsers();
-        break;
-      case 'user-disable':
-        await post('/api/users/disable', { name: btn.dataset.name, disabled: btn.dataset.disabled === 'true' });
-        showToast(btn.dataset.disabled === 'true' ? 'user disabled' : 'user enabled');
-        await renderUsers();
-        break;
-      case 'user-passwd': {
-        const pw = prompt('New password for ' + btn.dataset.name + ':');
-        if (!pw) return;
-        await post('/api/users/passwd', { name: btn.dataset.name, password: pw });
-        showToast('password set');
-        break;
-      }
-      case 'user-totp-enroll': {
-        if (!confirm('Enroll MFA for ' + btn.dataset.name + '? The secret is shown once; hand it to the user now.')) return;
-        const r = await post('/api/users/totp/enroll', { name: btn.dataset.name });
-        showTOTP(r && r.otpauth);
-        await renderUsers();
-        break;
-      }
-      case 'user-totp-disable':
-        if (!confirm('Disable MFA for ' + btn.dataset.name + '?')) return;
-        await post('/api/users/totp/disable', { name: btn.dataset.name });
-        showToast('MFA disabled');
-        await renderUsers();
-        break;
       case 'fw-reset': {
         if (!confirm('Reset counter on ' + btn.dataset.table + '/' + btn.dataset.chain + ' handle ' + btn.dataset.handle + '?')) return;
         await post('/api/firewall/reset-counter', {
@@ -2000,7 +1963,7 @@
     }
     if (!d) return;
     if (d.is_admin && pamUsers === null) {
-      try { pamUsers = (await api('/api/users')).users || []; } catch (_) { pamUsers = []; }
+      try { pamUsers = ((await api('/api/v1/users')) || []).map(u => ({ name: u.username })); } catch (_) { pamUsers = []; }
     }
     renderAccess(d);
   }
@@ -2152,48 +2115,7 @@
     if (sum && me) sum.textContent = me.user + ' (' + me.role + ')' + (me.mfa_enrolled ? ' · MFA enrolled' : ' · no MFA');
     document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = !(me && me.role === 'admin'); });
     document.body.dataset.role = me ? me.role : '';
-    if (me && me.role === 'admin') renderUsers();
   }
-
-  async function renderUsers() {
-    const body = document.getElementById('users-body');
-    if (!body || !me || me.role !== 'admin') return;
-    let data;
-    try { data = await api('/api/users'); } catch (_) { return; }
-    const roles = data.roles || ['viewer', 'approver', 'operator', 'admin'];
-    body.innerHTML = (data.users || []).map(u => {
-      const self = me && u.name === me.user;
-      const roleSel = '<select data-change="user-role" data-name="' + escape(u.name) + '"' + (self ? ' disabled title="change your own role from another admin account"' : '') + '>'
-        + roles.map(r => '<option' + (r === u.role ? ' selected' : '') + '>' + r + '</option>').join('') + '</select>';
-      const state = u.disabled ? '<span class="status-pill off">disabled</span>' : '<span class="status-pill on">enabled</span>';
-      const actions = []
-        .concat(self ? [] : ['<button class="btn btn-small" data-action="user-disable" data-name="' + escape(u.name) + '" data-disabled="' + (!u.disabled) + '">' + (u.disabled ? 'enable' : 'disable') + '</button>'])
-        .concat(['<button class="btn btn-small" data-action="user-passwd" data-name="' + escape(u.name) + '">password</button>'])
-        .concat(u.mfa_enrolled
-          ? ['<button class="btn btn-small" data-action="user-totp-disable" data-name="' + escape(u.name) + '">MFA off</button>']
-          : ['<button class="btn btn-small" data-action="user-totp-enroll" data-name="' + escape(u.name) + '">enroll MFA</button>'])
-        .concat(self ? [] : ['<button class="btn btn-small btn-danger" data-action="user-del" data-name="' + escape(u.name) + '">del</button>']);
-      return '<tr>'
-        + '<td>' + escape(u.name) + (self ? ' <span class="muted">(you)</span>' : '') + '</td>'
-        + '<td>' + roleSel + '</td>'
-        + '<td>' + (u.mfa_enrolled ? 'TOTP' : '-') + '</td>'
-        + '<td>' + state + '</td>'
-        + '<td class="muted">' + escape(u.updated_at || '') + '</td>'
-        + '<td>' + actions.join(' ') + '</td>'
-        + '</tr>';
-    }).join('') || '<tr><td colspan="6" class="muted">no users</td></tr>';
-  }
-
-  // Role changes come from a <select>, which the click dispatcher does not see.
-  document.addEventListener('change', async (ev) => {
-    const sel = ev.target.closest('select[data-change="user-role"]');
-    if (!sel) return;
-    try {
-      await post('/api/users/role', { name: sel.dataset.name, role: sel.value });
-      showToast('role updated - ' + sel.dataset.name + ' must sign in again');
-    } catch (_) { /* toast shown */ }
-    renderUsers();
-  });
 
   // showTOTP renders a one-shot otpauth:// URI (and a QR when an encoder is on
   // the page). Nothing here is sent back to the server.
