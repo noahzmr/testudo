@@ -104,6 +104,13 @@ func effective[T model.Entity](r *renderer, kind model.Kind) map[string]T {
 }
 
 // ident builds a proxy object name that is readable and cannot collide.
+// Ident is the name the proxy knows a model object by; prefixes are "rt"
+// (routers), "svc" (services), "pool" (pools).
+func Ident(prefix string, m *model.Meta) string { return ident(prefix, m) }
+
+// AccessLogFile is the proxy's request log, below Options.Dir.
+const AccessLogFile = "access.log"
+
 func ident(prefix string, m *model.Meta) string {
 	name := strings.Map(func(c rune) rune {
 		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
@@ -554,7 +561,7 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 		"metrics":     map[string]any{"prometheus": map[string]any{"entryPoint": "traefik", "addRoutersLabels": true, "addServicesLabels": true}},
 		"providers":   map[string]any{"file": map[string]any{"directory": filepath.Join(opt.Dir, "dynamic"), "watch": true}},
 		"log":         map[string]any{"level": "INFO"},
-		"accessLog":   map[string]any{"filePath": filepath.Join(opt.Dir, "access.log"), "format": "json"},
+		"accessLog":   map[string]any{"filePath": filepath.Join(opt.Dir, AccessLogFile), "format": "json"},
 		"global":      map[string]any{"checkNewVersion": false, "sendAnonymousUsage": false},
 	}
 	if len(resolvers) > 0 {

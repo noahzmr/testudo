@@ -11,12 +11,15 @@ import (
 	"net/http"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/flowattr"
+	"github.com/noahzmr/testudo/internal/lbrender"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/testnet"
@@ -124,6 +127,18 @@ func TestProxyPrefersLocalBackends(t *testing.T) {
 	}
 	if !all("here", 15*time.Second) {
 		t.Fatalf("the local backend does not get all the traffic: %q", get())
+	}
+	// The proxy's access log says which client went to which backend,
+	// through which router: what flow attribution reads.
+	entries := (&flowattr.AccessLog{Path: filepath.Join(stage.Dir, lbrender.AccessLogFile)}).Read(time.Now())
+	found := false
+	for _, e := range entries {
+		if e.Backend == "10.50.0.2:8080" && strings.HasPrefix(e.Router, "svc-web-") && strings.HasPrefix(e.Client, "192.0.2.2:") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the access log has no usable entry: %+v", entries)
 	}
 	localDown.Store(true)
 	if !all("there", 15*time.Second) {
