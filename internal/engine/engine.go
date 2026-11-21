@@ -6,10 +6,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/analyzers"
@@ -19,6 +21,7 @@ import (
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/events"
 	"github.com/noahzmr/testudo/internal/firewall"
+	"github.com/noahzmr/testudo/internal/flowattr"
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/fwstage"
 	"github.com/noahzmr/testudo/internal/health"
@@ -69,6 +72,8 @@ type Engine struct {
 	cluster clusterCore
 	// fabric is this node's part in the network between the sites.
 	fabric fabricCore
+	// attrIndex places flows in the appliance's terms (internal/flowattr).
+	attrIndex atomic.Pointer[flowattr.Index]
 	// pam is the privileged-access manager (JIT grants compiled into firewall
 	// rules for the requester's WireGuard peers); nil when disabled.
 	pam *pam.Manager
@@ -275,6 +280,7 @@ func (e *Engine) Start(parent context.Context) error {
 	e.startConfig(ctx)
 	go e.clusterLoop(ctx)
 	go e.fabricLoop(ctx)
+	go e.attrLoop(ctx)
 
 	e.startMetricsAndStorageConsumer(ctx)
 	e.startAnalyzers(ctx)
@@ -920,7 +926,7 @@ func (e *Engine) flowFlusherLoop(ctx context.Context) {
 func (e *Engine) flushFlows(ctx context.Context) {
 	snap := e.flowAgg.Snapshot()
 	decorated := flows.Decorate(snap, e.dnsCache, e.procMatch)
-	tagged := e.tagger.Tag(decorated)
+	tagged := e.Attribute(e.tagger.Tag(decorated))
 	for _, f := range tagged {
 		// Project through the documented FlowSummary type, then map onto
 		// the storage row. Keeps the persistence schema in lockstep with
@@ -939,6 +945,7 @@ func (e *Engine) flushFlows(ctx context.Context) {
 			LastSeen:  f.LastSeen,
 			Process:   sum.ProcessName,
 			DNSName:   sum.DNSName,
+			Attrs:     attrsJSON(f.Attrs),
 		})
 	}
 }
@@ -1056,7 +1063,7 @@ func (e *Engine) flowDecoratorLoop(ctx context.Context) {
 	defer ticker.Stop()
 	rebuild := func() {
 		snap := e.flowAgg.TopByRecency(200)
-		dec := flows.Decorate(snap, e.dnsCache, e.procMatch)
+		dec := e.Attribute(flows.Decorate(snap, e.dnsCache, e.procMatch))
 		e.flowsCacheMu.Lock()
 		e.flowsCache = dec
 		e.flowsCacheMu.Unlock()
@@ -1232,4 +1239,17 @@ func newSessionID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
 	return time.Now().UTC().Format("20060102-150405") + "-" + hex.EncodeToString(b[:])
+}
+
+// attrsJSON is the stored form of an attribution; empty when nothing is
+// known, so that a later flush does not wipe what an earlier one stored.
+func attrsJSON(a flows.Attrs) string {
+	if a.Empty() || (a == flows.Attrs{Site: a.Site}) {
+		return ""
+	}
+	b, err := json.Marshal(a)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

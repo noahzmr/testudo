@@ -255,6 +255,10 @@ type flowView struct {
 	RTTms       float64 `json:"rtt_ms,omitempty"`
 	RetransRate float64 `json:"retrans_rate,omitempty"`
 	Cwnd        uint32  `json:"cwnd,omitempty"`
+
+	// Attrs place the flow in the appliance: zone, tunnel and peer, user,
+	// address translation, load balancer.
+	Attrs *flows.Attrs `json:"attrs,omitempty"`
 }
 
 // telemetryView mirrors the TUI Health card's per-flow TCP telemetry source
@@ -858,13 +862,17 @@ func (s *Server) buildSnapshot() snapshot {
 	// Flows (top 100 by recency, decorated). Per-flow TCP telemetry rides
 	// along on the same row so the dashboard renders identical numbers to the
 	// TUI - one flow table, source-tagged.
-	for _, f := range flows.Decorate(eng.Flows().TopByRecency(100), eng.DNSCache(), eng.ProcMatcher()) {
+	for _, f := range eng.Attribute(flows.Decorate(eng.Flows().TopByRecency(100), eng.DNSCache(), eng.ProcMatcher())) {
 		fv := flowView{
 			Proto: f.Key.Proto, Iface: f.Key.Iface,
 			Process: f.Process, A: f.Key.A.String(), B: f.Key.B.String(),
 			ALabel: labelFor(f.Key.A.IP), BLabel: labelFor(f.Key.B.IP),
 			Service: f.Service, DNS: f.DNSName,
 			Packets: f.Packets, Bytes: f.Bytes,
+		}
+		if !f.Attrs.Empty() {
+			a := f.Attrs
+			fv.Attrs = &a
 		}
 		// Name a wg peer endpoint when DNS didn't already name the flow.
 		if fv.DNS == "" {
