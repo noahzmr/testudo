@@ -85,13 +85,17 @@ func init() {
 	register("access-grants", "Access grant", "access/grants", allLevels, func() Entity { return &AccessGrant{} })
 }
 
-// Interface binds a kernel network device on one node to a zone.
+// Interface binds a kernel network device on one node to a zone and says
+// how it is configured: addresses, a DHCP client, the MTU, the link state.
+// What is not set is left as the node has it; a disabled interface is not
+// configured by Testudo at all.
 type Interface struct {
 	Meta      `yaml:",inline"`
 	Device    string    `json:"device" yaml:"device" validate:"required,ifname" ui:"label=Device,order=10,help=Kernel device name such as eth0"`
 	Zone      Ref[Zone] `json:"zone,omitzero" yaml:"zone,omitempty" validate:"-" ui:"label=Zone,widget=ref-picker,ref=zone,order=20"`
 	Addresses []string  `json:"addresses,omitempty" yaml:"addresses,omitempty" validate:"max=64,dive,cidr" ui:"label=Addresses,widget=list,order=30,help=IPv4 or IPv6 in CIDR form"`
-	DHCP      bool      `json:"dhcp,omitempty" yaml:"dhcp,omitempty" validate:"-" ui:"label=DHCP client,order=40"`
+	DHCP      bool      `json:"dhcp,omitempty" yaml:"dhcp,omitempty" validate:"-" ui:"label=DHCP client,order=40,help=Gets an IPv4 address and routes from the network"`
+	Down      bool      `json:"down,omitempty" yaml:"down,omitempty" validate:"-" ui:"label=Link down,order=45,help=Takes the link down"`
 	MTU       int       `json:"mtu,omitempty" yaml:"mtu,omitempty" validate:"omitempty,min=576,max=65535" ui:"label=MTU,order=50"`
 	VRF       Ref[VRF]  `json:"vrf,omitzero" yaml:"vrf,omitempty" validate:"-" ui:"label=VRF,widget=ref-picker,ref=vrf,order=60"`
 	Enabled   bool      `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`

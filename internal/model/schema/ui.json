@@ -65,7 +65,15 @@
           "name": "dhcp",
           "label": "DHCP client",
           "type": "boolean",
-          "order": 40
+          "order": 40,
+          "help": "Gets an IPv4 address and routes from the network"
+        },
+        {
+          "name": "down",
+          "label": "Link down",
+          "type": "boolean",
+          "order": 45,
+          "help": "Takes the link down"
         },
         {
           "name": "mtu",

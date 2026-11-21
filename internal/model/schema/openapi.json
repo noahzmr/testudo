@@ -3401,7 +3401,13 @@
             "x-rule": "ifname"
           },
           "dhcp": {
+            "description": "Gets an IPv4 address and routes from the network",
             "title": "DHCP client",
+            "type": "boolean"
+          },
+          "down": {
+            "description": "Takes the link down",
+            "title": "Link down",
             "type": "boolean"
           },
           "enabled": {
