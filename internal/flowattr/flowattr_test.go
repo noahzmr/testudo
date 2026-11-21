@@ -95,6 +95,9 @@ func TestAttribution(t *testing.T) {
 		// The kernel's load balancer for the resolver.
 		{Proto: "udp", OrigSrc: "192.0.2.10", OrigSport: 3000, OrigDst: "203.0.113.1", OrigDport: 53,
 			ReplySrc: "10.1.0.53", ReplySport: 53, ReplyDst: "192.0.2.10", ReplyDport: 3000, NATed: true},
+		// Flagged, but nothing changed: ignored.
+		{Proto: "tcp", OrigSrc: "10.1.0.7", OrigSport: 1, OrigDst: "10.1.0.8", OrigDport: 2, ReplySrc: "10.1.0.8", ReplySport: 2,
+			ReplyDst: "10.1.0.7", ReplyDport: 1, NATed: true},
 		// Not translated: ignored.
 		{Proto: "tcp", OrigSrc: "10.1.0.5", OrigSport: 1, OrigDst: "10.1.0.6", OrigDport: 2, ReplySrc: "10.1.0.6", ReplySport: 2,
 			ReplyDst: "10.1.0.5", ReplyDport: 1},
@@ -112,6 +115,7 @@ func TestAttribution(t *testing.T) {
 		flow("lan0", "tcp", "10.1.0.250", 61000, "10.1.0.21", 8080),       // 9 proxy, backend side
 		flow("lan0", "tcp", "10.1.0.250", 61001, "10.1.0.20", 8080),       // 10 a pool backend not in the log
 		flow("eth9", "tcp", "1.1.1.1", 1, "2.2.2.2", 2),                   // 11 unknown
+		flow("lan0", "tcp", "10.1.0.7", 1, "10.1.0.8", 2),                 // 12 flagged but not translated
 	})
 	want := []flows.Attrs{
 		{Site: "hq", Zone: "vpn", Tunnel: "roadwarriors", Peer: "alice-laptop", User: "alice"},
@@ -128,6 +132,7 @@ func TestAttribution(t *testing.T) {
 		{Site: "hq", Zone: "lan", LBRole: "backend", LBService: "web", LBRouter: "app", LBHost: "app.example.com", LBBackend: "10.1.0.21:8080"},
 		{Site: "hq", Zone: "lan", LBRole: "backend", LBService: "web", LBBackend: "10.1.0.20:8080"},
 		{Site: "hq"},
+		{Site: "hq", Zone: "lan"},
 	}
 	for i, w := range want {
 		g := got[i].Attrs

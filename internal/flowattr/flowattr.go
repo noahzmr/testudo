@@ -120,6 +120,11 @@ func Build(in Input) *Index {
 		if !f.NATed || f.ReplySrc == "" {
 			continue
 		}
+		// The kernel marks connections that passed a NAT hook; only a
+		// changed address or port is a translation.
+		if f.OrigSrc == f.ReplyDst && f.OrigSport == f.ReplyDport && f.OrigDst == f.ReplySrc && f.OrigDport == f.ReplySport {
+			continue
+		}
 		key := tupleKey(f.Proto, f.OrigSrc, f.OrigSport, f.OrigDst, f.OrigDport)
 		e := ctEntry{f: f, conv: conv("nat", key)}
 		x.nat[key] = e
