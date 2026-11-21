@@ -125,3 +125,64 @@ func TestTranslateEmptyInputStillGivesAClusterOfOne(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestTranslateIntoAModel: a policy file left from before the model goes
+// into a model that has its node, an interface with a zone and a policy:
+// those are used, nothing is created twice, and the old WireGuard
+// provisioner's rules come along.
+func TestTranslateIntoAModel(t *testing.T) {
+	store, err := confstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	mk := func(e model.Entity) string {
+		obj, err := store.Create(ctx, "a", e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return obj.GetMeta().ID
+	}
+	site := mk(&model.Site{Meta: model.Meta{Name: "hq"}})
+	node := mk(&model.ClusterNode{Meta: model.Meta{Name: "fw1"}, Site: model.Ref[model.Site]{ID: site}, Hostname: "fw1", Address: "10.0.0.1"})
+	wan := mk(&model.Zone{Meta: model.Meta{Name: "wan"}, DefaultAction: "drop"})
+	mk(&model.Interface{Meta: model.Meta{Name: "eth0", Scope: model.NodeScope(node)}, Device: "eth0", Zone: model.Ref[model.Zone]{ID: wan}, Enabled: true})
+	mk(&model.FirewallPolicy{Meta: model.Meta{Name: "default"}, DefaultDeny: true})
+	mk(&model.FilterRule{Meta: model.Meta{Name: "rule-001"}, Enabled: true, Action: "accept", Direction: "in", Protocol: "tcp", Ports: []string{"22"}})
+
+	res := TranslateFirewall(Into{State: store.Current(), NodeID: node}, sample().Firewall, nil)
+	if _, err := store.Commit(ctx, "system", "import", res.Ops); err != nil {
+		t.Fatalf("the store rejects the translation: %v", err)
+	}
+	st := store.Current()
+	if n := len(st.List(model.KindFirewallPolicy)); n != 1 {
+		t.Errorf("policies: %d", n)
+	}
+	rules := st.List(model.KindFilterRule)
+	var wg, names int
+	for _, e := range rules {
+		r := e.(*model.FilterRule)
+		if r.Owner == "wg-peer:abc" {
+			wg++
+		}
+		if r.Name == "rule-001" {
+			names++
+		}
+	}
+	if wg != 2 || names != 1 {
+		t.Errorf("the provisioner's rules: %d (want 2); rule-001 named %d times", wg, names)
+	}
+	// The forward on eth0 is in the existing wan zone.
+	for _, e := range st.List(model.KindNATRule) {
+		if r := e.(*model.NATRule); r.Type == "dnat" && r.Zone.ID != wan {
+			t.Errorf("the forward on eth0 is not in the model's wan zone: %v", r.Zone.ID)
+		}
+	}
+	notes := strings.Join(res.Notes, "\n")
+	for _, want := range []string{"firewall policy already", "over the rate", "stays behind"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("notes lack %q:\n%s", want, notes)
+		}
+	}
+}

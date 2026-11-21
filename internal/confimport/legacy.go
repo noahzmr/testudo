@@ -36,6 +36,13 @@ type Legacy struct {
 	Tunnels     []Tunnel
 }
 
+// Into describes a model a policy file is translated into: the node it
+// belongs to and what the model has already.
+type Into struct {
+	State  *confstore.State
+	NodeID string
+}
+
 // Result is the outcome of a translation.
 type Result struct {
 	Ops []confstore.Op
@@ -61,6 +68,9 @@ type builder struct {
 	zones map[string]string // interface name -> zone id
 	site  string
 	node  string
+	// allOwners translates rules of every owner but access grants;
+	// hasPolicy keeps the model's own firewall policy.
+	allOwners, hasPolicy bool
 }
 
 func (b *builder) add(e model.Entity) string {
@@ -94,6 +104,37 @@ func safeName(s string) string {
 		s = s[:63]
 	}
 	return s
+}
+
+// TranslateFirewall translates a policy file into an existing model: the
+// node, its interfaces' zones and the names in use are the model's. It is
+// what a node does by itself when it starts with a firewall.json left from
+// before the model; nothing is left behind in the file, since nothing reads
+// it any more. Notes name what could not be carried over.
+func TranslateFirewall(into Into, p *firewall.Policy, newID func() string) Result {
+	if newID == nil {
+		newID = confstore.NewID
+	}
+	b := &builder{newID: newID, names: map[string]bool{}, zones: map[string]string{}, node: into.NodeID, allOwners: true}
+	for _, k := range []model.Kind{model.KindZone, model.KindInterface, model.KindFilterRule, model.KindNATRule, model.KindFirewallPolicy} {
+		for _, e := range into.State.List(k) {
+			b.names[string(k)+"/"+e.GetMeta().Name] = true
+		}
+	}
+	for _, e := range into.State.List(model.KindInterface) {
+		i := e.(*model.Interface)
+		if i.Scope == model.NodeScope(into.NodeID) && i.Zone.ID != "" {
+			b.zones[i.Device] = i.Zone.ID
+		}
+	}
+	b.hasPolicy = len(into.State.List(model.KindFirewallPolicy)) > 0
+	b.firewall(p)
+	for _, r := range b.res.Remaining.Rules {
+		if !strings.HasPrefix(r.Owner, "pam-grant:") {
+			b.note("rule %s (%s) stays behind: it has no counterpart in the model", r.ID(), r.String())
+		}
+	}
+	return b.res
 }
 
 // zone returns the zone standing in for a legacy interface match, creating
@@ -181,14 +222,21 @@ func (b *builder) firewall(p *firewall.Policy) {
 	rest := p.Clone()
 	rest.Rules, rest.Forwards, rest.Masquerades = nil, nil, nil
 	defer func() { b.res.Remaining = &rest }()
-	// Only what the operator made directly moves into the model. Rules of
-	// other owners belong to the subsystems that will remove them again.
-	direct := func(owner string) bool { return owner == "" || owner == "user" }
+	// What the operator made directly moves into the model; with
+	// allOwners, so do the rules the old WireGuard provisioner made, because
+	// nothing else would keep them. Access grants end by themselves.
+	direct := func(owner string) bool {
+		return owner == "" || owner == "user" || (b.allOwners && !strings.HasPrefix(owner, "pam-grant:"))
+	}
 	bl := p.Baseline
-	b.add(&model.FirewallPolicy{Meta: model.Meta{Name: "default", Description: "Imported from firewall.json"},
-		DefaultDeny: p.Enforce, AllowEstablished: bl.AllowEstablished, DropInvalid: bl.DropInvalid,
-		AllowLoopback: bl.AllowLoopback, AllowICMP: bl.AllowICMP, AllowTCPPorts: portList(bl.AllowTCPPorts),
-		AllowUDPPorts: portList(bl.AllowUDPPorts), LogDrops: bl.LogDrops, LogPrefix: strings.TrimSpace(bl.LogPrefix)})
+	if !b.hasPolicy {
+		b.add(&model.FirewallPolicy{Meta: model.Meta{Name: "default", Description: "Imported from firewall.json"},
+			DefaultDeny: p.Enforce, AllowEstablished: bl.AllowEstablished, DropInvalid: bl.DropInvalid,
+			AllowLoopback: bl.AllowLoopback, AllowICMP: bl.AllowICMP, AllowTCPPorts: portList(bl.AllowTCPPorts),
+			AllowUDPPorts: portList(bl.AllowUDPPorts), LogDrops: bl.LogDrops, LogPrefix: strings.TrimSpace(bl.LogPrefix)})
+	} else {
+		b.note("the model has a firewall policy already; the file's default policy and baseline were not imported")
+	}
 
 	for i, r := range p.Rules {
 		label := fmt.Sprintf("rule %d (%s)", i+1, r.ID())
