@@ -828,6 +828,43 @@ func (s *Store) RecentAudit(ctx context.Context, limit int) ([]AuditEntry, error
 	return out, rows.Err()
 }
 
+// AuditRow is an audit entry with its row id.
+type AuditRow struct {
+	ID int64
+	AuditEntry
+}
+
+// AuditAfter returns the audit rows after id, oldest first; with id < 0 it
+// returns no rows and the id of the newest row, to start following from.
+func (s *Store) AuditAfter(ctx context.Context, id int64, limit int) ([]AuditRow, int64, error) {
+	if id < 0 {
+		var last sql.NullInt64
+		err := s.db.QueryRowContext(ctx, `SELECT MAX(id) FROM audit_log`).Scan(&last)
+		return nil, last.Int64, err
+	}
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, ts, op, args, peer_uid, actor, result FROM audit_log WHERE id > ? ORDER BY id ASC LIMIT ?`, id, limit)
+	if err != nil {
+		return nil, id, err
+	}
+	defer rows.Close()
+	var out []AuditRow
+	for rows.Next() {
+		var r AuditRow
+		var ms, uid int64
+		if err := rows.Scan(&r.ID, &ms, &r.Op, &r.Args, &uid, &r.Actor, &r.Result); err != nil {
+			return nil, id, err
+		}
+		r.TS, r.PeerUID = time.UnixMilli(ms), uint32(uid)
+		out = append(out, r)
+		id = r.ID
+	}
+	return out, id, rows.Err()
+}
+
 // CapAuditLog trims the audit log to the newest maxRows entries so the security
 // record stays bounded like the other unbounded tables.
 func (s *Store) CapAuditLog(ctx context.Context, maxRows int) error {

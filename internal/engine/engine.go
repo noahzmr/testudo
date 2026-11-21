@@ -38,6 +38,8 @@ import (
 type Engine struct {
 	// fwlog keeps the packets the firewall logged lately.
 	fwlog fwLog
+	// logx runs the log exports.
+	logx logExports
 	// l3 dedupes neighbour/conntrack persistence (snapshot goroutine only).
 	l3 l3Persist
 	// wifiPersist thins WiFi metric samples (metrics consumer goroutine only).

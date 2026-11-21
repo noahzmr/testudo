@@ -1626,6 +1626,17 @@
     }).join('');
   }
 
+  function renderLogExports(rows) {
+    setHTML(document.getElementById('logx-body'), (rows || []).map(x => '<tr>'
+      + '<td>' + escape(x.name) + '</td>'
+      + '<td class="mono">' + escape(x.address) + '</td>'
+      + '<td>' + (x.connected ? '<span class="status-pill on">connected</span>' : '<span class="status-pill warn">not connected</span>') + '</td>'
+      + '<td>' + fmtCount(x.sent) + '</td>'
+      + '<td>' + fmtCount(x.dropped) + '</td>'
+      + '<td class="muted">' + escape(x.last_error || '') + '</td>'
+      + '</tr>').join('') || '<tr><td colspan="6" class="muted">no log export</td></tr>');
+  }
+
   function renderFirewallLog(rows) {
     const ep = (a, p) => a ? escape(p ? (a.includes(':') ? '[' + a + ']:' + p : a + ':' + p) : a) : '-';
     setHTML(document.getElementById('fw-log-body'), (rows || []).map(r => '<tr>'
@@ -2381,7 +2392,7 @@
     tcpdump:   s => renderTCPDump(s.tcpdump),
     alerts:    s => renderAlerts(s.anomalies),
     health:    s => renderHealth(s.subsystems, s.audit, s.privsep),
-    settings:  s => renderIPFIX(s.ipfix),
+    settings:  s => { renderIPFIX(s.ipfix); renderLogExports(s.log_exports); },
   };
   function activePaneName() {
     const p = document.querySelector('.pane.active');

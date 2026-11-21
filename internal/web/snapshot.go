@@ -10,6 +10,7 @@ import (
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/engine"
 	"github.com/noahzmr/testudo/internal/flows"
+	"github.com/noahzmr/testudo/internal/logexport"
 	"github.com/noahzmr/testudo/internal/metrics"
 	"github.com/noahzmr/testudo/internal/netlabel"
 	"github.com/noahzmr/testudo/internal/netops"
@@ -38,27 +39,29 @@ type snapshot struct {
 	ModelRules []engine.RuleView `json:"model_rules"`
 	ModelNAT   []engine.RuleView `json:"model_nat"`
 	// FirewallLog are the latest packets logging rules matched.
-	FirewallLog   []engine.FirewallLogEntry `json:"firewall_log"`
-	WireGuard     []wgDeviceView            `json:"wireguard"`
-	Neighbours    []neighbourView           `json:"neighbours"`
-	Conflicts     []ipConflictView          `json:"ip_conflicts"`
-	Conntrack     conntrackView             `json:"conntrack"`
-	Anomalies     []anomalyView             `json:"anomalies"`
-	Thresholds    thresholdsView            `json:"thresholds"`
-	TCPDump       []tcpdumpView             `json:"tcpdump"`
-	IPFIX         ipfixView                 `json:"ipfix"`
-	LatencySeries map[string][]float64      `json:"latency_series"`
-	DNSSeries     map[string][]float64      `json:"dns_series"`
-	Bandwidth     []bandwidthView           `json:"bandwidth"`
-	TopHosts      []hostRollupView          `json:"top_hosts"`
-	TopProcesses  []procRollupView          `json:"top_processes"`
-	TopServices   []serviceRollupView       `json:"top_services"`
-	Telemetry     telemetryView             `json:"telemetry"`
-	Clock         clockView                 `json:"clock"`
-	WiFi          []wifiView                `json:"wifi"`
-	Subsystems    []subsystemView           `json:"subsystems"`
-	Audit         []auditView               `json:"audit"`
-	Privsep       string                    `json:"privsep"`
+	FirewallLog []engine.FirewallLogEntry `json:"firewall_log"`
+	// LogExports are the collectors this node sends records to.
+	LogExports    []logexport.Status   `json:"log_exports"`
+	WireGuard     []wgDeviceView       `json:"wireguard"`
+	Neighbours    []neighbourView      `json:"neighbours"`
+	Conflicts     []ipConflictView     `json:"ip_conflicts"`
+	Conntrack     conntrackView        `json:"conntrack"`
+	Anomalies     []anomalyView        `json:"anomalies"`
+	Thresholds    thresholdsView       `json:"thresholds"`
+	TCPDump       []tcpdumpView        `json:"tcpdump"`
+	IPFIX         ipfixView            `json:"ipfix"`
+	LatencySeries map[string][]float64 `json:"latency_series"`
+	DNSSeries     map[string][]float64 `json:"dns_series"`
+	Bandwidth     []bandwidthView      `json:"bandwidth"`
+	TopHosts      []hostRollupView     `json:"top_hosts"`
+	TopProcesses  []procRollupView     `json:"top_processes"`
+	TopServices   []serviceRollupView  `json:"top_services"`
+	Telemetry     telemetryView        `json:"telemetry"`
+	Clock         clockView            `json:"clock"`
+	WiFi          []wifiView           `json:"wifi"`
+	Subsystems    []subsystemView      `json:"subsystems"`
+	Audit         []auditView          `json:"audit"`
+	Privsep       string               `json:"privsep"`
 }
 
 // wifiView is the per-interface wireless snapshot the dashboard
@@ -976,6 +979,7 @@ func (s *Server) buildSnapshot() snapshot {
 		snap.ModelRules, snap.ModelNAT = v.Rules, v.NAT
 		snap.FirewallLog = eng.FirewallLog(50)
 	}
+	snap.LogExports = eng.LogExportStatus()
 
 	// WireGuard devices/peers from the collector's enriched snapshot (public
 	// material only). Absent block = no WG device or state unreadable.

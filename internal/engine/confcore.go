@@ -249,6 +249,7 @@ func (e *Engine) startConfig(ctx context.Context) {
 	e.migrateFirewallFile(ctx)
 	e.migrateSettings(ctx)
 	e.syncSettings(ctx)
+	e.startLogExport(ctx)
 	go e.grantLoop(ctx)
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)

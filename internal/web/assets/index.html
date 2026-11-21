@@ -689,6 +689,15 @@
         <div class="muted" id="ipfix-status">IPFIX export: -</div>
       </div>
       <div class="card">
+        <h2>Log export <span class="muted">· to collectors and SIEMs · set up under Log export above</span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Export</th><th>Collector</th><th>State</th><th>Sent</th><th>Dropped</th><th>Last error</th></tr></thead>
+            <tbody id="logx-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
         <h2>Baseline maintenance</h2>
         <div class="muted">Baselines are auto-learned per (target, hour-of-day). Reset when the network legitimately changed (new ISP, moved desk). Requires "allow netops writes".</div>
         <div class="row"><button data-action="baseline-reset" class="btn btn-warn">Reset learned baselines</button></div>

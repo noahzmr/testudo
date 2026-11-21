@@ -50,6 +50,7 @@ const (
 	KindPPPoE          Kind = "pppoe"
 	KindDHCPRelay      Kind = "dhcp_relay"
 	KindDHCPv6Client   Kind = "dhcpv6_client"
+	KindLogExport      Kind = "log_export"
 )
 
 func init() {
@@ -97,6 +98,7 @@ func init() {
 	register("dhcp-relays", "DHCP relay", "services/dhcp-relay", allLevels, func() Entity { return &DHCPRelay{} })
 	register("access-grants", "Access grant", "access/grants", allLevels, func() Entity { return &AccessGrant{} })
 	register("node-settings", "Node settings", "system/settings", allLevels, func() Entity { return &NodeSettings{} })
+	register("log-exports", "Log export", "system/log-export", allLevels, func() Entity { return &LogExport{} })
 }
 
 // Interface binds a kernel network device on one node to a zone and says
@@ -857,3 +859,19 @@ type PrefixAssignment struct {
 }
 
 func (DHCPv6Client) Kind() Kind { return KindDHCPv6Client }
+
+// LogExport sends records of the chosen categories to a log collector or
+// SIEM: syslog or CEF over UDP, TCP or TLS, or JSON lines.
+type LogExport struct {
+	Meta       `yaml:",inline"`
+	Enabled    bool     `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Address    string   `json:"address" yaml:"address" validate:"required,hostport" ui:"label=Collector,order=10,help=host:port"`
+	Transport  string   `json:"transport" yaml:"transport" validate:"required,oneof=udp tcp tls" ui:"label=Transport,widget=select,order=20"`
+	Format     string   `json:"format" yaml:"format" validate:"required,oneof=rfc5424 cef json" ui:"label=Format,widget=select,order=30,help=Syslog with structured data or CEF in syslog or one JSON object per line"`
+	Categories []string `json:"categories" yaml:"categories" validate:"required,min=1,max=5,dive,oneof=firewall alerts audit access config" ui:"label=What to send,widget=checkboxes,order=40"`
+	Facility   string   `json:"facility,omitempty" yaml:"facility,omitempty" validate:"omitempty,oneof=local0 local1 local2 local3 local4 local5 local6 local7" ui:"label=Syslog facility,widget=select,order=50,help=Empty is local4"`
+	CA         string   `json:"ca,omitempty" yaml:"ca,omitempty" validate:"max=16384" ui:"label=CA certificates (PEM),widget=textarea,order=60,help=For TLS; empty uses the system's"`
+	ServerName string   `json:"server_name,omitempty" yaml:"server_name,omitempty" validate:"omitempty,hostname_rfc1123" ui:"label=Server name,order=70,help=For TLS when it differs from the collector's host"`
+}
+
+func (LogExport) Kind() Kind { return KindLogExport }
