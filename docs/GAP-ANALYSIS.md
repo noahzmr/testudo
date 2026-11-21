@@ -69,9 +69,9 @@ Resolved in Phase 12 ([phase-12-consolidation.md](phase-12-consolidation.md)).
 
 | # | Obstacle | Now |
 | --- | --- | --- |
-| 1 | **Three sources of truth.** Firewall policy in a JSON file, WireGuard in netplan YAML plus SQLite rows, users in another JSON file, settings in a fourth. | The firewall, WireGuard, users, roles, access resources, policies and grants are model objects, replicated by the cluster. `firewall.json`, `users.json` and the access catalogue move into the model at the first start and are kept as backups; the old manager, provisioner and their write paths are gone. Node settings (`settings.json`) stay per node by design. Open: interface addressing has model fields but no stage, so the console's interface forms still write the kernel. |
+| 1 | **Three sources of truth.** Firewall policy in a JSON file, WireGuard in netplan YAML plus SQLite rows, users in another JSON file, settings in a fourth. | The firewall, WireGuard, interfaces, users, roles, node settings, access resources, policies and grants are model objects, replicated by the cluster; access requests are shared by the members. `firewall.json`, `users.json`, `settings.json` and the access catalogue move into the model at the first start and are kept as backups; the old manager, provisioner and every hand-written write path are gone. Only a node's switch for kernel writes stays its own. |
 | 2 | **Content-hash rule IDs.** Editing a rule changed its identity. | Rules are model objects with UUIDs and versions; the kernel rule's comment is the UUID, so counters, history and drift checks key on the object. |
-| 3 | **"No shell-out, pure Go, no cgo."** | Restated: no shell-out in the packet path; dry runs (`nft -c`, FRR, Traefik, Kea, Unbound, chrony) and managed daemons go through one narrow, audited runner on the privileged side; host PAM is an opt-in cgo build. Open: the helper still accepts operations of the removed paths. |
+| 3 | **"No shell-out, pure Go, no cgo."** | Restated: no shell-out in the packet path; dry runs (`nft -c`, FRR, Traefik, Kea, Unbound, chrony) and managed daemons go through one narrow, audited runner on the privileged side; host PAM is an opt-in cgo build. The helper accepts only the operations the stages and views send. |
 | 4 | **Per-user home directory layout.** | The package runs from `/var/lib/testudo` under a sandboxed unit (Phase 10); `~/.testudo` is only the default of a developer run. The CLI reaches the service through `<storage>/control.sock`. |
 | 5 | **Path-prefix RBAC and in-memory sessions.** | Permissions are scoped to a site or node and checked per object; sessions live in the replicated secret store and are good on every member; model changes carry the actor through Raft, also the leader-forwarded changes of access grants. |
 | 6 | **A polling UI written by hand.** | The model's forms are generated from the schema (Phase 1); the live views are pushed over `/api/live`; the hand-written forms for firewall, NAT, WireGuard, users and routes are gone. |
@@ -117,7 +117,7 @@ routes, IPv6 routes).
 ## 4. VPN (WireGuard)
 
 Done; see [phase-4-vpn.md](phase-4-vpn.md). Access grants are model
-objects since Phase 12; requests and approvals are recorded per member.
+objects and requests are shared by the members since Phase 12.
 
 ## 5. Load balancing and SNI
 

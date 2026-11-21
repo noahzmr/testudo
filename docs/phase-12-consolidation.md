@@ -29,11 +29,14 @@ second paths. It answers the list "What the existing code makes harder" in
 | PAM resources, policies, peer bindings (SQLite) | `access_resource`, `access_policy`, the user on `wg_peer` | at the first start |
 | PAM grants as firewall rules owned by `pam-grant:<id>` | `access_grant` objects | at the first start: a grant active at the upgrade becomes a model grant with the same end |
 | sessions in memory | `session-<id>` entries in the secret store | a login after the upgrade |
-| `/api/firewall/*` writes, `/api/nat/del`, `/api/wireguard/*`, `/api/users*`, `/api/route/add|del` | the model's API (`/api/v1`) | - |
+| `settings.json` (thresholds, integrations) | `node_settings` objects | at the first start; the file keeps the node's write switch |
+| interface buttons writing the kernel | `interface` objects applied by `ifstage` | addresses already in the model are now applied |
+| PAM requests in each member's SQLite | entries of the replicated store | open requests at the first start |
+| `/api/firewall/*` writes, `/api/nat/del`, `/api/wireguard/*`, `/api/users*`, `/api/route/add|del`, `/api/iface/*`, the settings fields of `/api/settings` | the model's API (`/api/v1`) | - |
 | 2 s snapshot poll | `/api/live` (server-sent events) | - |
 
-PAM requests, approvals and the hash-chained access log stay in SQLite on
-the member that handled them: they are a record, not configuration.
+The hash-chained access log stays in SQLite on the member that wrote it:
+it is a record, not configuration.
 
 ## Firewall
 
@@ -120,16 +123,54 @@ listened to `/api/v1/events`.
   parts, makes no snapshot requests, and goes to the login when the session
   ends on another browser.
 
+## Interfaces
+
+`internal/ifstage` is the first stage of every apply. For each interface
+of the node that sets something it configures the device: addresses, the
+MTU, the link state, an IPv4 DHCP client run by the privileged daemon
+runner (dhclient, else dhcpcd). It undoes only what it did itself,
+recorded in `<storage>/interfaces/managed.json`: an address it added and
+the model dropped, the MTU it changed (back to the device's own), a link
+it took down, a DHCP client it started (with the lease's IPv4 addresses).
+Addresses that others own stay. An interface that sets nothing, as most
+did before, needs no privileges and changes nothing; a device the node
+lacks is skipped. The console's and the terminal UI's interface actions
+and `/api/iface/*` are gone.
+
+## Node settings
+
+`node_settings` objects hold the thresholds, flow export and
+integrations, globally, per site or per node; the narrowest applies and
+an empty value is the default. The engine carries them into the running
+settings at start and on every model change. `settings.json` moves into
+the model once (global on the first node, node-scoped on a member that
+differs) and keeps only the node's write switch as its own. The
+settings forms of the console and the terminal UI edit only that switch.
+
+## Access requests in a cluster
+
+Requests are entries of the replicated secret store, so any member shows,
+decides and revokes them; the leader expires and samples them and lets
+ended ones go after 30 days. Each member keeps its own hash-chained
+access log; the overview merges the logs of all members, fetched member
+to member (`/cluster/v1/access-events`), and names the member of each
+event. Each member verifies its own chain.
+
+## The privileged helper
+
+The helper accepts only what the stages and the remaining views send.
+Whole-table netlink loads of the old manager, single route changes,
+WireGuard peer changes outside the stage, netplan writes, txqueuelen and
+sysctl writes, flushing a device's addresses and the old tables' state
+queries were removed from its protocol. The packaged unit no longer may
+write `/etc/netplan`.
+
 ## Open
 
-* The privileged helper still accepts operations nobody sends any more
-  (whole-table netlink loads of the old manager, netplan writes, WireGuard
-  peer changes outside the stage). Narrowing its operation set is the next
-  hardening step.
-* Interface addresses, MTU, DHCP client and link state are fields of the
-  model that no stage applies yet; the console's interface forms still
-  change the kernel directly.
-* Node settings (`settings.json`: thresholds, integrations) stay per node
-  and are not replicated.
-* PAM requests and the access log are per member; a cluster-wide view of
-  requests is not built.
+* The settings fields of the removed WireGuard provisioner are still read
+  from `settings.json` (only the device name is used, by the access
+  manager).
+* Name servers from a DHCP lease are not applied under the packaged
+  unit's read-only `/etc`.
+* Each member verifies only its own access-log chain; a broken chain on
+  another member shows on that member.

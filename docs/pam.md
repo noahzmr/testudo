@@ -21,7 +21,7 @@ request ──► pending ──approve──► active ──ttl / revoke──
 | session kill | `netops.ListConntrack` / `FlushConntrack` | connections from the peers to the resource are flushed when the grant ends |
 | recording | `capture.TCPDumpManager` | one rolling pcap per grant: `(host <peer> …) and net <resource>` |
 | identity | `internal/identity` | users, roles, MFA; a WireGuard peer belongs to the user named on it in the model |
-| proof | `access_events` (`internal/storage/pam.go`) | SHA-256 hash chain; `VerifyAccessEvents` detects edits and deletions |
+| proof | `access_events` (`internal/storage/pam.go`) | SHA-256 hash chain per member; `VerifyAccessEvents` detects edits and deletions; the view merges all members' logs and names the member of each event |
 
 ## Objects
 
@@ -33,9 +33,11 @@ name and a broker reference (Guacamole connection id).
 authenticated user, a resource, the longest grant, whether it needs
 approval and a second factor.
 
-**Request** (SQLite, per member) - one request and its whole life: user,
-resource, policy, state, justification, ticket, requested/decided/started/
-ended timestamps, capture id, observed flows/bytes, break-glass flag.
+**Request** (the replicated store, shared by a cluster's members) - one
+request and its whole life: user, resource, policy, state, justification,
+ticket, requested/decided/started/ended timestamps, capture id, observed
+flows/bytes, break-glass flag. Any member shows, decides and revokes it;
+the leader expires it and lets it go 30 days after it ended.
 
 **Grant** (`access_grant`, model) - what an approved request, a policy
 without approval or a break-glass becomes: user, resource, end, policy,

@@ -47,11 +47,15 @@ and keeps each original next to it:
 | `users.json` | local users, their hashes and second factors in the secret store | `users.json.migrated` |
 | `firewall.json` | firewall policy, zones, filter and NAT rules, with the old WireGuard provisioner's rules | `firewall.json.migrated` |
 | access resources, policies, peer bindings and active grants in the database | `access_resource`, `access_policy` and `access_grant` objects, the user on each `wg_peer` | the database rows |
+| open access requests in the database | entries of the replicated store | the database rows |
+| thresholds and integrations of `settings.json` | a `node_settings` object | `settings.json`, which keeps the node's write switch |
 
 What could not be carried over is in the log and in the audit row
 `firewall_migration`. The hand-written forms that changed rules, routes,
-WireGuard peers and users directly are gone; all of that is changed in the
-model now.
+interfaces, WireGuard peers, users and settings directly are gone; all of
+that is changed in the model now. Interfaces of the model that carry
+addresses are now applied: check that they match what the device should
+have before upgrading.
 
 The console is at `https://<host>:8443` with a self-signed certificate
 until you configure one (Settings → Certificates: Let's Encrypt or the
@@ -63,8 +67,9 @@ local authority).
    or host accounts through PAM (`/etc/pam.d/testudo`). Put the
    administrators' host accounts into the group `testudo-admin`: they get
    in when everything else fails.
-2. **Zones and interfaces.** Firewall → Zones, then Interfaces → zone
-   assignment.
+2. **Zones and interfaces.** Firewall → Zones, then Interfaces →
+   Configuration: the zone of each device and, where Testudo should set
+   them, its addresses, DHCP client, MTU and link state (see below).
 3. **Policy.** Firewall → Policy. Turning on default-deny, like every
    change, applies at once and **rolls back after 60 seconds unless you
    confirm** (the banner, or `POST /api/v1/apply/confirm`). If the change
@@ -118,12 +123,42 @@ If the pair's voter is unreachable for 30 seconds, the cluster gives the
 site's vote to the partner and the audit log says
 `cluster_voter_failover`. The old voter comes back as a non-voter.
 
+## Interfaces
+
+An interface of the model configures the device it names, on its node,
+as the first stage of every apply: addresses, a DHCP client (IPv4;
+dhclient, else dhcpcd, supervised by Testudo), the MTU and whether the
+link is down. Only what is set is configured, and only what Testudo did
+is undone: an interface that only names a zone changes nothing, and
+addresses from a DHCP lease, the HA pair, WireGuard and router
+advertisements stay. Switching an interface off (enabled unchecked)
+undoes what Testudo did to the device. What it did is recorded in
+`/var/lib/testudo/interfaces/managed.json`. Like every change this
+rolls back after 60 seconds unless confirmed, which covers an address
+change that cuts the console off. A device the node does not have is
+skipped. Name servers a DHCP lease brings are not written to
+`/etc/resolv.conf` under the packaged unit; use the DNS resolver
+service or a resolver of the distribution.
+
+If the distribution's own network configuration (ifupdown, netplan,
+NetworkManager) also manages a device, let only one of them set its
+addresses.
+
+## Node settings
+
+Thresholds, flow export and the integrations (Sentry, Guacamole,
+MaxMind) are node settings of the model (Settings → Node settings): one
+object for every node, and per site or per node where they differ; the
+narrowest applies. An empty value is the built-in default. Whether a
+node may write to the kernel stays its own switch (Settings, "allow
+netops writes", or `--allow-netops-write`).
+
 ## DHCP, DNS and NTP
 
 Services → DHCP, Router advertisements, DNS resolver, DNS records, NTP.
 Each object names the interfaces it serves; the firewall opens its port on
 those interfaces only. Give the interfaces their addresses in the model
-(Interfaces → zone assignment): the defaults (gateway, DNS and NTP server
+(Interfaces → Configuration): the defaults (gateway, DNS and NTP server
 handed to clients) are derived from them, or from the pair's virtual
 address. Before the first service, stop the distribution's own units:
 
