@@ -42,6 +42,11 @@ const (
 	iePacketDeltaCount         uint16 = 2
 	ieFlowStartMilliseconds    uint16 = 152
 	ieFlowEndMilliseconds      uint16 = 153
+	// After address translation (RFC 7659 style, IANA 225-228).
+	iePostNATSourceIPv4Address         uint16 = 225
+	iePostNATDestinationIPv4Address    uint16 = 226
+	iePostNAPTSourceTransportPort      uint16 = 227
+	iePostNAPTDestinationTransportPort uint16 = 228
 )
 
 // Config holds the operator-supplied knobs.
@@ -71,6 +76,10 @@ type FlowRec struct {
 	Packets uint64
 	Start   time.Time
 	End     time.Time
+	// The connection after address translation; nil and zero when it was
+	// not translated, and then the same as before it is sent.
+	PostSrcIP, PostDstIP     net.IP
+	PostSrcPort, PostDstPort uint16
 }
 
 // Exporter is the live UDP-bound exporter instance.
@@ -186,6 +195,10 @@ func writeTemplateSet(b *bytes.Buffer) error {
 		{ieOctetDeltaCount, 8},
 		{ieFlowStartMilliseconds, 8},
 		{ieFlowEndMilliseconds, 8},
+		{iePostNATSourceIPv4Address, 4},
+		{iePostNATDestinationIPv4Address, 4},
+		{iePostNAPTSourceTransportPort, 2},
+		{iePostNAPTDestinationTransportPort, 2},
 	}
 	const setHdrLen = 4
 	const tmplHdrLen = 4
@@ -218,7 +231,7 @@ func writeTemplateSet(b *bytes.Buffer) error {
 // writeDataSet emits the data-set bytes onto b. Record layout MUST match
 // the order/widths declared in writeTemplateSet.
 func writeDataSet(b *bytes.Buffer, flows []FlowRec) error {
-	const recordLen = 4 + 4 + 2 + 2 + 1 + 8 + 8 + 8 + 8 // = 45 bytes
+	const recordLen = 4 + 4 + 2 + 2 + 1 + 8 + 8 + 8 + 8 + 4 + 4 + 2 + 2 // = 57 bytes
 	const setHdrLen = 4
 	setLen := setHdrLen + recordLen*len(flows)
 	if err := binary.Write(b, binary.BigEndian, templateID); err != nil {
@@ -242,6 +255,17 @@ func writeDataSet(b *bytes.Buffer, flows []FlowRec) error {
 		_ = binary.Write(b, binary.BigEndian, f.Bytes)
 		_ = binary.Write(b, binary.BigEndian, uint64(f.Start.UnixMilli()))
 		_ = binary.Write(b, binary.BigEndian, uint64(f.End.UnixMilli()))
+		psrc, pdst, psp, pdp := src4, dst4, f.SrcPort, f.DstPort
+		if p := f.PostSrcIP.To4(); p != nil {
+			psrc, psp = p, f.PostSrcPort
+		}
+		if p := f.PostDstIP.To4(); p != nil {
+			pdst, pdp = p, f.PostDstPort
+		}
+		b.Write(psrc)
+		b.Write(pdst)
+		_ = binary.Write(b, binary.BigEndian, psp)
+		_ = binary.Write(b, binary.BigEndian, pdp)
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package ipfix
 import (
 	"context"
 	"log"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,10 @@ import (
 // short cadence; when the endpoint / interval / enabled flag changes it
 // transparently re-dials.
 type Manager struct {
+	// Attribute, when set, fills in each flow's attribution before it is
+	// sent; the translated addresses go out with the flow.
+	Attribute func([]flows.FlowStats) []flows.FlowStats
+
 	settings *config.SettingsStore
 	flowAgg  *flows.Aggregator
 
@@ -140,6 +145,9 @@ func (m *Manager) maybeExport() {
 		return
 	}
 	snap := m.flowAgg.Snapshot()
+	if m.Attribute != nil {
+		snap = m.Attribute(snap)
+	}
 	recs := toFlowRecs(snap)
 	if err := exp.Export(recs); err != nil {
 		m.mu.Lock()
@@ -172,7 +180,7 @@ func toFlowRecs(snap []flows.FlowStats) []FlowRec {
 		if srcIP == nil || dstIP == nil {
 			continue
 		}
-		out = append(out, FlowRec{
+		rec := FlowRec{
 			SrcIP:   srcIP,
 			DstIP:   dstIP,
 			SrcPort: f.Key.A.Port,
@@ -182,7 +190,16 @@ func toFlowRecs(snap []flows.FlowStats) []FlowRec {
 			Packets: f.Packets,
 			Start:   f.FirstSeen,
 			End:     f.LastSeen,
-		})
+		}
+		// A translated connection is sent the way it was opened, with the
+		// addresses and ports it had after the translation.
+		if pre, ok := parseTuple(f.Attrs.PreNAT); ok {
+			if post, ok := parseTuple(f.Attrs.PostNAT); ok {
+				rec.SrcIP, rec.SrcPort, rec.DstIP, rec.DstPort = pre.src, pre.sport, pre.dst, pre.dport
+				rec.PostSrcIP, rec.PostSrcPort, rec.PostDstIP, rec.PostDstPort = post.src, post.sport, post.dst, post.dport
+			}
+		}
+		out = append(out, rec)
 	}
 	return out
 }
@@ -218,4 +235,41 @@ func protoNumber(s string) uint8 {
 		return uint8(v)
 	}
 	return 0
+}
+
+type natTuple struct {
+	src, dst     net.IP
+	sport, dport uint16
+}
+
+// parseTuple reads the "proto src:port > dst:port" form of flows.Attrs.
+func parseTuple(s string) (natTuple, bool) {
+	_, rest, ok := strings.Cut(s, " ")
+	if !ok {
+		return natTuple{}, false
+	}
+	a, b, ok := strings.Cut(rest, " > ")
+	if !ok {
+		return natTuple{}, false
+	}
+	var t natTuple
+	for _, part := range []struct {
+		hp   string
+		ip   *net.IP
+		port *uint16
+	}{{a, &t.src, &t.sport}, {b, &t.dst, &t.dport}} {
+		h, p, err := net.SplitHostPort(part.hp)
+		if err != nil {
+			return natTuple{}, false
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 || n > 65535 {
+			return natTuple{}, false
+		}
+		*part.ip, *part.port = net.ParseIP(h), uint16(n)
+		if *part.ip == nil {
+			return natTuple{}, false
+		}
+	}
+	return t, true
 }

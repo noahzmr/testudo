@@ -387,6 +387,7 @@ func (e *Engine) startIPFIX(ctx context.Context) {
 		return
 	}
 	e.ipfixMgr = ipfix.NewManager(e.settings, e.flowAgg)
+	e.ipfixMgr.Attribute = e.Attribute
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
