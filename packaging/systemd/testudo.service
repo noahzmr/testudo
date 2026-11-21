@@ -11,7 +11,7 @@ After=network-online.target nftables.service
 
 [Service]
 Type=simple
-Environment=HOME=/var/lib/testudo
+Environment=HOME=/var/lib/testudo TESTUDO_STORAGE=/var/lib/testudo
 EnvironmentFile=-/etc/default/testudo
 ExecStart=/usr/bin/testudo web --storage /var/lib/testudo --db /var/lib/testudo/testudo.db --allow-netops-write $TESTUDO_ARGS
 Restart=on-failure

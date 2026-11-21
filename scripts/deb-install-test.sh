@@ -43,6 +43,8 @@ PY
 	grep -q "password:" /tmp/testudo.log || fail "no first-run password in the log"
 	kill $pid; wait $pid 2>/dev/null || true
 	[ -f /var/lib/testudo/config/config.log ] || fail "no configuration store"
+	# Host commands as root find the installed storage without --storage.
+	testudo user list | grep -q "testudo " || fail "testudo user list does not see the service users"
 
 	dpkg -r testudo >/dev/null
 	test ! -e /usr/bin/testudo || fail "binary left after remove"

@@ -373,12 +373,29 @@ type Config struct {
 	GuacamoleURL string
 }
 
-func Default() Config {
+// SystemStorage is where the packaged service keeps its state.
+const SystemStorage = "/var/lib/testudo"
+
+// defaultStorage picks the storage directory commands use without
+// --storage: $TESTUDO_STORAGE when set; for root, the service's directory
+// once the service has created its configuration there; otherwise
+// ~/.testudo.
+func defaultStorage(getenv func(string) string, euid int, exists func(string) bool) string {
+	if v := getenv("TESTUDO_STORAGE"); v != "" {
+		return v
+	}
+	if euid == 0 && exists(filepath.Join(SystemStorage, "config")) {
+		return SystemStorage
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
 	}
-	storage := filepath.Join(home, ".testudo")
+	return filepath.Join(home, ".testudo")
+}
+
+func Default() Config {
+	storage := defaultStorage(os.Getenv, os.Geteuid(), func(p string) bool { _, err := os.Stat(p); return err == nil })
 	return Config{
 		ICMPTargets:                   []string{"1.1.1.1", "8.8.8.8"},
 		ICMPInterval:                  time.Second,
