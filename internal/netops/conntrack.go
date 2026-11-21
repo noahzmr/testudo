@@ -27,6 +27,8 @@ type ConntrackFlow struct {
 	OrigDport  uint16 `json:"orig_dport"`
 	ReplySrc   string `json:"reply_src"` // != OrigDst when DNAT'd
 	ReplyDst   string `json:"reply_dst"` // != OrigSrc when SNAT'd
+	ReplySport uint16 `json:"reply_sport,omitempty"`
+	ReplyDport uint16 `json:"reply_dport,omitempty"`
 	State      string `json:"state"`     // ESTABLISHED / TIME_WAIT / ASSURED / ...
 	NATed      bool   `json:"natted"`
 	Packets    uint64 `json:"packets"`
@@ -308,6 +310,7 @@ func parseCtAttrs(b []byte) (ConntrackFlow, bool) {
 		case ctaTupleReply:
 			if t := parseCtTuple(a.Data); t.ok {
 				f.ReplySrc, f.ReplyDst = t.src, t.dst
+				f.ReplySport, f.ReplyDport = t.sport, t.dport
 			}
 		case ctaStatus:
 			if len(a.Data) >= 4 {

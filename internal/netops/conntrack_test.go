@@ -63,6 +63,9 @@ func TestParseCtAttrs_NATedTCPFlow(t *testing.T) {
 	if f.ReplyDst != "203.0.113.5" {
 		t.Errorf("ReplyDst = %q, want 203.0.113.5 (SNAT mapping)", f.ReplyDst)
 	}
+	if f.ReplySport == 0 || f.ReplyDport == 0 {
+		t.Errorf("reply ports = %d -> %d, want both set", f.ReplySport, f.ReplyDport)
+	}
 	if !f.NATed {
 		t.Error("NATed = false, want true (IPS_SRC_NAT set)")
 	}
