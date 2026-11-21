@@ -101,3 +101,21 @@ func (s Store) Delete(name string) error {
 	}
 	return nil
 }
+
+// List returns the names of the entries, sorted.
+func (s Store) List() ([]string, error) {
+	entries, err := os.ReadDir(s.Dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.Type().IsRegular() && ValidName(e.Name()) && !strings.HasSuffix(e.Name(), ".tmp") {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}

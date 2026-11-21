@@ -16,6 +16,7 @@ import (
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/identity"
+	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/storage"
 )
@@ -72,6 +73,9 @@ func (e *Engine) openCluster() {
 		MeshKey: func() string { return e.meshPublicKey(false) },
 		Flows:   func() ([]byte, error) { return json.Marshal(e.localNodeFlows()) },
 		Partner: e.haPartner,
+		// The fabric key is this member's own; everything else the node
+		// kept before goes to the cluster when it starts one.
+		LocalOnly: func(name string) bool { return name == mesh.KeyRef },
 		FailedOver: func(dead, partner string) {
 			log.Printf("cluster: voter %s unreachable; its HA partner %s votes for the site now", dead, partner)
 			go e.recordVoterFailover(dead, partner)

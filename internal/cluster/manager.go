@@ -79,6 +79,10 @@ type Config struct {
 	// member that correlates what the sites saw. Flow data travels this
 	// way, member to member, and never through the consensus log.
 	Flows func() ([]byte, error)
+	// LocalOnly names the secrets that belong to this member alone; every
+	// other secret the node has when it starts a cluster goes to the
+	// cluster with it (keys the model refers to, local users' passwords).
+	LocalOnly func(name string) bool
 	// Partner names the other node of a member's HA pair, or "" when the
 	// member is in none. With it, the leader replaces a site's voter that
 	// stays unreachable for FailoverAfter by its partner (ADR 0004).
@@ -352,8 +356,18 @@ func (m *Manager) Init(ctx context.Context) error {
 	if err := node.Bootstrap(ctx); err != nil {
 		return err
 	}
-	// The authority goes to every later member, sealed.
-	for _, name := range []string{entryCAKey, entryCACert} {
+	// The authority goes to every later member, sealed, and so does what
+	// the node kept before it had a cluster.
+	own := map[string]bool{entryKey: true, entryNodeKey: true, entryNodeCert: true}
+	names := []string{entryCAKey, entryCACert}
+	if all, err := m.local.List(); err == nil {
+		for _, n := range all {
+			if !own[n] && n != entryCAKey && n != entryCACert && (m.cfg.LocalOnly == nil || !m.cfg.LocalOnly(n)) {
+				names = append(names, n)
+			}
+		}
+	}
+	for _, name := range names {
 		v, err := m.local.Get(name)
 		if err != nil {
 			return err
