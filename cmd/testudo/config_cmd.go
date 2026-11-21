@@ -22,11 +22,11 @@ import (
 	"github.com/noahzmr/testudo/internal/storage"
 )
 
-// cmdConfig handles `testudo config <status|history|export|import-legacy|compact>`.
+// cmdConfig handles `testudo config <status|history|export|import-legacy|compact|verify>`.
 // Commands that write need the daemon to be stopped: the store has one writer.
 func cmdConfig(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: testudo config <status|history|export|import-legacy|compact> ...")
+		return fmt.Errorf("usage: testudo config <status|history|export|import-legacy|compact|verify> ...")
 	}
 	cfg := config.Default()
 	fs := flag.NewFlagSet("config "+args[0], flag.ExitOnError)
@@ -94,6 +94,18 @@ func cmdConfig(args []string) error {
 				fmt.Printf("          %-6s %s %q\n", c.Type, c.Kind, c.Name)
 			}
 		}
+		return nil
+
+	case "verify":
+		// Reads the files only, so it works while the daemon runs.
+		checked, broken, err := confstore.VerifyLog(dir)
+		if err != nil {
+			return err
+		}
+		if broken != 0 {
+			return fmt.Errorf("the configuration log was changed: its hash chain breaks at record %d (%d records checked)", broken, checked)
+		}
+		fmt.Printf("the configuration log is intact: %d chained records checked\n", checked)
 		return nil
 
 	case "compact":

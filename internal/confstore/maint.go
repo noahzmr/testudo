@@ -50,12 +50,15 @@ type Snapshot struct {
 	Index      int64                            `json:"index"`
 	Objects    map[model.Kind][]json.RawMessage `json:"objects"`
 	ChangeSets []ChangeSet                      `json:"changesets,omitempty"`
+	// Hash is the chain hash of the record at Index; the log after the
+	// snapshot chains on from it.
+	Hash string `json:"hash,omitempty"`
 }
 
 // Export returns the state as a snapshot, objects ordered by name.
 func (s *State) Export() Snapshot {
 	snap := Snapshot{Schema: model.SchemaVersion, Index: s.index, Objects: map[model.Kind][]json.RawMessage{},
-		ChangeSets: s.ChangeSets()}
+		ChangeSets: s.ChangeSets(), Hash: s.hash}
 	for kind, objs := range s.objects {
 		for _, e := range sortedByName(objs) {
 			snap.Objects[kind] = append(snap.Objects[kind], mustJSON(e))
@@ -155,7 +158,7 @@ func loadSnapshot(path string) (*State, error) {
 	if snap.Schema > model.SchemaVersion {
 		return nil, fmt.Errorf("confstore: %s was written by a newer version (schema %d)", path, snap.Schema)
 	}
-	st.index = snap.Index
+	st.index, st.hash = snap.Index, snap.Hash
 	for kind, objs := range snap.Objects {
 		st.objects[kind] = map[string]model.Entity{}
 		for _, raw := range objs {
@@ -260,3 +263,49 @@ func writeFileSync(path string, data []byte) error {
 	}
 	return os.Rename(tmp, path)
 }
+
+// VerifyLog walks the store's log from its snapshot and checks the hash
+// chain. It returns how many chained records it checked and the index of
+// the first one that does not match (0: intact). Records from before the
+// chain carry no hash; the first chained record after them still covers
+// them. It only reads, so it works while the daemon has the store open.
+func VerifyLog(dir string) (checked int, brokenAt int64, err error) {
+	hash := ""
+	if data, err := os.ReadFile(filepath.Join(dir, snapshotFile)); err == nil {
+		var snap Snapshot
+		if err := json.Unmarshal(data, &snap); err != nil {
+			return 0, 0, err
+		}
+		hash = snap.Hash
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return 0, 0, err
+	}
+	f, err := os.Open(filepath.Join(dir, "config.log"))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil // no configuration yet
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	for sc.Scan() {
+		var r Record
+		if json.Unmarshal(sc.Bytes(), &r) != nil {
+			break // a torn last line
+		}
+		want := chainHash(hash, r)
+		if r.Hash != "" {
+			checked++
+			if r.Prev != hash || r.Hash != want {
+				return checked, r.Index, nil
+			}
+		}
+		hash = want
+	}
+	return checked, 0, sc.Err()
+}
+
+// Verify checks the store's own log; see VerifyLog.
+func (s *Store) Verify() (checked int, brokenAt int64, err error) { return VerifyLog(s.dir) }

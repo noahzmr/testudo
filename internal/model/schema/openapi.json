@@ -14680,6 +14680,43 @@
         ]
       }
     },
+    "/api/v1/history/verify": {
+      "get": {
+        "operationId": "verifyHistory",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "broken_at": {
+                      "type": "integer"
+                    },
+                    "checked": {
+                      "type": "integer"
+                    },
+                    "intact": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "broken_at",
+                    "checked",
+                    "intact"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The result"
+          }
+        },
+        "summary": "Checks the hash chain of the configuration log",
+        "tags": [
+          "changes"
+        ]
+      }
+    },
     "/api/v1/history/{index}/revert": {
       "parameters": [
         {

@@ -332,6 +332,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/v1/apply/confirm", s.confirm)
 	m.HandleFunc("POST /api/v1/apply/rollback", s.rollback)
 	m.HandleFunc("GET /api/v1/history", s.history)
+	m.HandleFunc("GET /api/v1/history/verify", s.verifyHistory)
 	m.HandleFunc("POST /api/v1/history/{index}/revert", s.revert)
 	m.HandleFunc("GET /api/v1/export", s.export)
 	m.HandleFunc("POST /api/v1/import", s.importSnapshot)

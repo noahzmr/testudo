@@ -680,6 +680,9 @@ func OpenAPI() ([]byte, error) {
 	paths["/api/v1/apply/confirm"] = map[string]any{"post": op("confirm", "Keep the pending change", none)}
 	paths["/api/v1/apply/rollback"] = map[string]any{"post": op("rollback", "Take the pending change back now", none,
 		map[string]any{"requestBody": jsonBody(obj(map[string]any{"reason": map[string]any{"type": "string"}}))})}
+	paths["/api/v1/history/verify"] = map[string]any{"get": op("verifyHistory", "Checks the hash chain of the configuration log",
+		ok("The result", obj(map[string]any{"checked": map[string]any{"type": "integer"}, "broken_at": map[string]any{"type": "integer"},
+			"intact": map[string]any{"type": "boolean"}}, "checked", "broken_at", "intact")), nil)}
 	paths["/api/v1/history"] = map[string]any{"get": op("history", "Committed records, newest first, with before and after per object",
 		ok("Records", map[string]any{"type": "array", "items": map[string]any{"type": "object"}}), map[string]any{"parameters": []any{
 			map[string]any{"name": "before", "in": "query", "schema": map[string]any{"type": "integer"}},

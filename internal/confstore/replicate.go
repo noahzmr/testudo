@@ -73,6 +73,7 @@ func (s *Store) ApplyReplicated(r Record) error {
 
 // appendLocked makes a record durable and current. The caller holds s.mu.
 func (s *Store) appendLocked(r Record, next *State) error {
+	r.Prev, r.Hash = s.Current().hash, next.hash
 	line, err := json.Marshal(r)
 	if err != nil {
 		return err

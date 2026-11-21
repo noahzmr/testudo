@@ -8,6 +8,8 @@
 package confstore
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,6 +70,19 @@ type Record struct {
 	// Change-set bookkeeping travels in the same log.
 	PutChangeSet     *ChangeSet `json:"put_changeset,omitempty"`
 	DeleteChangeSets []string   `json:"delete_changesets,omitempty"`
+	// Prev and Hash chain the log: Hash covers the record and Prev, the
+	// Hash of the record before it. A record rewritten or removed breaks
+	// every hash after it. They are set when the record is written.
+	Prev string `json:"prev,omitempty"`
+	Hash string `json:"hash,omitempty"`
+}
+
+// chainHash is the hash of r after the record whose hash is prev.
+func chainHash(prev string, r Record) string {
+	r.Prev, r.Hash = "", ""
+	b, _ := json.Marshal(r)
+	sum := sha256.Sum256(append([]byte(prev+"\n"), b...))
+	return hex.EncodeToString(sum[:])
 }
 
 // ChangeSet is a named draft: changes one user prepares and applies later,
@@ -162,6 +177,7 @@ var (
 // State for as long as they like; commits build a new one.
 type State struct {
 	index      int64
+	hash       string // the chain hash of the record at index
 	objects    map[model.Kind]map[string]model.Entity
 	changesets map[string]*ChangeSet
 }
@@ -235,7 +251,7 @@ func (s *State) ChangeSet(id string) (ChangeSet, bool) {
 // with returns a copy of the state in which the given kinds can be modified
 // without affecting s.
 func (s *State) with(index int64, kinds ...model.Kind) *State {
-	n := &State{index: index, objects: maps.Clone(s.objects), changesets: s.changesets}
+	n := &State{index: index, hash: s.hash, objects: maps.Clone(s.objects), changesets: s.changesets}
 	for _, k := range kinds {
 		n.objects[k] = maps.Clone(s.objects[k])
 		if n.objects[k] == nil {
@@ -462,6 +478,7 @@ func (s *State) apply(r Record) (*State, error) {
 			next.changesets[c.ID] = &c
 		}
 	}
+	next.hash = chainHash(s.hash, r)
 	return next, nil
 }
 

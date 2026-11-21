@@ -246,6 +246,20 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// verifyHistory checks the hash chain of the configuration log.
+func (s *Server) verifyHistory(w http.ResponseWriter, r *http.Request) {
+	if !unlimitedReader(who(r)) {
+		fail(w, http.StatusForbidden, "forbidden", "needs a read permission that is not limited to a site or node")
+		return
+	}
+	checked, broken, err := s.Store.Verify()
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"checked": checked, "broken_at": broken, "intact": broken == 0})
+}
+
 func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	// The history shows every object's values before and after: it is for
 	// those who may read without a limit to a site or node.

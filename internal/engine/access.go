@@ -340,6 +340,8 @@ func (e *Engine) grantLoop(ctx context.Context) {
 	known := map[string]seen{}
 	var pruned time.Time
 	broken := map[string]int64{}
+	var configBroken int64
+	var configChecked time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -348,6 +350,11 @@ func (e *Engine) grantLoop(ctx context.Context) {
 		}
 		if e.conf.store == nil {
 			continue
+		}
+		// Every member keeps its own copy of the configuration log.
+		if time.Since(configChecked) > time.Hour {
+			configBroken = e.checkConfigChain(configBroken)
+			configChecked = time.Now()
 		}
 		if time.Since(pruned) > time.Hour && e.LeadsCluster() && e.conf.secrets.Dir != "" {
 			if n := pruneRequests(e.conf.secrets, time.Now()); n > 0 {
@@ -613,4 +620,20 @@ func (e *Engine) reportBrokenChains(ctx context.Context, was map[string]int64) m
 		}
 	}
 	return now
+}
+
+// checkConfigChain checks the hash chain of this member's configuration
+// log and raises an alert when it broke since the last check.
+func (e *Engine) checkConfigChain(was int64) int64 {
+	if e.conf.store == nil {
+		return was
+	}
+	_, broken, err := e.conf.store.Verify()
+	if err != nil || broken == 0 || broken == was {
+		return broken
+	}
+	e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: time.Now(), Source: "config",
+		Payload: events.AnomalyPayload{Severity: string(events.SevCritical),
+			Message: fmt.Sprintf("the configuration log was changed: its hash chain breaks at record %d", broken)}})
+	return broken
 }
