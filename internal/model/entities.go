@@ -43,6 +43,7 @@ const (
 	KindDNSRecord      Kind = "dns_record"
 	KindNTPService     Kind = "ntp_service"
 	KindAccessGrant    Kind = "access_grant"
+	KindNodeSettings   Kind = "node_settings"
 )
 
 func init() {
@@ -83,6 +84,7 @@ func init() {
 	register("dns-records", "DNS record", "services/dns-records", allLevels, func() Entity { return &DNSRecord{} })
 	register("ntp-services", "NTP service", "services/ntp", allLevels, func() Entity { return &NTPService{} })
 	register("access-grants", "Access grant", "access/grants", allLevels, func() Entity { return &AccessGrant{} })
+	register("node-settings", "Node settings", "system/settings", allLevels, func() Entity { return &NodeSettings{} })
 }
 
 // Interface binds a kernel network device on one node to a zone and says
@@ -707,3 +709,46 @@ type NTPService struct {
 }
 
 func (NTPService) Kind() Kind { return KindNTPService }
+
+// NodeSettings are a node's monitoring thresholds and integrations. The
+// object with the narrowest scope that applies to a node is the one it
+// uses; a value left empty is the built-in default. Whether the node may
+// write to the kernel at all stays a switch of the node itself.
+type NodeSettings struct {
+	Meta               `yaml:",inline"`
+	PacketLossPct      float64 `json:"packet_loss_pct,omitempty" yaml:"packet_loss_pct,omitempty" validate:"min=0,max=100" ui:"label=Packet loss threshold (%),group=Thresholds,order=10"`
+	DNSLatencyMs       float64 `json:"dns_latency_ms,omitempty" yaml:"dns_latency_ms,omitempty" validate:"min=0" ui:"label=DNS latency threshold (ms),group=Thresholds,order=20"`
+	JitterMs           float64 `json:"jitter_ms,omitempty" yaml:"jitter_ms,omitempty" validate:"min=0" ui:"label=Jitter threshold (ms),group=Thresholds,order=30"`
+	RTTMs              float64 `json:"rtt_ms,omitempty" yaml:"rtt_ms,omitempty" validate:"min=0" ui:"label=Round-trip threshold (ms),group=Thresholds,order=40"`
+	RetransmissionsPct float64 `json:"retransmissions_pct,omitempty" yaml:"retransmissions_pct,omitempty" validate:"min=0,max=100" ui:"label=Retransmissions threshold (%),group=Thresholds,order=50"`
+	FlowRetransPct     float64 `json:"flow_retrans_pct,omitempty" yaml:"flow_retrans_pct,omitempty" validate:"min=0,max=100" ui:"label=Retransmissions per flow (%),group=Thresholds,order=60"`
+	IncidentCooldown   string  `json:"incident_cooldown,omitempty" yaml:"incident_cooldown,omitempty" validate:"omitempty,duration" ui:"label=Incident cooldown,group=Thresholds,order=70,help=For example 5m"`
+	ExpectedDownMbps   float64 `json:"expected_down_mbps,omitempty" yaml:"expected_down_mbps,omitempty" validate:"min=0" ui:"label=Expected download (Mbit/s),group=Thresholds,order=80"`
+	ExpectedUpMbps     float64 `json:"expected_up_mbps,omitempty" yaml:"expected_up_mbps,omitempty" validate:"min=0" ui:"label=Expected upload (Mbit/s),group=Thresholds,order=90"`
+
+	IPFIXEnabled     bool   `json:"ipfix_enabled,omitempty" yaml:"ipfix_enabled,omitempty" validate:"-" ui:"label=IPFIX export,group=Flow export,order=110"`
+	IPFIXEndpoint    string `json:"ipfix_endpoint,omitempty" yaml:"ipfix_endpoint,omitempty" validate:"omitempty,hostport" ui:"label=IPFIX collector,group=Flow export,order=120"`
+	IPFIXIntervalSec int    `json:"ipfix_interval_sec,omitempty" yaml:"ipfix_interval_sec,omitempty" validate:"min=0,max=3600" ui:"label=IPFIX interval (s),group=Flow export,order=130"`
+	IPFIXDomainID    uint32 `json:"ipfix_domain_id,omitempty" yaml:"ipfix_domain_id,omitempty" validate:"-" ui:"label=IPFIX observation domain,group=Flow export,order=140"`
+	EBPFEnabled      bool   `json:"ebpf_enabled,omitempty" yaml:"ebpf_enabled,omitempty" validate:"-" ui:"label=eBPF telemetry,group=Flow export,order=150"`
+
+	SentryDSN string `json:"sentry_dsn,omitempty" yaml:"sentry_dsn,omitempty" validate:"omitempty,url,max=512" ui:"label=Sentry DSN,widget=password,group=Integrations,order=210" secret:"true"`
+
+	GuacamoleURL            string `json:"guacamole_url,omitempty" yaml:"guacamole_url,omitempty" validate:"omitempty,url,max=512" ui:"label=Guacamole URL,group=Integrations,order=220"`
+	GuacamoleConnID         string `json:"guacamole_conn_id,omitempty" yaml:"guacamole_conn_id,omitempty" validate:"max=128" ui:"label=Guacamole connection,group=Integrations,order=230"`
+	GuacamoleTemplate       string `json:"guacamole_template,omitempty" yaml:"guacamole_template,omitempty" validate:"max=512" ui:"label=Connect URL template,group=Integrations,order=240"`
+	GuacamoleAPIUser        string `json:"guacamole_api_user,omitempty" yaml:"guacamole_api_user,omitempty" validate:"max=128" ui:"label=Guacamole API user,group=Integrations,order=250"`
+	GuacamoleAPIPassword    string `json:"guacamole_api_password,omitempty" yaml:"guacamole_api_password,omitempty" validate:"max=256" ui:"label=Guacamole API password,widget=password,group=Integrations,order=260" secret:"true"`
+	GuacamoleRecordingPath  string `json:"guacamole_recording_path,omitempty" yaml:"guacamole_recording_path,omitempty" validate:"max=512" ui:"label=Guacamole recording path,group=Integrations,order=270"`
+	GuacamoleTypescriptPath string `json:"guacamole_typescript_path,omitempty" yaml:"guacamole_typescript_path,omitempty" validate:"max=512" ui:"label=Guacamole typescript path,group=Integrations,order=280"`
+
+	MaxMindEnabled      bool   `json:"maxmind_enabled,omitempty" yaml:"maxmind_enabled,omitempty" validate:"-" ui:"label=MaxMind databases,group=GeoIP,order=310"`
+	MaxMindDBDir        string `json:"maxmind_db_dir,omitempty" yaml:"maxmind_db_dir,omitempty" validate:"max=512" ui:"label=Database directory,group=GeoIP,order=320"`
+	MaxMindAccountID    string `json:"maxmind_account_id,omitempty" yaml:"maxmind_account_id,omitempty" validate:"max=64" ui:"label=Account ID,group=GeoIP,order=330"`
+	MaxMindLicenseKey   string `json:"maxmind_license_key,omitempty" yaml:"maxmind_license_key,omitempty" validate:"max=128" ui:"label=License key,widget=password,group=GeoIP,order=340" secret:"true"`
+	MaxMindEditions     string `json:"maxmind_editions,omitempty" yaml:"maxmind_editions,omitempty" validate:"max=256" ui:"label=Editions,group=GeoIP,order=350,help=Edition IDs separated by commas"`
+	MaxMindAutoUpdate   bool   `json:"maxmind_auto_update,omitempty" yaml:"maxmind_auto_update,omitempty" validate:"-" ui:"label=Update automatically,group=GeoIP,order=360"`
+	MaxMindRefreshHours int    `json:"maxmind_refresh_hours,omitempty" yaml:"maxmind_refresh_hours,omitempty" validate:"min=0,max=8760" ui:"label=Update every (hours),group=GeoIP,order=370"`
+}
+
+func (NodeSettings) Kind() Kind { return KindNodeSettings }

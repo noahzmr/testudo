@@ -350,6 +350,9 @@ func typeSchema(t reflect.Type, self, elem []rule) (map[string]any, Field, error
 			s["minimum"] = 0.0
 		}
 		fld.Type = "integer"
+	case t.Kind() == reflect.Float32 || t.Kind() == reflect.Float64:
+		s["type"] = "number"
+		fld.Type = "number"
 	case t.Kind() == reflect.Slice:
 		items, itemFld, err := typeSchema(t.Elem(), elem, nil)
 		if err != nil {

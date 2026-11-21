@@ -7396,6 +7396,354 @@
           "order": 906
         }
       ]
+    },
+    {
+      "kind": "node_settings",
+      "plural": "node-settings",
+      "title": "Node settings",
+      "menu": "system/settings",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "packet_loss_pct",
+          "label": "Packet loss threshold (%)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 10
+        },
+        {
+          "name": "dns_latency_ms",
+          "label": "DNS latency threshold (ms)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 20
+        },
+        {
+          "name": "jitter_ms",
+          "label": "Jitter threshold (ms)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 30
+        },
+        {
+          "name": "rtt_ms",
+          "label": "Round-trip threshold (ms)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 40
+        },
+        {
+          "name": "retransmissions_pct",
+          "label": "Retransmissions threshold (%)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 50
+        },
+        {
+          "name": "flow_retrans_pct",
+          "label": "Retransmissions per flow (%)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 60
+        },
+        {
+          "name": "incident_cooldown",
+          "label": "Incident cooldown",
+          "type": "string",
+          "group": "Thresholds",
+          "order": 70,
+          "help": "For example 5m",
+          "rules": [
+            "duration"
+          ]
+        },
+        {
+          "name": "expected_down_mbps",
+          "label": "Expected download (Mbit/s)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 80
+        },
+        {
+          "name": "expected_up_mbps",
+          "label": "Expected upload (Mbit/s)",
+          "type": "number",
+          "group": "Thresholds",
+          "order": 90
+        },
+        {
+          "name": "ipfix_enabled",
+          "label": "IPFIX export",
+          "type": "boolean",
+          "group": "Flow export",
+          "order": 110
+        },
+        {
+          "name": "ipfix_endpoint",
+          "label": "IPFIX collector",
+          "type": "string",
+          "group": "Flow export",
+          "order": 120,
+          "rules": [
+            "hostport"
+          ]
+        },
+        {
+          "name": "ipfix_interval_sec",
+          "label": "IPFIX interval (s)",
+          "type": "integer",
+          "group": "Flow export",
+          "order": 130
+        },
+        {
+          "name": "ipfix_domain_id",
+          "label": "IPFIX observation domain",
+          "type": "integer",
+          "group": "Flow export",
+          "order": 140
+        },
+        {
+          "name": "ebpf_enabled",
+          "label": "eBPF telemetry",
+          "type": "boolean",
+          "group": "Flow export",
+          "order": 150
+        },
+        {
+          "name": "sentry_dsn",
+          "label": "Sentry DSN",
+          "type": "string",
+          "widget": "password",
+          "group": "Integrations",
+          "order": 210,
+          "secret": true
+        },
+        {
+          "name": "guacamole_url",
+          "label": "Guacamole URL",
+          "type": "string",
+          "group": "Integrations",
+          "order": 220
+        },
+        {
+          "name": "guacamole_conn_id",
+          "label": "Guacamole connection",
+          "type": "string",
+          "group": "Integrations",
+          "order": 230
+        },
+        {
+          "name": "guacamole_template",
+          "label": "Connect URL template",
+          "type": "string",
+          "group": "Integrations",
+          "order": 240
+        },
+        {
+          "name": "guacamole_api_user",
+          "label": "Guacamole API user",
+          "type": "string",
+          "group": "Integrations",
+          "order": 250
+        },
+        {
+          "name": "guacamole_api_password",
+          "label": "Guacamole API password",
+          "type": "string",
+          "widget": "password",
+          "group": "Integrations",
+          "order": 260,
+          "secret": true
+        },
+        {
+          "name": "guacamole_recording_path",
+          "label": "Guacamole recording path",
+          "type": "string",
+          "group": "Integrations",
+          "order": 270
+        },
+        {
+          "name": "guacamole_typescript_path",
+          "label": "Guacamole typescript path",
+          "type": "string",
+          "group": "Integrations",
+          "order": 280
+        },
+        {
+          "name": "maxmind_enabled",
+          "label": "MaxMind databases",
+          "type": "boolean",
+          "group": "GeoIP",
+          "order": 310
+        },
+        {
+          "name": "maxmind_db_dir",
+          "label": "Database directory",
+          "type": "string",
+          "group": "GeoIP",
+          "order": 320
+        },
+        {
+          "name": "maxmind_account_id",
+          "label": "Account ID",
+          "type": "string",
+          "group": "GeoIP",
+          "order": 330
+        },
+        {
+          "name": "maxmind_license_key",
+          "label": "License key",
+          "type": "string",
+          "widget": "password",
+          "group": "GeoIP",
+          "order": 340,
+          "secret": true
+        },
+        {
+          "name": "maxmind_editions",
+          "label": "Editions",
+          "type": "string",
+          "group": "GeoIP",
+          "order": 350,
+          "help": "Edition IDs separated by commas"
+        },
+        {
+          "name": "maxmind_auto_update",
+          "label": "Update automatically",
+          "type": "boolean",
+          "group": "GeoIP",
+          "order": 360
+        },
+        {
+          "name": "maxmind_refresh_hours",
+          "label": "Update every (hours)",
+          "type": "integer",
+          "group": "GeoIP",
+          "order": 370
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
     }
   ],
   "secret_mask": "********"

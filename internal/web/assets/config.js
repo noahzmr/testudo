@@ -77,7 +77,7 @@ const PANE = {
   route: 'routes', gateway: 'routes', policy_route: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
   wg_tunnel: 'wireguard', wg_peer: 'wireguard',
   access_resource: 'access', access_policy: 'access', access_grant: 'access',
-  user: 'settings', group: 'settings', role: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
+  user: 'settings', group: 'settings', role: 'settings', node_settings: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
   site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes', ha_pair: 'cluster',
   dhcp_scope: 'services', router_advert: 'services', dns_resolver: 'services', dns_record: 'services', ntp_service: 'services',
@@ -86,7 +86,7 @@ const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
   interface: 'Configuration', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies', access_grant: 'Grants',
-  user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
+  user: 'Users', group: 'Groups', role: 'Roles', node_settings: 'Node settings', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
   site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies', ha_pair: 'HA pairs',
   dhcp_scope: 'DHCP', router_advert: 'Router advertisements', dns_resolver: 'DNS resolver', dns_record: 'DNS records', ntp_service: 'NTP',
@@ -372,8 +372,8 @@ function widget(field, value, ctx) {
   } else if (field.type === 'map' || field.widget === 'override-list') {
     input = el('textarea', { rows: 3, disabled: ro, placeholder: 'JSON', value: value ? JSON.stringify(value, null, 1) : '' });
     get = () => input.value.trim() ? JSON.parse(input.value) : undefined;
-  } else if (field.type === 'integer') {
-    input = el('input', { type: 'number', disabled: ro, value: value ?? '' });
+  } else if (field.type === 'integer' || field.type === 'number') {
+    input = el('input', { type: 'number', step: field.type === 'number' ? 'any' : null, disabled: ro, value: value ?? '' });
     get = () => input.value === '' ? undefined : Number(input.value);
   } else if (field.type === 'datetime') {
     input = el('input', { type: ro ? 'text' : 'datetime-local', disabled: ro, value: value ? String(value).slice(0, 16) : '' });
