@@ -196,3 +196,38 @@ func TestReverseNames(t *testing.T) {
 		t.Error(got)
 	}
 }
+
+// TestRelayToAnotherServer: a relayed interface passes requests from one
+// of its own addresses to each server, for the server's family; the
+// filter opens DHCP on it and the servers' answers. An interface that a
+// scope of the same family serves cannot be relayed, nor one without an
+// address of the server's family.
+func TestRelayToAnotherServer(t *testing.T) {
+	guest := &model.Interface{Meta: atNode(meta(12, "fw1-guest"), fw1), Device: "guest", Enabled: true, Addresses: []string{"10.50.0.1/24"}}
+	relay := &model.DHCPRelay{Meta: atSite(meta(50, "to-corp")), Enabled: true, Interfaces: []string{"guest"}, Servers: []string{"10.20.0.67"}}
+	res := render(t, lan(t, guest, relay), fw1)
+	conf := res.Files[RelayConf]
+	contains(t, "relay", conf, "port=0", "interface=guest", "dhcp-relay=10.50.0.1,10.20.0.67")
+	if !strings.Contains(strings.Join(res.Daemons, " "), DaemonRelay) {
+		t.Errorf("daemons: %v", res.Daemons)
+	}
+	if !strings.Contains(strings.Join(res.Open.DHCP4, " "), "guest") || strings.Join(res.Open.RelayFrom, " ") != "10.20.0.67" {
+		t.Errorf("openings: %+v", res.Open)
+	}
+
+	// The LAN has its own DHCPv4 scope; an IPv6 server for it is fine, an
+	// IPv4 one is not. The guest network has no IPv6 address.
+	for _, tc := range []struct {
+		ifaces, servers []string
+		want            string
+	}{
+		{[]string{"lan"}, []string{"10.20.0.67"}, "served by a DHCP scope"},
+		{[]string{"guest"}, []string{"2001:db8:20::67"}, "no address of the family"},
+	} {
+		bad := &model.DHCPRelay{Meta: atSite(meta(51, "bad")), Enabled: true, Interfaces: tc.ifaces, Servers: tc.servers}
+		_, err := Render(lan(t, guest, bad), Options{SiteID: id(site), NodeID: id(fw1)})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%v to %v: %v", tc.ifaces, tc.servers, err)
+		}
+	}
+}

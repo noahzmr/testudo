@@ -325,6 +325,17 @@ func serviceInput(o svcrender.Openings) []string {
 	}
 	on(o.DHCP4, "udp dport 67", "dhcp")
 	on(o.DHCP6, "udp dport 547", "dhcpv6")
+	// The answers of the servers a relay passes requests to.
+	var relay4, relay6 []string
+	for _, srv := range o.RelayFrom {
+		if isV6(srv) {
+			relay6 = append(relay6, srv)
+		} else {
+			relay4 = append(relay4, srv)
+		}
+	}
+	from(relay4, "udp dport 67", "dhcp relay")
+	from(relay6, "udp dport 547", "dhcpv6 relay")
 	// Neighbour discovery and router solicitations, without which the
 	// advertised prefixes are useless.
 	on(o.RA, "icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert }", "ipv6 neighbour discovery")

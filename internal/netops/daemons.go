@@ -123,6 +123,12 @@ var daemonSpecs = map[string]daemonSpec{
 		args: func(r DaemonRequest) []string {
 			return []string{"-n", "-m", "stderr", "-u", "radvd", "-p", filepath.Join(r.RunDir, "radvd.pid"), "-C", r.ConfigFile}
 		}},
+	// dnsmasq as a DHCP relay only; it reads its configuration only at a
+	// start.
+	"dnsmasq": {paths: []string{"/usr/sbin/dnsmasq"}, conf: "dnsmasq-relay.conf",
+		args: func(r DaemonRequest) []string {
+			return []string{"--keep-in-foreground", "--log-facility=-", "--conf-file=" + r.ConfigFile}
+		}},
 	// The DHCP clients of interfaces. dhclient keeps its pid and lease files
 	// where the distribution's AppArmor profile lets it write, and its
 	// script sets the routes and resolvers it is given.

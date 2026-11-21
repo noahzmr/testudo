@@ -48,6 +48,7 @@ const (
 	KindBridge         Kind = "bridge"
 	KindVLAN           Kind = "vlan"
 	KindPPPoE          Kind = "pppoe"
+	KindDHCPRelay      Kind = "dhcp_relay"
 )
 
 func init() {
@@ -91,6 +92,7 @@ func init() {
 	register("dns-resolvers", "DNS resolver", "services/dns", allLevels, func() Entity { return &DNSResolver{} })
 	register("dns-records", "DNS record", "services/dns-records", allLevels, func() Entity { return &DNSRecord{} })
 	register("ntp-services", "NTP service", "services/ntp", allLevels, func() Entity { return &NTPService{} })
+	register("dhcp-relays", "DHCP relay", "services/dhcp-relay", allLevels, func() Entity { return &DHCPRelay{} })
 	register("access-grants", "Access grant", "access/grants", allLevels, func() Entity { return &AccessGrant{} })
 	register("node-settings", "Node settings", "system/settings", allLevels, func() Entity { return &NodeSettings{} })
 }
@@ -819,3 +821,16 @@ type PPPoE struct {
 }
 
 func (PPPoE) Kind() Kind { return KindPPPoE }
+
+// DHCPRelay passes DHCP requests of clients on the listed interfaces to
+// DHCP servers elsewhere, for IPv4 and IPv6 alike: the family of each
+// server decides. An interface is either relayed or served by a DHCP scope
+// of the same family.
+type DHCPRelay struct {
+	Meta       `yaml:",inline"`
+	Enabled    bool     `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Interfaces []string `json:"interfaces" yaml:"interfaces" validate:"required,min=1,max=64,dive,ifname" ui:"label=Client interfaces,widget=list,order=10"`
+	Servers    []string `json:"servers" yaml:"servers" validate:"required,min=1,max=8,dive,ip" ui:"label=DHCP servers,widget=list,order=20,help=IPv4 or IPv6 addresses"`
+}
+
+func (DHCPRelay) Kind() Kind { return KindDHCPRelay }

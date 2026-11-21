@@ -75,6 +75,7 @@ var checkers = map[string]func(file string) *exec.Cmd{
 	svcrender.DaemonUnbound: func(f string) *exec.Cmd { return exec.Command("unbound-checkconf", f) },
 	svcrender.DaemonRadvd:   func(f string) *exec.Cmd { return exec.Command("radvd", "-c", "-C", f) },
 	svcrender.DaemonChrony:  func(f string) *exec.Cmd { return exec.Command("chronyd", "-p", "-f", f) },
+	svcrender.DaemonRelay:   func(f string) *exec.Cmd { return exec.Command("dnsmasq", "--test", "--conf-file="+f) },
 }
 
 // Check makes sure every daemon is installed and accepts its configuration,

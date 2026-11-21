@@ -73,23 +73,23 @@ function toast(msg, kind = '') {
 // keeps it as its "Running state" tab.
 const PANE = {
   filter_rule: 'firewall', zone: 'firewall', alias: 'firewall', firewall_policy: 'firewall',
-  nat_rule: 'nat', interface: 'ifaces', bond: 'ifaces', bridge: 'ifaces', vlan: 'ifaces',
+  nat_rule: 'nat', interface: 'ifaces', bond: 'ifaces', bridge: 'ifaces', vlan: 'ifaces', pppoe: 'ifaces',
   route: 'routes', gateway: 'routes', policy_route: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
   wg_tunnel: 'wireguard', wg_peer: 'wireguard',
   access_resource: 'access', access_policy: 'access', access_grant: 'access',
   user: 'settings', group: 'settings', role: 'settings', node_settings: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
   site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes', ha_pair: 'cluster',
-  dhcp_scope: 'services', router_advert: 'services', dns_resolver: 'services', dns_record: 'services', ntp_service: 'services',
+  dhcp_scope: 'services', router_advert: 'services', dns_resolver: 'services', dns_record: 'services', ntp_service: 'services', dhcp_relay: 'services',
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
-  interface: 'Configuration', bond: 'Bonds', bridge: 'Bridges', vlan: 'VLANs', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
+  interface: 'Configuration', bond: 'Bonds', bridge: 'Bridges', vlan: 'VLANs', pppoe: 'PPPoE', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies', access_grant: 'Grants',
   user: 'Users', group: 'Groups', role: 'Roles', node_settings: 'Node settings', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
   site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies', ha_pair: 'HA pairs',
-  dhcp_scope: 'DHCP', router_advert: 'Router advertisements', dns_resolver: 'DNS resolver', dns_record: 'DNS records', ntp_service: 'NTP',
+  dhcp_scope: 'DHCP', router_advert: 'Router advertisements', dns_resolver: 'DNS resolver', dns_record: 'DNS records', ntp_service: 'NTP', dhcp_relay: 'DHCP relay',
 };
 // Friendlier names for some select values.
 const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 'Imported',

@@ -24,6 +24,7 @@ const (
 	UnboundConf = "unbound.conf"
 	ChronyConf  = "chrony.conf"
 	RadvdConf   = "radvd.conf"
+	RelayConf   = "dnsmasq-relay.conf"
 	// LeaseNames is the include file with the names of DHCP clients; the
 	// engine keeps it current, the renderer only refers to it.
 	LeaseNames = "dns-leases.conf"
@@ -54,14 +55,15 @@ const (
 	DaemonKea4    = "kea-dhcp4"
 	DaemonKea6    = "kea-dhcp6"
 	DaemonRadvd   = "radvd"
+	DaemonRelay   = "dnsmasq"
 )
 
 // AllDaemons lists every daemon the services may run, in start order.
-var AllDaemons = []string{DaemonUnbound, DaemonChrony, DaemonKea4, DaemonKea6, DaemonRadvd}
+var AllDaemons = []string{DaemonUnbound, DaemonChrony, DaemonKea4, DaemonKea6, DaemonRadvd, DaemonRelay}
 
 // ConfOf names each daemon's configuration file.
 var ConfOf = map[string]string{DaemonUnbound: UnboundConf, DaemonChrony: ChronyConf, DaemonKea4: Kea4Conf,
-	DaemonKea6: Kea6Conf, DaemonRadvd: RadvdConf}
+	DaemonKea6: Kea6Conf, DaemonRadvd: RadvdConf, DaemonRelay: RelayConf}
 
 // Options are the node-local facts.
 type Options struct {
@@ -83,6 +85,8 @@ type Openings struct {
 	// DNSFrom and NTPFrom are networks served through other interfaces.
 	DNSFrom []string `json:"dns_from,omitempty"`
 	NTPFrom []string `json:"ntp_from,omitempty"`
+	// RelayFrom are the DHCP servers whose answers reach the relay.
+	RelayFrom []string `json:"relay_from,omitempty"`
 	// HA is set on an HA pair whose Kea servers talk over the sync link.
 	HA *HAOpening `json:"ha,omitempty"`
 }
@@ -140,6 +144,7 @@ type renderer struct {
 	ntp      *model.NTPService
 	scopes   []*model.DHCPScope
 	ras      []*model.RouterAdvert
+	relays   []*model.DHCPRelay
 	records  []*model.DNSRecord
 }
 
@@ -248,6 +253,12 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 		}
 		res.Open.RA = sortedUnique(res.Open.RA)
 	}
+	if len(r.relays) > 0 {
+		if conf := r.relay(&res); conf != "" {
+			res.Files[RelayConf] = conf
+			res.Daemons = append(res.Daemons, DaemonRelay)
+		}
+	}
 	res.StaticNames = r.staticNames()
 	if len(r.errs) > 0 {
 		return Result{}, errors.New("svcrender: " + strings.Join(r.errs, "; "))
@@ -309,6 +320,11 @@ func (r *renderer) gather() {
 		}
 	}
 	r.records = effective[*model.DNSRecord](r, model.KindDNSRecord)
+	for _, rl := range effective[*model.DHCPRelay](r, model.KindDHCPRelay) {
+		if rl.Enabled {
+			r.relays = append(r.relays, rl)
+		}
+	}
 }
 
 func isV6(cidrOrIP string) bool {
