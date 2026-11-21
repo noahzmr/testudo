@@ -210,7 +210,14 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 		if s.Runner != nil {
 			for i := len(svcrender.AllDaemons) - 1; i >= 0; i-- {
 				d := svcrender.AllDaemons[i]
-				if err := s.Runner.DaemonControl(netops.DaemonRequest{Name: d, Mode: netops.DaemonStop, RunDir: s.RunDir}); err != nil {
+				err := s.Runner.DaemonControl(netops.DaemonRequest{Name: d, Mode: netops.DaemonStop, RunDir: s.RunDir})
+				if errors.Is(err, netops.ErrWritesDisabled) {
+					// Nothing to run, and no say over the daemons: a node
+					// with writes turned off still takes the rest of the
+					// model.
+					break
+				}
+				if err != nil {
 					return err
 				}
 				_ = os.Remove(filepath.Join(s.RunDir, svcrender.ConfOf[d]))

@@ -293,7 +293,7 @@ func runDaemon(req DaemonRequest) (string, error) {
 // a mutation.
 func (w *Writer) DaemonControl(req DaemonRequest) error {
 	if !w.AllowWrites {
-		return fmt.Errorf("%s control: writes are disabled", req.Name)
+		return fmt.Errorf("%s control: %w", req.Name, ErrWritesDisabled)
 	}
 	if req.Mode == DaemonStatus {
 		return errors.New("daemon control: status is a query")
