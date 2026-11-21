@@ -22,6 +22,7 @@ import (
 	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/svcrender"
 )
 
 // Table is the nftables table this package owns, in the inet family so IPv4
@@ -197,6 +198,9 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 	// An HA pair needs VRRP on its interfaces and the partner's state sync.
 	// A pair that does not render opens nothing; the HA stage reports why.
 	ha, _ := harender.Render(r.st, harender.Options{SiteID: opt.SiteID, NodeID: opt.NodeID})
+	// The services answer on their interfaces whatever the policy says;
+	// a service that does not render opens nothing.
+	svc, _ := svcrender.Render(r.st, svcrender.Options{SiteID: opt.SiteID, NodeID: opt.NodeID})
 	r.sets()
 	f.Sets = r.take()
 
@@ -240,6 +244,9 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 		if chain == "input" && ha.Enabled {
 			c.Rules = append(haInput(ha), c.Rules...)
 		}
+		if chain == "input" {
+			c.Rules = append(serviceInput(svc.Open), c.Rules...)
+		}
 		if chain != "output" {
 			for _, id := range zoneIDs {
 				z := r.zones[id]
@@ -282,6 +289,65 @@ func haInput(ha harender.Result) []string {
 	}
 	return append(out, fmt.Sprintf("iifname %s %s saddr %s udp dport %d counter accept comment \"ha: state sync\"",
 		quote(ha.SyncInterface), fam, ha.Peer, harender.SyncPort))
+}
+
+// serviceInput lets clients reach the node's services on the interfaces
+// each one serves, and from the extra networks the resolver and the NTP
+// service name.
+func serviceInput(o svcrender.Openings) []string {
+	var out []string
+	set := func(ifaces []string) string {
+		q := make([]string, len(ifaces))
+		for i, d := range ifaces {
+			q[i] = quote(d)
+		}
+		return "{ " + strings.Join(q, ", ") + " }"
+	}
+	on := func(ifaces []string, match, what string) {
+		if len(ifaces) > 0 {
+			out = append(out, fmt.Sprintf("iifname %s %s counter accept comment \"service: %s\"", set(ifaces), match, what))
+		}
+	}
+	from := func(nets []string, match, what string) {
+		var v4, v6 []string
+		for _, n := range nets {
+			if isV6(n) {
+				v6 = append(v6, n)
+			} else {
+				v4 = append(v4, n)
+			}
+		}
+		for _, f := range []struct {
+			fam  string
+			list []string
+		}{{"ip", v4}, {"ip6", v6}} {
+			if len(f.list) > 0 {
+				out = append(out, fmt.Sprintf("%s saddr { %s } %s counter accept comment \"service: %s\"", f.fam, strings.Join(f.list, ", "), match, what))
+			}
+		}
+	}
+	on(o.DHCP4, "udp dport 67", "dhcp")
+	on(o.DHCP6, "udp dport 547", "dhcpv6")
+	// Neighbour discovery and router solicitations, without which the
+	// advertised prefixes are useless.
+	on(o.RA, "icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert }", "ipv6 neighbour discovery")
+	on(o.DNS, "meta l4proto { tcp, udp } th dport 53", "dns")
+	from(o.DNSFrom, "meta l4proto { tcp, udp } th dport 53", "dns")
+	on(o.NTP, "udp dport 123", "ntp")
+	from(o.NTPFrom, "udp dport 123", "ntp")
+	if h := o.HA; h != nil && len(h.Ports) > 0 {
+		fam := "ip"
+		if isV6(h.Peer) {
+			fam = "ip6"
+		}
+		ports := make([]string, len(h.Ports))
+		for i, p := range h.Ports {
+			ports[i] = fmt.Sprint(p)
+		}
+		out = append(out, fmt.Sprintf("iifname %s %s saddr %s tcp dport { %s } counter accept comment \"service: dhcp failover\"",
+			quote(h.Interface), fam, h.Peer, strings.Join(ports, ", ")))
+	}
+	return out
 }
 
 // Policy returns the firewall policy in effect on the node, or nil.

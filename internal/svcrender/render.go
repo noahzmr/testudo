@@ -75,7 +75,7 @@ type Options struct {
 
 // Openings are the ports the packet filter opens for the services.
 type Openings struct {
-	DHCP4, DHCP6, DNS, NTP []string // interfaces
+	DHCP4, DHCP6, DNS, NTP, RA []string // interfaces
 	// DNSFrom and NTPFrom are networks served through other interfaces.
 	DNSFrom, NTPFrom []string
 	// HA is set on an HA pair whose Kea servers talk over the sync link.
@@ -238,6 +238,10 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 	if len(r.ras) > 0 {
 		res.Files[RadvdConf] = r.radvd()
 		res.Daemons = append(res.Daemons, DaemonRadvd)
+		for _, a := range r.ras {
+			res.Open.RA = append(res.Open.RA, a.Interface)
+		}
+		res.Open.RA = sortedUnique(res.Open.RA)
 	}
 	res.StaticNames = r.staticNames()
 	if len(r.errs) > 0 {

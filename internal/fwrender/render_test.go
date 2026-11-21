@@ -340,3 +340,47 @@ func TestHAPairOpensVRRPAndSync(t *testing.T) {
 		t.Errorf("a node outside the pair opens HA traffic:\n%s", out)
 	}
 }
+
+func siteMeta(n int, name string) model.Meta {
+	m := meta(n, name)
+	m.Scope = model.SiteScope(id(site))
+	return m
+}
+
+// TestServicesOpenTheirInterfacesOnly: each service's port is let in on
+// the interfaces it serves, and from the networks it names, ahead of any
+// policy.
+func TestServicesOpenTheirInterfacesOnly(t *testing.T) {
+	f := base(t)
+	f.add(
+		&model.FirewallPolicy{Meta: meta(41, "deny"), DefaultDeny: true},
+		&model.DHCPScope{Meta: siteMeta(60, "lan4"), Enabled: true, Interface: "lan0", Subnet: "192.168.1.0/24", Router: "192.168.1.1"},
+		&model.DHCPScope{Meta: siteMeta(61, "lan6"), Enabled: true, Interface: "lan1", Subnet: "2001:db8:1::/64"},
+		&model.RouterAdvert{Meta: siteMeta(62, "ra"), Enabled: true, Interface: "lan1", Mode: "stateless", Prefixes: []string{"2001:db8:1::/64"}},
+		&model.DNSResolver{Meta: meta(63, "dns"), Enabled: true, Interfaces: []string{"lan0", "lan1"}, Mode: "recursive",
+			AllowFrom: []string{"10.8.0.0/24", "fd00:8::/64"}},
+		&model.NTPService{Meta: meta(64, "ntp"), Enabled: true, Interfaces: []string{"lan0"}, Pools: []string{"pool.ntp.org"},
+			AllowFrom: []string{"10.8.0.0/24"}},
+	)
+	out := f.render(opts())
+	for _, want := range []string{
+		`iifname { "lan0" } udp dport 67 counter accept comment "service: dhcp"`,
+		`iifname { "lan1" } udp dport 547 counter accept comment "service: dhcpv6"`,
+		`iifname { "lan1" } icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } counter accept`,
+		`iifname { "lan0", "lan1" } meta l4proto { tcp, udp } th dport 53 counter accept comment "service: dns"`,
+		`ip saddr { 10.8.0.0/24 } meta l4proto { tcp, udp } th dport 53 counter accept`,
+		`ip6 saddr { fd00:8::/64 } meta l4proto { tcp, udp } th dport 53 counter accept`,
+		`iifname { "lan0" } udp dport 123 counter accept comment "service: ntp"`,
+		`ip saddr { 10.8.0.0/24 } udp dport 123 counter accept comment "service: ntp"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(out, `"wan0" } meta l4proto { tcp, udp } th dport 53`) || strings.Contains(out, "dhcp failover") {
+		t.Errorf("a service is open where it does not run:\n%s", out)
+	}
+	if t.Failed() {
+		t.Log(out)
+	}
+}
