@@ -22,13 +22,16 @@ TimeoutStopSec=30s
 UMask=0077
 StateDirectory=testudo
 StateDirectoryMode=0700
-RuntimeDirectory=testudo-ha
-RuntimeDirectoryMode=0700
+# testudo-svc holds the configuration of Unbound and radvd, which read it
+# again as their own users; nothing in it is secret.
+RuntimeDirectory=testudo-ha testudo-svc
+RuntimeDirectoryMode=0755
 
 # What the process may do. Network administration and capture; switching
 # user for the daemons it starts; reading other processes' sockets to name
-# the program behind a flow; PAM's audit record.
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_KILL CAP_SYS_PTRACE CAP_AUDIT_WRITE
+# the program behind a flow; PAM's audit record; setting the clock (the NTP
+# service).
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_KILL CAP_SYS_PTRACE CAP_AUDIT_WRITE CAP_SYS_TIME
 NoNewPrivileges=yes
 RestrictSUIDSGID=yes
 # Netlink for the kernel's tables, packet sockets for capture.
@@ -38,19 +41,21 @@ RestrictRealtime=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
-SystemCallFilter=@system-service @network-io @privileged
+SystemCallFilter=@system-service @network-io @privileged @clock
 SystemCallErrorNumber=EPERM
 
 # What the process may see and change on disk. Its state, the FRR and
-# netplan configuration it renders, and nothing else.
+# netplan configuration it renders, Kea's data directory (the DHCPv6
+# server identifier), and nothing else.
 ProtectSystem=strict
-ReadWritePaths=-/etc/frr -/etc/netplan -/run/frr
+ReadWritePaths=-/etc/frr -/etc/netplan -/run/frr -/var/lib/kea
 ProtectHome=yes
 PrivateTmp=yes
 ProtectControlGroups=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
-ProtectClock=yes
+# chronyd keeps the clock in step when the NTP service is on.
+ProtectClock=no
 ProtectHostname=yes
 # Forwarding and conntrack settings are written through /proc/sys, so
 # ProtectKernelTunables stays off.
