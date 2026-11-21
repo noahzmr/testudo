@@ -75,9 +75,14 @@ type Options struct {
 
 // Openings are the ports the packet filter opens for the services.
 type Openings struct {
-	DHCP4, DHCP6, DNS, NTP, RA []string // interfaces
+	DHCP4 []string `json:"dhcp4,omitempty"` // interfaces
+	DHCP6 []string `json:"dhcp6,omitempty"`
+	DNS   []string `json:"dns,omitempty"`
+	NTP   []string `json:"ntp,omitempty"`
+	RA    []string `json:"ra,omitempty"`
 	// DNSFrom and NTPFrom are networks served through other interfaces.
-	DNSFrom, NTPFrom []string
+	DNSFrom []string `json:"dns_from,omitempty"`
+	NTPFrom []string `json:"ntp_from,omitempty"`
 	// HA is set on an HA pair whose Kea servers talk over the sync link.
 	HA *HAOpening `json:"ha,omitempty"`
 }

@@ -73,6 +73,19 @@ func (e *Engine) Metrics() []promtext.Sample {
 			}
 		}
 	}
+	if sv := e.servicesRuntime(); sv != nil {
+		if ds, ok := sv["daemons"].(map[string]string); ok {
+			for d, st := range ds {
+				out = append(out, g("testudo_service_up", "Whether a network service daemon runs.", b(st == "running"), "daemon", d))
+			}
+		}
+		if scopes, ok := sv["scopes"].([]map[string]any); ok {
+			for _, sc := range scopes {
+				out = append(out, g("testudo_dhcp_leases_active", "Addresses a DHCP scope has handed out and not got back.",
+					float64(sc["leases"].(int)), "scope", sc["name"].(string), "interface", sc["interface"].(string)))
+			}
+		}
+	}
 	if e.fabric.paths != nil {
 		for _, p := range e.fabric.paths.Status() {
 			l := []string{"device", p.Device, "peer", p.PeerNode, "color", p.Color}

@@ -33,6 +33,7 @@ import (
 	"github.com/noahzmr/testudo/internal/pki"
 	"github.com/noahzmr/testudo/internal/secrets"
 	"github.com/noahzmr/testudo/internal/storage"
+	"github.com/noahzmr/testudo/internal/svcstage"
 	"github.com/noahzmr/testudo/internal/wgstage"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -64,6 +65,10 @@ type confCore struct {
 	// ha keeps an HA pair's addresses and connection state with whichever
 	// member is alive.
 	ha *hastage.Stage
+	// services runs DHCP, router advertisements, DNS and NTP; names keeps
+	// the names of DHCP clients in the resolver.
+	services *svcstage.Stage
+	names    *svcstage.Names
 	// proxy is the load-balancer stage; forwardAuth answers the proxy's
 	// questions about logins on a loopback listener of its own.
 	proxy       *lbstage.Stage
@@ -83,6 +88,9 @@ const (
 	// haRunDir holds the HA daemons' pid files and conntrackd's control
 	// socket, whose path may not exceed 107 characters.
 	haRunDir = "/run/testudo-ha"
+	// svcRunDir holds the services' configuration, which daemons that drop
+	// privileges read again on a reload, their pid files and sockets.
+	svcRunDir = "/run/testudo-svc"
 )
 
 // ConfigDir is where the configuration log and the pending-apply marker live.
@@ -145,6 +153,13 @@ func (e *Engine) openConfig() {
 	if e.netops != nil {
 		c.ha.Runner = e.netops
 	}
+	// The services come after the pair: they bind its virtual addresses.
+	c.services = &svcstage.Stage{Locate: e.locate, Dir: filepath.Join(e.cfg.StorageDir, "services"), RunDir: svcRunDir,
+		HooksDir: keaHooksDir()}
+	c.names = &svcstage.Names{RunDir: svcRunDir}
+	if e.netops != nil {
+		c.services.Runner = e.netops
+	}
 	// The proxy comes last: its backends are reached over the routes and
 	// tunnels the earlier stages set up.
 	c.proxy = &lbstage.Stage{Locate: e.locate, Dir: filepath.Join(e.cfg.StorageDir, "proxy"), SecretsDir: c.secrets.Dir,
@@ -152,7 +167,7 @@ func (e *Engine) openConfig() {
 	if e.netops != nil {
 		c.proxy.Runner = e.netops
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing, c.ha, c.proxy)
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing, c.ha, c.services, c.proxy)
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
@@ -234,6 +249,7 @@ func (e *Engine) startConfig(ctx context.Context) {
 		go e.gatewayLoop(ctx)
 		go e.peerExpiryLoop(ctx)
 		go e.forwardAuthLoop(ctx)
+		go e.serviceNamesLoop(ctx)
 	}
 }
 
@@ -653,6 +669,9 @@ func (e *Engine) ConfigRuntime() map[string]any {
 		if h := e.haRuntime(); h != nil {
 			out["ha"] = h
 		}
+	}
+	if sv := e.servicesRuntime(); sv != nil {
+		out["services"] = sv
 	}
 	if e.conf.proxy != nil {
 		lb := map[string]any{"backends": e.conf.backends.Status()}
