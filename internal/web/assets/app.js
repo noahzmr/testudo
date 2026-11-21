@@ -159,21 +159,6 @@
         showToast('static address set');
         break;
       }
-      case 'route-add':
-        await post('/api/route/add', {
-          cidr: val('route-cidr'),
-          gateway: val('route-gw'),
-          iface: val('route-iface'),
-        });
-        showToast('route added');
-        clearInputs(['route-cidr', 'route-gw', 'route-iface']);
-        break;
-      case 'route-del':
-        if (!confirm('Delete route ' + btn.dataset.cidr + '?')) return;
-        await post('/api/route/del', { cidr: btn.dataset.cidr });
-        showToast('route deleted');
-        break;
-
       // ---- privileged access ----
       case 'pam-request':
         await post('/api/pam/request', {
@@ -1722,9 +1707,8 @@
       + '<td>' + escape(r.iface) + '</td>'
       + '<td>' + escape(r.proto) + '</td>'
       + '<td>' + r.metric + '</td>'
-      + '<td><button class="btn btn-small btn-danger" data-action="route-del" data-cidr="' + escape(r.dst) + '">del</button></td>'
       + '</tr>'
-    ).join('') || '<tr><td colspan="7" class="muted">no routes</td></tr>';
+    ).join('') || '<tr><td colspan="6" class="muted">no routes</td></tr>';
   }
 
   // renderWatcher mirrors the TUI's live/polled badge: the Interfaces and

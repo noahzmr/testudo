@@ -822,10 +822,8 @@ func (t *routesTab) Update(msg tea.Msg) tea.Cmd {
 			if t.cursor < len(t.routes)-1 {
 				t.cursor++
 			}
-		case "a":
-			return t.openAddModal()
-		case "x":
-			return t.openDelModal()
+		case "a", "x":
+			return statusCmd("static routes are changed in the configuration: the console's Routes section")
 		case "r":
 			t.refresh()
 		}
@@ -833,42 +831,8 @@ func (t *routesTab) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (t *routesTab) openAddModal() tea.Cmd {
-	preselected := ""
-	if t.cursor >= 0 && t.cursor < len(t.routes) {
-		preselected = t.routes[t.cursor].Iface
-	}
-	modal := NewFormModal("Add Route",
-		[]FormField{
-			{Label: "cidr", Value: "", Hint: "destination CIDR, e.g. 10.0.0.0/24"},
-			{Label: "gateway", Value: "", Hint: "next-hop IP (blank for direct)"},
-			{Label: "iface", Value: preselected, Hint: "outgoing interface (blank to auto-pick)"},
-		},
-		func(values map[string]string) error {
-			return t.eng.Netops().AddRoute(values["cidr"], values["gateway"], values["iface"])
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-func (t *routesTab) openDelModal() tea.Cmd {
-	preselected := ""
-	if t.cursor >= 0 && t.cursor < len(t.routes) {
-		preselected = t.routes[t.cursor].Dst
-	}
-	modal := NewFormModal("Delete Route",
-		[]FormField{
-			{Label: "cidr", Value: preselected, Hint: "destination CIDR to remove"},
-		},
-		func(values map[string]string) error {
-			return t.eng.Netops().DelRoute(values["cidr"])
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
 func (t *routesTab) View(w, h int) string {
-	header := headerStyle.Render(fmt.Sprintf("Routes - %d entries · a=add · x=del · r=refresh", len(t.routes)))
+	header := headerStyle.Render(fmt.Sprintf("Routes - %d entries (kernel) · r=refresh", len(t.routes)))
 	if ind := watchIndicator(t.eng); ind != "" {
 		header += "  " + ind
 	}

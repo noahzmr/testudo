@@ -327,19 +327,11 @@
     <!-- ROUTES -------------------------------------------------------- -->
     <section data-pane="routes" class="pane" role="tabpanel" aria-label="Routes">
       <div class="card">
-        <h2>Add route</h2>
-        <div class="form-row">
-          <label>cidr<input id="route-cidr" placeholder="e.g. 10.0.0.0/24"/></label>
-          <label>gateway<input id="route-gw" placeholder="optional"/></label>
-          <label>iface<input id="route-iface" placeholder="optional"/></label>
-          <button data-action="route-add" class="btn btn-go">Add</button>
-        </div>
-      </div>
-      <div class="card">
-        <h2>Routes <span id="routes-watcher" class="watch-badge"></span></h2>
+        <h2>Kernel routes <span id="routes-watcher" class="watch-badge"></span></h2>
+        <p class="muted">The routing table as the kernel holds it. Static routes are objects of the model, under Static routes and Gateways above; the routing daemon installs them.</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Family</th><th>Dst</th><th>Gateway</th><th>Iface</th><th>Proto</th><th>Metric</th><th></th></tr></thead>
+            <thead><tr><th>Family</th><th>Dst</th><th>Gateway</th><th>Iface</th><th>Proto</th><th>Metric</th></tr></thead>
             <tbody id="routes-body"></tbody>
           </table>
         </div>

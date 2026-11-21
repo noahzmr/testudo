@@ -231,8 +231,6 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/iface/static", s.protect(s.handleIfaceStatic))
 
 	// Routes
-	mux.HandleFunc("/api/route/add", s.protect(s.handleRouteAdd))
-	mux.HandleFunc("/api/route/del", s.protect(s.handleRouteDel))
 
 	// Firewall / NAT: rules are model objects; these show the running state.
 	mux.HandleFunc("/api/firewall/reset-counter", s.protect(s.handleFirewallResetCounter))

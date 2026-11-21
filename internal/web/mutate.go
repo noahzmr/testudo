@@ -202,42 +202,9 @@ func (s *Server) handleIfaceStatic(w http.ResponseWriter, r *http.Request) {
 	writeOK(w)
 }
 
-// ---- Route controls --------------------------------------------------
-
-func (s *Server) handleRouteAdd(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		CIDR    string `json:"cidr"`
-		Gateway string `json:"gateway"`
-		Iface   string `json:"iface"`
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	if err := s.netops(r).AddRoute(b.CIDR, b.Gateway, b.Iface); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-func (s *Server) handleRouteDel(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		CIDR string `json:"cidr"`
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	if err := s.netops(r).DelRoute(b.CIDR); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
 // ---- Firewall controls -----------------------------------------------
-// Rule / NAT mutations live in firewall.go (policy manager). Only the
-// counter reset - a kernel-side tweak that is not part of the desired state -
-// stays here.
+// Rules and NAT are model objects. Only the counter reset - a kernel-side
+// tweak that is not part of the desired state - stays here.
 
 // handleFirewallResetCounter zeroes a single rule's counter, identified by
 // its (family, table, chain, handle) tuple. Reuses the same netops-write
