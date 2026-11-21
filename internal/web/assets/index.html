@@ -747,51 +747,17 @@
 
       <div class="card">
         <h2>Resources <span class="muted">· what a grant can reach</span></h2>
-        <div class="form-grid" data-admin-only hidden>
-          <label>name<input id="pam-r-name" placeholder="prod-db"/></label>
-          <label>kind<select id="pam-r-kind"><option>l3</option><option>ssh</option><option>rdp</option><option>https</option></select></label>
-          <label>address / CIDR<input id="pam-r-cidr" placeholder="10.1.0.5 or 192.168.1.0/24"/></label>
-          <label>proto<select id="pam-r-proto"><option value="">any</option><option>tcp</option><option>udp</option></select></label>
-          <label>port<input id="pam-r-port" placeholder="blank = any (ssh/rdp/https default)"/></label>
-          <label>port end<input id="pam-r-port-end" placeholder="range end"/></label>
-          <label>login<input id="pam-r-login" placeholder="ssh principal / rdp user"/></label>
-          <label>broker ref<input id="pam-r-broker" placeholder="guacamole connection id"/></label>
-        </div>
-        <div class="row" data-admin-only hidden><button data-action="pam-res-add" class="btn btn-go">Add resource</button></div>
+        <p class="muted">Resources, the policies that let people ask for them, and which WireGuard peer belongs to whom are objects of the configuration model: <a href="#/access-resources">Access → Resources</a>, <a href="#/access-policies">Access → Policies</a>, the user of each <a href="#/wg-peers">peer</a>. A policy that needs neither approval nor a second factor is a standing rule; the others are asked for here.</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Kind</th><th>Target</th><th>Login</th><th>Broker</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Kind</th><th>Target</th><th>Login</th><th>Broker</th></tr></thead>
             <tbody id="pam-res-body"></tbody>
           </table>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Policies <span class="muted">· who may ask, on what terms</span></h2>
-        <div class="form-grid" data-admin-only hidden>
-          <label>name<input id="pam-p-name" placeholder="ops → prod-db"/></label>
-          <label>subject kind<select id="pam-p-skind"><option value="role">role (at least)</option><option value="user">user</option></select></label>
-          <label>subject<input id="pam-p-sval" placeholder="operator | alice"/></label>
-          <label>resource<select id="pam-p-res"></select></label>
-          <label>max duration (minutes)<input id="pam-p-ttl" type="number" min="1" value="120"/></label>
-          <label class="check"><input type="checkbox" id="pam-p-approval" checked/> requires approval</label>
-          <label class="check"><input type="checkbox" id="pam-p-mfa"/> requires MFA</label>
-        </div>
-        <div class="row" data-admin-only hidden><button data-action="pam-pol-add" class="btn btn-go">Add policy</button></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Subject</th><th>Resource</th><th>Max</th><th>Approval</th><th>MFA</th><th></th></tr></thead>
+            <thead><tr><th>Policy</th><th>Who</th><th>Resource</th><th>Longest</th><th>Approval</th><th>Second factor</th></tr></thead>
             <tbody id="pam-pol-body"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card" data-admin-only hidden>
-        <h2>Peer bindings <span class="muted">· which WireGuard peer belongs to whom</span></h2>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Peer</th><th>Device</th><th>Tunnel IPs</th><th>Bound user</th></tr></thead>
-            <tbody id="pam-peers-body"></tbody>
           </table>
         </div>
       </div>

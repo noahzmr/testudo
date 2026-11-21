@@ -245,6 +245,7 @@ func (e *Engine) startConfig(ctx context.Context) {
 	}
 	e.seedRoles(ctx)
 	e.prepareLocalUsers(ctx)
+	go e.grantLoop(ctx)
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)
 		go e.backendHealthLoop(ctx)

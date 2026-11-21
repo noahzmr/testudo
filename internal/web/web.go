@@ -201,11 +201,6 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/pam/deny", s.protect(s.handlePAMDeny))
 	mux.HandleFunc("/api/pam/revoke", s.protect(s.handlePAMRevoke))
 	mux.HandleFunc("/api/pam/breakglass", s.protect(s.handlePAMBreakGlass))
-	mux.HandleFunc("/api/pam/resource/add", s.protect(s.handlePAMResourceAdd))
-	mux.HandleFunc("/api/pam/resource/del", s.protect(s.handlePAMResourceDel))
-	mux.HandleFunc("/api/pam/policy/add", s.protect(s.handlePAMPolicyAdd))
-	mux.HandleFunc("/api/pam/policy/del", s.protect(s.handlePAMPolicyDel))
-	mux.HandleFunc("/api/pam/peer/bind", s.protect(s.handlePAMPeerBind))
 	mux.HandleFunc("/api/pam/ssh/cert", s.protect(s.handlePAMSSHCert))
 
 	mux.HandleFunc("/api/snapshot", s.protect(s.handleSnapshot))
@@ -338,10 +333,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // security posture of the host itself; operators cannot touch them.
 var adminOnly = []string{
 	"/api/settings",
-	"/api/pam/resource",
-	"/api/pam/policy",
 	"/api/pam/breakglass",
-	"/api/pam/peer",
 }
 
 // approverOnly lists the endpoints that decide on access requests. They are

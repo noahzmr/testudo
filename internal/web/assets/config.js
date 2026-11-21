@@ -76,7 +76,7 @@ const PANE = {
   nat_rule: 'nat', interface: 'ifaces',
   route: 'routes', gateway: 'routes', policy_route: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
   wg_tunnel: 'wireguard', wg_peer: 'wireguard',
-  access_resource: 'access', access_policy: 'access',
+  access_resource: 'access', access_policy: 'access', access_grant: 'access',
   user: 'settings', group: 'settings', role: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
   site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes', ha_pair: 'cluster',
@@ -85,7 +85,7 @@ const PANE = {
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
   interface: 'Zone assignment', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
-  wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies',
+  wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies', access_grant: 'Grants',
   user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
   site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies', ha_pair: 'HA pairs',
@@ -99,7 +99,7 @@ const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 
 // versioned and audited, and takes effect when its subsystem moves over.
 const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'nat_rule', 'interface',
   'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf',
-  'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy',
+  'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy', 'access_grant',
   'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate',
   'user', 'group', 'role', 'oidc_provider', 'api_token', 'fabric', 'path_policy', 'site', 'cluster_node', 'ha_pair',
   'dhcp_scope', 'router_advert', 'dns_resolver', 'dns_record', 'ntp_service']);

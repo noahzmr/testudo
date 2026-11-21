@@ -14,49 +14,70 @@ import (
 	"github.com/noahzmr/testudo/internal/storage"
 )
 
-type fakeFW struct {
-	mu    sync.Mutex
-	rules []netops.FilterRule
-	fail  error
+// fakeGrants stands in for the model: the grants that exist.
+type fakeGrants struct {
+	mu      sync.Mutex
+	granted map[string]storage.PAMGrant
+	fail    error
 }
 
-func (f *fakeFW) AddRule(r netops.FilterRule) error {
+func (f *fakeGrants) Grant(_ context.Context, g storage.PAMGrant) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
 		return f.fail
 	}
-	f.rules = append(f.rules, r.Normalize())
+	if f.granted == nil {
+		f.granted = map[string]storage.PAMGrant{}
+	}
+	f.granted[g.ID] = g
 	return nil
 }
 
-func (f *fakeFW) DelRulesByOwner(owner string) (int, error) {
+func (f *fakeGrants) Ungrant(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	kept := f.rules[:0]
-	n := 0
-	for _, r := range f.rules {
-		if r.Owner == owner {
-			n++
-			continue
-		}
-		kept = append(kept, r)
-	}
-	f.rules = kept
-	return n, nil
+	delete(f.granted, id)
+	return nil
 }
 
-func (f *fakeFW) byOwner(owner string) []netops.FilterRule {
+func (f *fakeGrants) has(id string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []netops.FilterRule
-	for _, r := range f.rules {
-		if r.Owner == owner {
-			out = append(out, r)
+	_, ok := f.granted[id]
+	return ok
+}
+
+// fakeCatalog stands in for the model's resources, policies and peers.
+// Policy subjects are "user:<name>" or "role:<role>" here.
+type fakeCatalog struct {
+	resources map[string]storage.PAMResource
+	policies  []storage.PAMPolicy
+	peers     map[string][]string
+}
+
+func (c *fakeCatalog) Resource(id string) (storage.PAMResource, bool) {
+	r, ok := c.resources[id]
+	return r, ok
+}
+func (c *fakeCatalog) Resources() (out []storage.PAMResource) {
+	for _, r := range c.resources {
+		out = append(out, r)
+	}
+	return out
+}
+func (c *fakeCatalog) Policies(subj Subject, resourceID string) (out []storage.PAMPolicy) {
+	for _, p := range c.policies {
+		kind, value, _ := strings.Cut(p.Subject, ":")
+		if p.ResourceID == resourceID && ((kind == "user" && value == subj.Name) || (kind == "role" && subj.Role.AtLeast(auth.Role(value)))) {
+			out = append(out, p)
 		}
 	}
 	return out
 }
+func (c *fakeCatalog) AllPolicies() []storage.PAMPolicy { return c.policies }
+func (c *fakeCatalog) PeerIPs(user string) []string     { return c.peers[user] }
+func (c *fakeCatalog) PeerUsers() map[string]string     { return nil }
 
 type fakeFlows struct {
 	flows   []netops.ConntrackFlow
@@ -87,16 +108,11 @@ func (c *fakeCap) Start(name, iface, bpf string) (string, error) {
 }
 func (c *fakeCap) Stop(id string) error { c.stopped = append(c.stopped, id); return nil }
 
-type fakePeers struct{ byUser map[string][]string }
-
-func (p fakePeers) PeerIPs(_ context.Context, user string) ([]string, error) {
-	return p.byUser[user], nil
-}
-
 type harness struct {
 	m     *Manager
 	st    *storage.Store
-	fw    *fakeFW
+	fw    *fakeGrants
+	cat   *fakeCatalog
 	flows *fakeFlows
 	cap   *fakeCap
 	now   time.Time
@@ -110,11 +126,12 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := &harness{st: st, fw: &fakeFW{}, flows: &fakeFlows{}, cap: &fakeCap{}, now: time.Unix(1700000000, 0), ctx: context.Background()}
-	h.m = New(st, h.fw, h.flows, h.cap, fakePeers{byUser: map[string][]string{
-		"alice": {"10.8.0.2/32"},
-		"bob":   {"10.8.0.3/32", "10.8.0.4/32"},
-	}}, Options{Device: "wg0", Now: func() time.Time { return h.now }})
+	h := &harness{st: st, fw: &fakeGrants{}, flows: &fakeFlows{}, cap: &fakeCap{}, now: time.Unix(1700000000, 0), ctx: context.Background(),
+		cat: &fakeCatalog{resources: map[string]storage.PAMResource{}, peers: map[string][]string{
+			"alice": {"10.8.0.2/32"},
+			"bob":   {"10.8.0.3/32", "10.8.0.4/32"},
+		}}}
+	h.m = New(st, h.cat, h.fw, h.flows, h.cap, Options{Device: "wg0", Now: func() time.Time { return h.now }})
 	return h
 }
 
@@ -129,64 +146,29 @@ var (
 
 func (h *harness) resource(t *testing.T, name, cidr string, kind string) storage.PAMResource {
 	t.Helper()
-	r, err := h.m.AddResource(h.ctx, admin, storage.PAMResource{Name: name, Kind: kind, CIDR: cidr})
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(cidr, "/") {
+		cidr += "/32"
 	}
+	r := storage.PAMResource{ID: "res-" + name, Name: name, Kind: kind, CIDR: cidr}
+	switch kind {
+	case KindSSH:
+		r.Proto, r.PortLo = "tcp", 22
+	case KindRDP:
+		r.Proto, r.PortLo = "tcp", 3389
+	}
+	h.cat.resources[r.ID] = r
 	return r
 }
 
 func (h *harness) policy(t *testing.T, subject, resID string, maxTTL time.Duration, approval, mfa bool) storage.PAMPolicy {
 	t.Helper()
-	p, err := h.m.AddPolicy(h.ctx, admin, storage.PAMPolicy{
-		Name: subject + "->" + resID, Subject: subject, ResourceID: resID,
-		MaxTTL: int64(maxTTL.Seconds()), RequiresApproval: approval, RequiresMFA: mfa,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := storage.PAMPolicy{ID: "pol-" + subject + "-" + resID, Name: subject + "->" + resID, Subject: subject, ResourceID: resID,
+		MaxTTL: int64(maxTTL.Seconds()), RequiresApproval: approval, RequiresMFA: mfa}
+	h.cat.policies = append(h.cat.policies, p)
 	return p
 }
 
-func TestResourceValidation(t *testing.T) {
-	h := newHarness(t)
-	if _, err := h.m.AddResource(h.ctx, alice, storage.PAMResource{Name: "x", Kind: "l3", CIDR: "10.0.0.1"}); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("operator added a resource: %v", err)
-	}
-	bad := []storage.PAMResource{
-		{Name: "", Kind: "l3", CIDR: "10.0.0.1"},
-		{Name: "x", Kind: "vnc", CIDR: "10.0.0.1"},
-		{Name: "x", Kind: "l3", CIDR: "nope"},
-		{Name: "x", Kind: "l3", CIDR: "10.0.0.1", Proto: "icmp"},
-		{Name: "x", Kind: "l3", CIDR: "10.0.0.1", PortLo: 22},
-		{Name: "x", Kind: "l3", CIDR: "10.0.0.1", Proto: "tcp", PortLo: 50, PortHi: 22},
-	}
-	for _, r := range bad {
-		if _, err := h.m.AddResource(h.ctx, admin, r); err == nil {
-			t.Fatalf("accepted invalid resource %+v", r)
-		}
-	}
-	// Brokered kinds default their port.
-	ssh := h.resource(t, "prod-ssh", "192.168.1.10", KindSSH)
-	if ssh.Proto != "tcp" || ssh.PortLo != 22 {
-		t.Fatalf("ssh default port: %+v", ssh)
-	}
-	rdp := h.resource(t, "win", "192.168.1.11", KindRDP)
-	if rdp.PortLo != 3389 {
-		t.Fatalf("rdp default port: %+v", rdp)
-	}
-	if _, err := h.m.AddPolicy(h.ctx, admin, storage.PAMPolicy{Name: "p", Subject: "team:ops", ResourceID: ssh.ID, MaxTTL: 60}); err == nil {
-		t.Fatal("bad subject accepted")
-	}
-	if _, err := h.m.AddPolicy(h.ctx, admin, storage.PAMPolicy{Name: "p", Subject: "role:god", ResourceID: ssh.ID, MaxTTL: 60}); err == nil {
-		t.Fatal("bad role subject accepted")
-	}
-	if _, err := h.m.AddPolicy(h.ctx, admin, storage.PAMPolicy{Name: "p", Subject: "user:alice", ResourceID: "res-missing", MaxTTL: 60}); err == nil {
-		t.Fatal("policy for unknown resource accepted")
-	}
-}
-
-func TestAutoApprovedGrantInstallsRulesAndCapture(t *testing.T) {
+func TestAutoApprovedGrantIsGrantedAndCaptured(t *testing.T) {
 	h := newHarness(t)
 	lan := h.resource(t, "lan", "192.168.1.0/24", KindL3)
 	h.policy(t, "role:operator", lan.ID, time.Hour, false, false)
@@ -207,16 +189,8 @@ func TestAutoApprovedGrantInstallsRulesAndCapture(t *testing.T) {
 	if g.State != StateActive || g.ApprovedBy == "" || !g.EndsAt.Equal(h.now.Add(30*time.Minute)) {
 		t.Fatalf("auto-approved grant: %+v", g)
 	}
-	rules := h.fw.byOwner(OwnerForGrant(g.ID))
-	if len(rules) != 1 {
-		t.Fatalf("rules = %+v", rules)
-	}
-	r := rules[0]
-	if r.Chain != "forward" || r.Action != "accept" || r.InIface != "wg0" || r.SrcCIDR != "10.8.0.2/32" || r.DstCIDR != "192.168.1.0/24" {
-		t.Fatalf("rule = %+v", r)
-	}
-	if err := r.Validate(); err != nil {
-		t.Fatalf("rule invalid for netops: %v", err)
+	if gr, ok := h.fw.granted[g.ID]; !ok || gr.User != "alice" || gr.ResourceID != lan.ID || !gr.EndsAt.Equal(g.EndsAt) {
+		t.Fatalf("grant in the model: %+v", h.fw.granted)
 	}
 	if len(h.cap.started) != 1 || h.cap.started[0] != "(host 10.8.0.2) and net 192.168.1.0/24" {
 		t.Fatalf("capture filter = %v", h.cap.started)
@@ -228,7 +202,7 @@ func TestAutoApprovedGrantInstallsRulesAndCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.ChainBroken != 0 || o.ChainChecked < 4 {
+	if o.ChainBroken != 0 || o.ChainChecked < 2 {
 		t.Fatalf("chain: %+v", o)
 	}
 	actions := eventActions(o.Events)
@@ -246,7 +220,7 @@ func TestApprovalFlowAndSeparationOfDuties(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.State != StatePending || len(h.fw.byOwner(OwnerForGrant(g.ID))) != 0 {
+	if g.State != StatePending || h.fw.has(g.ID) {
 		t.Fatalf("pending grant must install nothing: %+v", g)
 	}
 	if _, err := h.m.Approve(h.ctx, bob, g.ID); !errors.Is(err, ErrForbidden) {
@@ -285,8 +259,8 @@ func TestRevokeKillsFlowsAndStopsCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(h.fw.byOwner(OwnerForGrant(g.ID))); n != 2 {
-		t.Fatalf("bob has two peers, got %d rules", n)
+	if gr := h.fw.granted[g.ID]; len(gr.PeerIPs) != 2 {
+		t.Fatalf("bob has two peers: %+v", gr)
 	}
 	h.flows.flows = []netops.ConntrackFlow{
 		{Proto: "tcp", OrigSrc: "10.8.0.3", OrigDst: "10.1.0.5", OrigSport: 50000, OrigDport: 5432, Bytes: 100},
@@ -310,8 +284,8 @@ func TestRevokeKillsFlowsAndStopsCapture(t *testing.T) {
 	if g.State != StateRevoked || g.EndReason != "done early" {
 		t.Fatalf("revoked: %+v", g)
 	}
-	if n := len(h.fw.byOwner(OwnerForGrant(g.ID))); n != 0 {
-		t.Fatalf("rules left after revoke: %d", n)
+	if h.fw.has(g.ID) {
+		t.Fatal("the grant is still in the model after the revoke")
 	}
 	if len(h.flows.flushed) != 2 {
 		t.Fatalf("flushed %d flows, want exactly bob's two to the resource: %+v", len(h.flows.flushed), h.flows.flushed)
@@ -345,14 +319,14 @@ func TestExpiryAndBootReconcile(t *testing.T) {
 		t.Fatalf("expire = %d", n)
 	}
 	got, _ := h.st.GetPAMGrant(h.ctx, g.ID)
-	if got.State != StateExpired || len(h.fw.byOwner(OwnerForGrant(g.ID))) != 0 {
-		t.Fatalf("expired grant: %+v rules=%d", got, len(h.fw.rules))
+	if got.State != StateExpired || h.fw.has(g.ID) {
+		t.Fatalf("expired grant: %+v in model=%v", got, h.fw.has(g.ID))
 	}
 	// A second manager over the same store (a restart) expires an overdue
 	// active grant at Run start without needing the firewall state.
 	g2, _ := h.m.Request(h.ctx, alice, db.ID, time.Minute, "restart test", "")
 	h.now = h.now.Add(2 * time.Minute)
-	m2 := New(h.st, h.fw, h.flows, h.cap, fakePeers{}, Options{Device: "wg0", Now: func() time.Time { return h.now }})
+	m2 := New(h.st, h.cat, h.fw, h.flows, h.cap, Options{Device: "wg0", Now: func() time.Time { return h.now }})
 	ctx, cancel := context.WithCancel(h.ctx)
 	done := make(chan struct{})
 	go func() { m2.Run(ctx, time.Hour); close(done) }()
@@ -375,12 +349,6 @@ func TestMFARequirementAndBreakGlass(t *testing.T) {
 	if g, err := h.m.Request(h.ctx, aliceMFA, vault.ID, time.Minute, "rotate keys", ""); err != nil || g.State != StateActive {
 		t.Fatalf("MFA request: %+v %v", g, err)
 	}
-	// The ssh resource compiles to tcp/22 only.
-	rs := h.fw.rules
-	last := rs[len(rs)-1]
-	if last.Proto != "tcp" || last.Port != 22 {
-		t.Fatalf("ssh rule = %+v", last)
-	}
 	// Break-glass: admin only, long justification, capped TTL, no policy needed.
 	other := h.resource(t, "nopolicy", "10.9.9.9", KindL3)
 	if _, err := h.m.Request(h.ctx, admin, other.ID, time.Minute, "no policy here", ""); !errors.Is(err, ErrNoPolicy) {
@@ -399,7 +367,7 @@ func TestMFARequirementAndBreakGlass(t *testing.T) {
 	if _, err := h.m.BreakGlass(h.ctx, admin, other.ID, time.Hour, "incident 77 - db down"); !errors.Is(err, ErrNoPeer) {
 		t.Fatalf("break-glass without peer: %v", err)
 	}
-	h.m.peers = fakePeers{byUser: map[string][]string{"root": {"10.8.0.9/32"}, "alice": {"10.8.0.2/32"}}}
+	h.cat.peers["root"] = []string{"10.8.0.9/32"}
 	g, err := h.m.BreakGlass(h.ctx, admin, other.ID, time.Hour, "incident 77 - db down")
 	if err != nil {
 		t.Fatal(err)
@@ -411,18 +379,14 @@ func TestMFARequirementAndBreakGlass(t *testing.T) {
 	if !strings.Contains(eventActions(o.Events), "break_glass") || o.ChainBroken != 0 {
 		t.Fatalf("events: %s broken=%d", eventActions(o.Events), o.ChainBroken)
 	}
-	// Resources with live grants cannot be deleted.
-	if err := h.m.DeleteResource(h.ctx, admin, other.ID); err == nil {
-		t.Fatal("deleted a resource with an active grant")
-	}
 }
 
-func TestRuleFailureRollsBackAndKeepsPending(t *testing.T) {
+func TestGrantFailureKeepsThePendingRequest(t *testing.T) {
 	h := newHarness(t)
 	db := h.resource(t, "db", "10.1.0.5", KindL3)
 	h.policy(t, "role:operator", db.ID, time.Hour, true, false)
 	g, _ := h.m.Request(h.ctx, bob, db.ID, time.Hour, "needs approval", "")
-	h.fw.fail = errors.New("nft said no")
+	h.fw.fail = errors.New("no quorum")
 	if _, err := h.m.Approve(h.ctx, carol, g.ID); err == nil {
 		t.Fatal("approval succeeded despite rule failure")
 	}
@@ -430,8 +394,8 @@ func TestRuleFailureRollsBackAndKeepsPending(t *testing.T) {
 	if got.State != StatePending {
 		t.Fatalf("state after failed activation = %s, want pending", got.State)
 	}
-	if n := len(h.fw.byOwner(OwnerForGrant(g.ID))); n != 0 {
-		t.Fatalf("partial rules left: %d", n)
+	if h.fw.has(g.ID) {
+		t.Fatal("a grant was left in the model")
 	}
 	h.fw.fail = nil
 	if g2, err := h.m.Approve(h.ctx, carol, g.ID); err != nil || g2.State != StateActive {

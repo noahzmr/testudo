@@ -35,77 +35,22 @@ func (c pamCapturer) Start(name, iface, bpf string) (string, error) {
 
 func (c pamCapturer) Stop(id string) error { return c.m.Stop(id) }
 
-// pamPeers resolves a user to the tunnel addresses of the WireGuard peers
-// bound to them (wg_peer_meta.user). Live AllowedIPs come from the collector
-// snapshot, falling back to a direct netops read.
-type pamPeers struct{ e *Engine }
-
-func (p pamPeers) PeerIPs(ctx context.Context, user string) ([]string, error) {
-	if p.e.store == nil {
-		return nil, nil
-	}
-	bound, err := p.e.store.WGPeerUsers(ctx)
-	if err != nil {
-		return nil, err
-	}
-	mine := map[string]bool{}
-	for pub, u := range bound {
-		if u == user {
-			mine[pub] = true
-		}
-	}
-	if len(mine) == 0 {
-		return nil, nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	add := func(pub string, ips []string) {
-		if !mine[pub] {
-			return
-		}
-		for _, ip := range ips {
-			if !seen[ip] {
-				seen[ip] = true
-				out = append(out, ip)
-			}
-		}
-	}
-	if p.e.wg0 != nil {
-		if snap, ok := p.e.wg0.Snapshot(); ok {
-			for _, d := range snap.Devices {
-				for _, peer := range d.Peers {
-					add(peer.PublicKey, peer.AllowedIPs)
-				}
-			}
-		}
-	}
-	if len(out) == 0 && p.e.netops != nil {
-		if devs, err := p.e.netops.ListWGDevices(); err == nil {
-			for _, d := range devs {
-				for _, peer := range d.Peers {
-					add(peer.PublicKey, peer.AllowedIPs)
-				}
-			}
-		}
-	}
-	return out, nil
-}
-
-// startPAM wires the privileged-access manager over the firewall manager
-// (enforcement), netops (conntrack kill), tcpdump (per-grant capture) and the
-// WireGuard peer bindings, then runs its expiry loop. It is skipped - with a
-// log line - when any of storage, netops or the firewall policy is missing.
+// startPAM wires the privileged-access manager over the model (resources,
+// policies, peers and grants), netops (conntrack kill) and tcpdump
+// (per-grant capture), then runs its expiry loop. What the manager kept in
+// its database before the model existed moves into the model first.
 func (e *Engine) startPAM(ctx context.Context) {
-	if e.store == nil || e.netops == nil || e.fw == nil {
-		log.Printf("pam: disabled (needs storage, netops and the firewall policy)")
+	if e.store == nil || e.netops == nil || e.conf.store == nil {
+		log.Printf("pam: disabled (needs storage, netops and the configuration model)")
 		return
 	}
+	e.migratePAMCatalog(ctx)
 	var capturer pam.Capturer
 	if td := e.TCPDump(); td != nil && capture.TCPDumpAvailable() {
 		capturer = pamCapturer{m: td}
 	}
 	th := e.settings.Snapshot()
-	e.pam = pam.New(e.store, e.fw, e.netops, capturer, pamPeers{e}, pam.Options{
+	e.pam = pam.New(e.store, accessCatalog{e}, modelGrants{e}, e.netops, capturer, pam.Options{
 		Device:  firstNonEmpty(th.WireGuardDevice, "wg0"),
 		Broker:  e.guacBroker(),
 		OnEvent: e.publishAccessEvent,

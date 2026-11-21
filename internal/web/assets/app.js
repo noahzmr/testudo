@@ -238,40 +238,6 @@
         }
         break;
       }
-      case 'pam-res-add':
-        await post('/api/pam/resource/add', {
-          name: val('pam-r-name'), kind: val('pam-r-kind'), cidr: val('pam-r-cidr'), proto: val('pam-r-proto'),
-          port_lo: parseInt(val('pam-r-port') || '0', 10), port_hi: parseInt(val('pam-r-port-end') || '0', 10),
-          login: val('pam-r-login'), broker_ref: val('pam-r-broker'),
-        });
-        showToast('resource added');
-        clearInputs(['pam-r-name', 'pam-r-cidr', 'pam-r-port', 'pam-r-port-end', 'pam-r-login', 'pam-r-broker']);
-        await loadAccess();
-        break;
-      case 'pam-res-del':
-        if (!confirm('Delete resource ' + btn.dataset.name + '?')) return;
-        await post('/api/pam/resource/del', { id: btn.dataset.id });
-        showToast('resource deleted');
-        await loadAccess();
-        break;
-      case 'pam-pol-add':
-        await post('/api/pam/policy/add', {
-          name: val('pam-p-name'), subject: val('pam-p-skind') + ':' + val('pam-p-sval'), resource_id: val('pam-p-res'),
-          max_ttl_sec: parseInt(val('pam-p-ttl') || '120', 10) * 60,
-          requires_approval: document.getElementById('pam-p-approval').checked,
-          requires_mfa: document.getElementById('pam-p-mfa').checked,
-        });
-        showToast('policy added');
-        clearInputs(['pam-p-name', 'pam-p-sval']);
-        await loadAccess();
-        break;
-      case 'pam-pol-del':
-        if (!confirm('Delete policy ' + btn.dataset.name + '? Existing grants keep running.')) return;
-        await post('/api/pam/policy/del', { id: btn.dataset.id });
-        showToast('policy deleted');
-        await loadAccess();
-        break;
-
       // ---- identity: my account + user management (admin) ----
       case 'me-passwd':
         await post('/api/me/passwd', { current: val('me-cur'), new: val('me-new') });
@@ -1949,7 +1915,6 @@
   // stays active; grants change slowly compared to the 2 s snapshot loop.
   let pamTick = 0;
   let lastWG = [];
-  let pamUsers = null;
   function isPaneActive(name) {
     const p = document.querySelector('[data-pane="' + name + '"]');
     return !!(p && p.classList.contains('active'));
@@ -1962,9 +1927,6 @@
       return;
     }
     if (!d) return;
-    if (d.is_admin && pamUsers === null) {
-      try { pamUsers = ((await api('/api/v1/users')) || []).map(u => ({ name: u.username })); } catch (_) { pamUsers = []; }
-    }
     renderAccess(d);
   }
   function fmtWindow(g) {
@@ -1991,7 +1953,7 @@
     document.querySelectorAll('[data-pane="access"] [data-admin-only]').forEach(el => { el.hidden = !d.is_admin; });
 
     const resOpts = (ov.resources || []).map(r => '<option value="' + escape(r.id) + '">' + escape(r.name) + ' (' + escape(r.cidr) + ')</option>').join('');
-    ['pam-res', 'pam-p-res'].forEach(id => {
+    ['pam-res'].forEach(id => {
       const sel = document.getElementById(id);
       if (!sel) return;
       const cur = sel.value;
@@ -2036,9 +1998,8 @@
         + '<td><code>' + escape(r.cidr) + ' ' + escape(port) + '</code></td>'
         + '<td>' + escape(r.login || '-') + '</td>'
         + '<td>' + escape(r.broker_ref || '-') + '</td>'
-        + '<td>' + (d.is_admin ? '<button class="btn btn-small btn-danger" data-action="pam-res-del" data-id="' + escape(r.id) + '" data-name="' + escape(r.name) + '">del</button>' : '') + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="6" class="muted">no resources - an admin adds them above</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">no resources yet: Access → Resources</td></tr>';
 
     document.getElementById('pam-pol-body').innerHTML = (ov.policies || []).map(p => {
       const res = resById[p.resource_id];
@@ -2049,25 +2010,8 @@
         + '<td>' + Math.round(p.max_ttl_sec / 60) + ' min</td>'
         + '<td>' + (p.requires_approval ? 'yes' : 'auto') + '</td>'
         + '<td>' + (p.requires_mfa ? 'yes' : '-') + '</td>'
-        + '<td>' + (d.is_admin ? '<button class="btn btn-small btn-danger" data-action="pam-pol-del" data-id="' + escape(p.id) + '" data-name="' + escape(p.name) + '">del</button>' : '') + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="7" class="muted">no policies - nobody can request anything yet</td></tr>';
-
-    if (d.is_admin) {
-      const peerUsers = ov.peer_users || {};
-      const userOpts = ['<option value="">— unbound —</option>'].concat((pamUsers || []).map(u => '<option value="' + escape(u.name) + '">' + escape(u.name) + ' (' + escape(u.role) + ')</option>'));
-      const rows = [];
-      (lastWG || []).forEach(dev => (dev.peers || []).forEach(p => {
-        const bound = peerUsers[p.public_key] || '';
-        rows.push('<tr>'
-          + '<td><code title="' + escape(p.public_key) + '">' + escape(p.name || p.short_key || p.public_key.slice(0, 10) + '…') + '</code></td>'
-          + '<td>' + escape(dev.name) + '</td>'
-          + '<td>' + escape((p.allowed_ips || []).join(', ')) + '</td>'
-          + '<td><select data-change="pam-bind" data-key="' + escape(p.public_key) + '">' + userOpts.join('').replace('value="' + escape(bound) + '"', 'value="' + escape(bound) + '" selected') + '</select></td>'
-          + '</tr>');
-      }));
-      document.getElementById('pam-peers-body').innerHTML = rows.join('') || '<tr><td colspan="4" class="muted">no WireGuard peers visible - provision one in the WireGuard tab</td></tr>';
-    }
+    }).join('') || '<tr><td colspan="6" class="muted">no policy to ask under yet: Access → Policies</td></tr>';
 
     const chain = document.getElementById('pam-chain');
     if (chain) {
@@ -2088,15 +2032,6 @@
       + '<td class="muted">' + escape(e.detail || '') + '</td>'
       + '</tr>').join('') || '<tr><td colspan="5" class="muted">no access events yet</td></tr>';
   }
-  document.addEventListener('change', async (ev) => {
-    const sel = ev.target.closest('select[data-change="pam-bind"]');
-    if (!sel) return;
-    try {
-      await post('/api/pam/peer/bind', { public_key: sel.dataset.key, user: sel.value });
-      showToast(sel.value ? 'peer bound to ' + sel.value : 'peer unbound');
-    } catch (_) { /* toast shown */ }
-    loadAccess();
-  });
 
   // ---- identity ----
   // me is the logged-in user as reported by /api/me; the role decides which

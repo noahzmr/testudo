@@ -4,23 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/auth"
-	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/identity"
 	"github.com/noahzmr/testudo/internal/localauth"
-	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/pam"
 	"github.com/noahzmr/testudo/internal/storage"
 )
 
 // Privileged access (PAM). Role gating lives in protect: requests and
 // revocations need operator, approve/deny need an approver (approverOnly),
-// resources / policies / break-glass / peer binding need admin (adminOnly).
+// break-glass needs admin (adminOnly). Resources, policies and which peer
+// belongs to whom are objects of the model (the Access section).
 // The manager re-checks the subject's role anyway - the HTTP layer is not the
 // only guard.
 
@@ -233,103 +230,6 @@ func (s *Server) handlePAMBreakGlass(w http.ResponseWriter, r *http.Request) {
 	writeGrant(w, g)
 }
 
-func (s *Server) handlePAMResourceAdd(w http.ResponseWriter, r *http.Request) {
-	var b storage.PAMResource
-	if !readJSON(w, r, &b) {
-		return
-	}
-	m, ok := s.pamManager(w)
-	if !ok {
-		return
-	}
-	res, err := m.AddResource(r.Context(), s.subjectFrom(r), b)
-	if err != nil {
-		writePAMErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
-}
-
-func (s *Server) handlePAMResourceDel(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		ID string `json:"id"`
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	m, ok := s.pamManager(w)
-	if !ok {
-		return
-	}
-	if err := m.DeleteResource(r.Context(), s.subjectFrom(r), b.ID); err != nil {
-		writePAMErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-func (s *Server) handlePAMPolicyAdd(w http.ResponseWriter, r *http.Request) {
-	var b storage.PAMPolicy
-	if !readJSON(w, r, &b) {
-		return
-	}
-	m, ok := s.pamManager(w)
-	if !ok {
-		return
-	}
-	pol, err := m.AddPolicy(r.Context(), s.subjectFrom(r), b)
-	if err != nil {
-		writePAMErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(pol)
-}
-
-func (s *Server) handlePAMPolicyDel(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		ID string `json:"id"`
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	m, ok := s.pamManager(w)
-	if !ok {
-		return
-	}
-	if err := m.DeletePolicy(r.Context(), s.subjectFrom(r), b.ID); err != nil {
-		writePAMErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-func (s *Server) handlePAMPeerBind(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		PublicKey string `json:"public_key"`
-		User      string `json:"user"` // "" unbinds
-	}
-	if !readJSON(w, r, &b) {
-		return
-	}
-	m, ok := s.pamManager(w)
-	if !ok {
-		return
-	}
-	if b.User != "" {
-		if !modelUserExists(s.modelState(), strings.TrimSpace(b.User)) {
-			http.Error(w, fmt.Sprintf("no such user %q", b.User), http.StatusNotFound)
-			return
-		}
-	}
-	if err := m.BindPeer(r.Context(), s.subjectFrom(r), b.PublicKey, b.User); err != nil {
-		writePAMErr(w, err)
-		return
-	}
-	writeOK(w)
-}
-
 func writeGrant(w http.ResponseWriter, g storage.PAMGrant) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(g)
@@ -337,16 +237,3 @@ func writeGrant(w http.ResponseWriter, g storage.PAMGrant) {
 
 // ensure the context import is used even if handlers change shape.
 var _ = context.Background
-
-// modelUserExists reports whether the model has a user with that name.
-func modelUserExists(st *confstore.State, name string) bool {
-	if st == nil {
-		return false
-	}
-	for _, e := range st.List(model.KindUser) {
-		if e.(*model.User).Username == name {
-			return true
-		}
-	}
-	return false
-}

@@ -1,13 +1,15 @@
-// Package pam is Testudo's privileged-access control plane: resources (what
-// can be reached), policies (who may ask, on what terms), and grants - the
-// just-in-time, time-boxed, approved permissions that are compiled into
-// firewall rules for the requesting user's WireGuard peers and torn down,
-// live connections included, when they end.
+// Package pam is Testudo's privileged-access control plane: requests for
+// access, their approval, and grants - the just-in-time, time-boxed
+// permissions a request turns into, which end on time with their live
+// connections cut.
 //
-// The WireGuard tunnel is the transport, the firewall manager is the L3
-// enforcement plane, the privileged helper's conntrack access kills sessions,
-// and tcpdump records them. Every state transition is appended to a
-// hash-chained access-event log.
+// What can be reached and who may ask for it are the configuration model's
+// access resources and policies (the Catalog). An active grant is an
+// access_grant object of the model, which the packet filter renders for the
+// user's WireGuard peers like any other rule (the Enforcer). Requests,
+// decisions and the hash-chained access-event log stay in the node's
+// database; the privileged helper's conntrack access kills sessions and
+// tcpdump records them.
 package pam
 
 import (
@@ -61,29 +63,35 @@ type Subject struct {
 	MFA  bool
 }
 
-// Store is the persistence the manager needs; *storage.Store satisfies it.
+// Store keeps requests and the access-event log.
 type Store interface {
-	UpsertPAMResource(ctx context.Context, r storage.PAMResource) error
-	DeletePAMResource(ctx context.Context, id string) error
-	GetPAMResource(ctx context.Context, id string) (storage.PAMResource, error)
-	ListPAMResources(ctx context.Context) ([]storage.PAMResource, error)
-	UpsertPAMPolicy(ctx context.Context, p storage.PAMPolicy) error
-	DeletePAMPolicy(ctx context.Context, id string) error
-	ListPAMPolicies(ctx context.Context) ([]storage.PAMPolicy, error)
 	UpsertPAMGrant(ctx context.Context, g storage.PAMGrant) error
 	GetPAMGrant(ctx context.Context, id string) (storage.PAMGrant, error)
 	ListPAMGrants(ctx context.Context, states []string, limit int) ([]storage.PAMGrant, error)
 	AppendAccessEvent(ctx context.Context, e storage.AccessEvent) (storage.AccessEvent, error)
 	ListAccessEvents(ctx context.Context, limit int) ([]storage.AccessEvent, error)
 	VerifyAccessEvents(ctx context.Context) (checked int, broken int64, err error)
-	WGPeerUsers(ctx context.Context) (map[string]string, error)
-	SetWGPeerUser(ctx context.Context, pubkey, user string) error
 }
 
-// Enforcer is the firewall policy manager surface grants compile into.
+// Catalog is what the configuration model says about access: the
+// resources, the policies that let a subject ask, and the tunnel addresses
+// of a user's WireGuard peers.
+type Catalog interface {
+	Resource(id string) (storage.PAMResource, bool)
+	Resources() []storage.PAMResource
+	// Policies returns the policies for the resource that let subj ask.
+	Policies(subj Subject, resourceID string) []storage.PAMPolicy
+	AllPolicies() []storage.PAMPolicy
+	PeerIPs(user string) []string
+	// PeerUsers maps the public keys of bound peers to their users.
+	PeerUsers() map[string]string
+}
+
+// Enforcer makes a grant take effect and ends it: an access_grant object
+// of the model, rendered by the packet filter on every member.
 type Enforcer interface {
-	AddRule(netops.FilterRule) error
-	DelRulesByOwner(owner string) (int, error)
+	Grant(ctx context.Context, g storage.PAMGrant) error
+	Ungrant(ctx context.Context, grantID string) error
 }
 
 // Flows lets the manager kill live connections when a grant ends. The query
@@ -99,11 +107,6 @@ type Flows interface {
 type Capturer interface {
 	Start(name, iface, bpf string) (id string, err error)
 	Stop(id string) error
-}
-
-// PeerResolver maps a user to the tunnel addresses of their enrolled peers.
-type PeerResolver interface {
-	PeerIPs(ctx context.Context, user string) ([]string, error)
 }
 
 // Broker turns an ssh / rdp grant into a brokered session (Guacamole): the
@@ -131,7 +134,7 @@ var (
 	ErrForbidden     = errors.New("pam: forbidden")
 	ErrNoPolicy      = errors.New("pam: no policy allows this request")
 	ErrState         = errors.New("pam: grant is not in a state that allows this")
-	ErrNoPeer        = errors.New("pam: user has no WireGuard peer bound - bind one first")
+	ErrNoPeer        = errors.New("pam: user has no WireGuard peer - give one of the model's peers to the user first")
 	ErrSelfApproval  = errors.New("pam: requesters cannot approve their own grant")
 	ErrJustification = errors.New("pam: a justification is required")
 )
@@ -140,15 +143,15 @@ var (
 type Manager struct {
 	mu    sync.Mutex
 	store Store
+	cat   Catalog
 	fw    Enforcer
 	flows Flows
 	cap   Capturer
-	peers PeerResolver
 	opts  Options
 }
 
 // New wires a manager. cap may be nil.
-func New(store Store, fw Enforcer, flows Flows, cap Capturer, peers PeerResolver, opts Options) *Manager {
+func New(store Store, cat Catalog, fw Enforcer, flows Flows, cap Capturer, opts Options) *Manager {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -158,177 +161,7 @@ func New(store Store, fw Enforcer, flows Flows, cap Capturer, peers PeerResolver
 	if opts.CaptureIface == "" {
 		opts.CaptureIface = opts.Device
 	}
-	return &Manager{store: store, fw: fw, flows: flows, cap: cap, peers: peers, opts: opts}
-}
-
-// OwnerForGrant is the firewall ownership tag of a grant's rules.
-func OwnerForGrant(id string) string { return "pam-grant:" + id }
-
-// ---- resources & policies -------------------------------------------
-
-// AddResource creates or updates a resource (admin).
-func (m *Manager) AddResource(ctx context.Context, actor Subject, r storage.PAMResource) (storage.PAMResource, error) {
-	if actor.Role != auth.RoleAdmin {
-		return r, fmt.Errorf("%w: only admins manage resources", ErrForbidden)
-	}
-	r.Name = strings.TrimSpace(r.Name)
-	r.Kind = strings.ToLower(strings.TrimSpace(r.Kind))
-	r.CIDR = strings.TrimSpace(r.CIDR)
-	r.Proto = strings.ToLower(strings.TrimSpace(r.Proto))
-	if r.Name == "" {
-		return r, errors.New("resource name required")
-	}
-	switch r.Kind {
-	case KindL3, KindSSH, KindRDP, KindHTTPS:
-	default:
-		return r, fmt.Errorf("kind must be l3 / ssh / rdp / https, got %q", r.Kind)
-	}
-	if _, err := parsePrefix(r.CIDR); err != nil {
-		return r, fmt.Errorf("cidr: %w", err)
-	}
-	switch r.Proto {
-	case "", "tcp", "udp":
-	default:
-		return r, fmt.Errorf("proto must be tcp / udp / empty, got %q", r.Proto)
-	}
-	if r.PortLo != 0 && r.Proto == "" {
-		return r, errors.New("a port requires proto tcp or udp")
-	}
-	if r.PortHi != 0 && (r.PortLo == 0 || r.PortHi < r.PortLo) {
-		return r, errors.New("port_hi needs port_lo and must not be below it")
-	}
-	// Brokered kinds get a sensible default port so the rule is not wide open.
-	if r.PortLo == 0 {
-		switch r.Kind {
-		case KindSSH:
-			r.Proto, r.PortLo = "tcp", 22
-		case KindRDP:
-			r.Proto, r.PortLo = "tcp", 3389
-		case KindHTTPS:
-			r.Proto, r.PortLo = "tcp", 443
-		}
-	}
-	if r.ID == "" {
-		r.ID = newID("res")
-	}
-	if err := m.store.UpsertPAMResource(ctx, r); err != nil {
-		return r, err
-	}
-	m.event(ctx, actor.Name, "resource_upsert", "", fmt.Sprintf("%s %s %s", r.ID, r.Name, r.CIDR))
-	return r, nil
-}
-
-// DeleteResource removes a resource that no live grant references (admin).
-func (m *Manager) DeleteResource(ctx context.Context, actor Subject, id string) error {
-	if actor.Role != auth.RoleAdmin {
-		return fmt.Errorf("%w: only admins manage resources", ErrForbidden)
-	}
-	live, err := m.store.ListPAMGrants(ctx, []string{StatePending, StateActive}, 1000)
-	if err != nil {
-		return err
-	}
-	for _, g := range live {
-		if g.ResourceID == id {
-			return fmt.Errorf("resource has a %s grant (%s); revoke it first", g.State, g.ID)
-		}
-	}
-	if err := m.store.DeletePAMResource(ctx, id); err != nil {
-		return err
-	}
-	m.event(ctx, actor.Name, "resource_delete", "", id)
-	return nil
-}
-
-// AddPolicy creates or updates a policy (admin). Subject is "user:<name>" or
-// "role:<role>" (the requester's role must be at least that role).
-func (m *Manager) AddPolicy(ctx context.Context, actor Subject, p storage.PAMPolicy) (storage.PAMPolicy, error) {
-	if actor.Role != auth.RoleAdmin {
-		return p, fmt.Errorf("%w: only admins manage policies", ErrForbidden)
-	}
-	p.Name = strings.TrimSpace(p.Name)
-	p.Subject = strings.TrimSpace(p.Subject)
-	if p.Name == "" {
-		return p, errors.New("policy name required")
-	}
-	if _, _, err := parseSubject(p.Subject); err != nil {
-		return p, err
-	}
-	if _, err := m.store.GetPAMResource(ctx, p.ResourceID); err != nil {
-		return p, fmt.Errorf("resource %q: %w", p.ResourceID, err)
-	}
-	if p.MaxTTL <= 0 {
-		return p, errors.New("max_ttl_sec must be positive")
-	}
-	if p.ID == "" {
-		p.ID = newID("pol")
-	}
-	if err := m.store.UpsertPAMPolicy(ctx, p); err != nil {
-		return p, err
-	}
-	m.event(ctx, actor.Name, "policy_upsert", "", fmt.Sprintf("%s %s %s -> %s", p.ID, p.Name, p.Subject, p.ResourceID))
-	return p, nil
-}
-
-// DeletePolicy removes a policy (admin). Existing grants keep running.
-func (m *Manager) DeletePolicy(ctx context.Context, actor Subject, id string) error {
-	if actor.Role != auth.RoleAdmin {
-		return fmt.Errorf("%w: only admins manage policies", ErrForbidden)
-	}
-	if err := m.store.DeletePAMPolicy(ctx, id); err != nil {
-		return err
-	}
-	m.event(ctx, actor.Name, "policy_delete", "", id)
-	return nil
-}
-
-// BindPeer ties a WireGuard peer to a user (admin). Grants for the user
-// compile to the peer's tunnel addresses.
-func (m *Manager) BindPeer(ctx context.Context, actor Subject, pubkey, user string) error {
-	if actor.Role != auth.RoleAdmin {
-		return fmt.Errorf("%w: only admins bind peers", ErrForbidden)
-	}
-	pubkey, user = strings.TrimSpace(pubkey), strings.TrimSpace(user)
-	if pubkey == "" {
-		return errors.New("peer public key required")
-	}
-	if err := m.store.SetWGPeerUser(ctx, pubkey, user); err != nil {
-		return err
-	}
-	m.event(ctx, actor.Name, "peer_bind", "", fmt.Sprintf("%s -> %q", shortKey(pubkey), user))
-	return nil
-}
-
-// parseSubject splits "user:alice" / "role:operator".
-func parseSubject(s string) (kind, value string, err error) {
-	kind, value, ok := strings.Cut(s, ":")
-	if !ok || value == "" {
-		return "", "", fmt.Errorf("subject must be user:<name> or role:<role>, got %q", s)
-	}
-	switch kind {
-	case "user":
-	case "role":
-		if !auth.Role(value).Valid() {
-			return "", "", fmt.Errorf("unknown role %q in subject", value)
-		}
-	default:
-		return "", "", fmt.Errorf("subject must be user:<name> or role:<role>, got %q", s)
-	}
-	return kind, value, nil
-}
-
-// policyMatches reports whether p lets subj request.
-func policyMatches(p storage.PAMPolicy, subj Subject) bool {
-	kind, value, err := parseSubject(p.Subject)
-	if err != nil {
-		return false
-	}
-	switch kind {
-	case "user":
-		return value == subj.Name
-	case "role":
-		return subj.Role.AtLeast(auth.Role(value))
-	}
-	return false
+	return &Manager{store: store, cat: cat, fw: fw, flows: flows, cap: cap, opts: opts}
 }
 
 // ---- grant lifecycle -------------------------------------------------
@@ -343,21 +176,15 @@ func (m *Manager) Request(ctx context.Context, subj Subject, resourceID string, 
 	if len(justification) < minJustification {
 		return storage.PAMGrant{}, ErrJustification
 	}
-	res, err := m.store.GetPAMResource(ctx, resourceID)
-	if err != nil {
-		return storage.PAMGrant{}, fmt.Errorf("resource: %w", err)
+	res, ok := m.cat.Resource(resourceID)
+	if !ok {
+		return storage.PAMGrant{}, fmt.Errorf("resource: %w", ErrNotFound)
 	}
-	pols, err := m.store.ListPAMPolicies(ctx)
-	if err != nil {
-		return storage.PAMGrant{}, err
-	}
+	pols := m.cat.Policies(subj, res.ID)
 	var best *storage.PAMPolicy
 	var maxSeen time.Duration
 	for i := range pols {
 		p := pols[i]
-		if p.ResourceID != res.ID || !policyMatches(p, subj) {
-			continue
-		}
 		pmax := time.Duration(p.MaxTTL) * time.Second
 		if pmax > maxSeen {
 			maxSeen = pmax
@@ -420,9 +247,9 @@ func (m *Manager) Approve(ctx context.Context, approver Subject, grantID string)
 	if g.User == approver.Name {
 		return g, ErrSelfApproval
 	}
-	res, err := m.store.GetPAMResource(ctx, g.ResourceID)
-	if err != nil {
-		return g, fmt.Errorf("resource: %w", err)
+	res, ok := m.cat.Resource(g.ResourceID)
+	if !ok {
+		return g, fmt.Errorf("resource: %w", ErrNotFound)
 	}
 	g.ApprovedBy, g.DecidedAt = approver.Name, m.opts.Now()
 	m.event(ctx, approver.Name, "approved", g.ID, fmt.Sprintf("%s for %s", g.User, res.Name))
@@ -497,9 +324,9 @@ func (m *Manager) BreakGlass(ctx context.Context, admin Subject, resourceID stri
 	if ttl <= 0 || ttl > MaxBreakGlassTTL {
 		return storage.PAMGrant{}, fmt.Errorf("break-glass TTL must be between 1s and %s", MaxBreakGlassTTL)
 	}
-	res, err := m.store.GetPAMResource(ctx, resourceID)
-	if err != nil {
-		return storage.PAMGrant{}, fmt.Errorf("resource: %w", err)
+	res, ok := m.cat.Resource(resourceID)
+	if !ok {
+		return storage.PAMGrant{}, fmt.Errorf("resource: %w", ErrNotFound)
 	}
 	now := m.opts.Now()
 	g := storage.PAMGrant{
@@ -517,39 +344,27 @@ func (m *Manager) BreakGlass(ctx context.Context, admin Subject, resourceID stri
 	return g, nil
 }
 
-// activateLocked compiles the grant into firewall rules for the user's peer
-// addresses, starts the capture, and marks it active. On a rule failure every
-// rule already added is removed and the grant stays pending (approval is not
-// lost; the approver sees the error). Caller holds mu.
+// activateLocked makes the grant a grant of the model for the user's peers,
+// starts the capture, and marks it active. When the grant cannot be made the
+// request stays pending (the approval is not lost; the approver sees the
+// error). Caller holds mu.
 func (m *Manager) activateLocked(ctx context.Context, g *storage.PAMGrant, res storage.PAMResource) error {
-	ips, err := m.peers.PeerIPs(ctx, g.User)
-	if err != nil {
-		return fmt.Errorf("resolve peers: %w", err)
-	}
+	ips := m.cat.PeerIPs(g.User)
 	if len(ips) == 0 {
-		m.event(ctx, g.User, "activation_failed", g.ID, "no WireGuard peer bound to user")
+		m.event(ctx, g.User, "activation_failed", g.ID, "the user has no WireGuard peer in the model")
 		return ErrNoPeer
 	}
 	sort.Strings(ips)
-	owner := OwnerForGrant(g.ID)
-	for _, ip := range ips {
-		rule := netops.FilterRule{
-			Chain: "forward", Action: "accept", InIface: m.opts.Device,
-			SrcCIDR: hostCIDR(ip), DstCIDR: res.CIDR, Proto: res.Proto, Port: res.PortLo, PortEnd: res.PortHi,
-			Owner:   owner,
-			Comment: fmt.Sprintf("pam %s %s -> %s", g.ID, g.User, res.Name),
-		}
-		if err := m.fw.AddRule(rule); err != nil {
-			_, _ = m.fw.DelRulesByOwner(owner)
-			m.event(ctx, g.User, "activation_failed", g.ID, err.Error())
-			return fmt.Errorf("install access rule: %w", err)
-		}
-	}
 	now := m.opts.Now()
 	g.PeerIPs = ips
 	g.StartsAt = now
 	g.EndsAt = now.Add(time.Duration(g.TTL) * time.Second)
 	g.State = StateActive
+	if err := m.fw.Grant(ctx, *g); err != nil {
+		g.State = StatePending
+		m.event(ctx, g.User, "activation_failed", g.ID, err.Error())
+		return fmt.Errorf("grant: %w", err)
+	}
 	if m.cap != nil {
 		bpf := captureFilter(ips, res.CIDR)
 		if id, err := m.cap.Start("pam-"+g.ID, m.opts.CaptureIface, bpf); err != nil {
@@ -568,7 +383,7 @@ func (m *Manager) activateLocked(ctx context.Context, g *storage.PAMGrant, res s
 		}
 	}
 	if err := m.store.UpsertPAMGrant(ctx, *g); err != nil {
-		_, _ = m.fw.DelRulesByOwner(owner)
+		_ = m.fw.Ungrant(ctx, g.ID)
 		if g.BrokerRef != "" {
 			_ = m.opts.Broker.Deactivate(ctx, g.BrokerRef)
 		}
@@ -588,17 +403,15 @@ func (m *Manager) LaunchURL(g storage.PAMGrant) string {
 	return m.opts.Broker.LaunchURL(g.BrokerRef)
 }
 
-// deactivateLocked removes the grant's rules, kills live flows between the
-// peers and the resource, stops the capture, and records the end. Caller
-// holds mu.
+// deactivateLocked removes the grant from the model, kills live flows
+// between the peers and the resource, stops the capture, and records the
+// end. Caller holds mu.
 func (m *Manager) deactivateLocked(ctx context.Context, g *storage.PAMGrant, state, reason, actor string) error {
-	owner := OwnerForGrant(g.ID)
-	removed, err := m.fw.DelRulesByOwner(owner)
-	if err != nil {
-		return fmt.Errorf("remove access rules: %w", err)
+	if err := m.fw.Ungrant(ctx, g.ID); err != nil {
+		return fmt.Errorf("end the grant: %w", err)
 	}
 	killed := 0
-	if res, rerr := m.store.GetPAMResource(ctx, g.ResourceID); rerr == nil {
+	if res, ok := m.cat.Resource(g.ResourceID); ok {
 		killed = m.killFlows(g.PeerIPs, res.CIDR)
 	}
 	if m.cap != nil && g.CaptureID != "" {
@@ -618,7 +431,7 @@ func (m *Manager) deactivateLocked(ctx context.Context, g *storage.PAMGrant, sta
 	if err := m.store.UpsertPAMGrant(ctx, *g); err != nil {
 		return err
 	}
-	m.event(ctx, actor, state, g.ID, fmt.Sprintf("%s; %d rule(s) removed, %d live flow(s) killed", reason, removed, killed))
+	m.event(ctx, actor, state, g.ID, fmt.Sprintf("%s; grant removed, %d live flow(s) killed", reason, killed))
 	return nil
 }
 
@@ -702,8 +515,8 @@ func (m *Manager) Observe(ctx context.Context) {
 	}
 	for i := range active {
 		g := active[i]
-		res, err := m.store.GetPAMResource(ctx, g.ResourceID)
-		if err != nil {
+		res, ok := m.cat.Resource(g.ResourceID)
+		if !ok {
 			continue
 		}
 		dst, err := parsePrefix(res.CIDR)
@@ -742,8 +555,8 @@ func (m *Manager) Observe(ctx context.Context) {
 	}
 }
 
-// Run expires overdue grants at boot (the firewall reconciler already
-// re-installed rules for the ones still valid) and then ticks.
+// Run expires overdue grants at boot (the ones still valid are in the model
+// and the packet filter) and then ticks.
 func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 10 * time.Second
@@ -783,12 +596,7 @@ type Overview struct {
 func (m *Manager) Overview(ctx context.Context) (Overview, error) {
 	var o Overview
 	var err error
-	if o.Resources, err = m.store.ListPAMResources(ctx); err != nil {
-		return o, err
-	}
-	if o.Policies, err = m.store.ListPAMPolicies(ctx); err != nil {
-		return o, err
-	}
+	o.Resources, o.Policies = m.cat.Resources(), m.cat.AllPolicies()
 	if o.Grants, err = m.store.ListPAMGrants(ctx, nil, 200); err != nil {
 		return o, err
 	}
@@ -796,7 +604,7 @@ func (m *Manager) Overview(ctx context.Context) (Overview, error) {
 		return o, err
 	}
 	o.ChainChecked, o.ChainBroken, _ = m.store.VerifyAccessEvents(ctx)
-	o.PeerUsers, _ = m.store.WGPeerUsers(ctx)
+	o.PeerUsers = m.cat.PeerUsers()
 	o.Device = m.opts.Device
 	return o, nil
 }
