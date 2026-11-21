@@ -76,6 +76,17 @@ func allowed(name string) bool {
 	return false
 }
 
+// transient names secret-store entries that are not worth restoring:
+// console sessions and the tickets and grants of published services.
+func transient(name string) bool {
+	for _, p := range []string{"session-", "access-t-", "access-g-"} {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // header is the archive's first line after Magic.
 type header struct {
 	KDF   string `json:"kdf"`
@@ -130,7 +141,7 @@ func Create(w io.Writer, storageDir string, pass []byte) (Manifest, error) {
 				}
 				return err
 			}
-			if !e.Type().IsRegular() {
+			if !e.Type().IsRegular() || transient(e.Name()) {
 				return nil
 			}
 			rel, err := filepath.Rel(storageDir, p)
