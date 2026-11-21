@@ -22,6 +22,8 @@ import (
 	"github.com/noahzmr/testudo/internal/fwbridge"
 	"github.com/noahzmr/testudo/internal/fwrender"
 	"github.com/noahzmr/testudo/internal/gwmon"
+	"github.com/noahzmr/testudo/internal/harender"
+	"github.com/noahzmr/testudo/internal/hastage"
 	"github.com/noahzmr/testudo/internal/identity"
 	"github.com/noahzmr/testudo/internal/lbhealth"
 	"github.com/noahzmr/testudo/internal/lbstage"
@@ -59,6 +61,9 @@ type confCore struct {
 	routingMu    sync.Mutex
 	routingState map[string]any
 	routingAt    time.Time
+	// ha keeps an HA pair's addresses and connection state with whichever
+	// member is alive.
+	ha *hastage.Stage
 	// proxy is the load-balancer stage; forwardAuth answers the proxy's
 	// questions about logins on a loopback listener of its own.
 	proxy       *lbstage.Stage
@@ -73,6 +78,9 @@ type confCore struct {
 const (
 	proxyAPIAddr    = "127.0.0.1:18089"
 	forwardAuthAddr = "127.0.0.1:18090"
+	// haRunDir holds the HA daemons' pid files and conntrackd's control
+	// socket, whose path may not exceed 107 characters.
+	haRunDir = "/run/testudo-ha"
 )
 
 // ConfigDir is where the configuration log and the pending-apply marker live.
@@ -129,6 +137,12 @@ func (e *Engine) openConfig() {
 	if e.netops != nil {
 		c.routing.Runner = e.netops
 	}
+	// An HA pair follows the packet filter, which lets VRRP and the state
+	// sync in, and the routing it takes over with the addresses.
+	c.ha = &hastage.Stage{Locate: e.locate, Dir: filepath.Join(e.cfg.StorageDir, "ha"), RunDir: haRunDir}
+	if e.netops != nil {
+		c.ha.Runner = e.netops
+	}
 	// The proxy comes last: its backends are reached over the routes and
 	// tunnels the earlier stages set up.
 	c.proxy = &lbstage.Stage{Locate: e.locate, Dir: filepath.Join(e.cfg.StorageDir, "proxy"), SecretsDir: c.secrets.Dir,
@@ -136,7 +150,7 @@ func (e *Engine) openConfig() {
 	if e.netops != nil {
 		c.proxy.Runner = e.netops
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing, c.proxy)
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing, c.ha, c.proxy)
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
@@ -270,6 +284,37 @@ func (e *Engine) forwardAuthLoop(ctx context.Context) {
 	if err := srv.ListenAndServe(); err != nil && ctx.Err() == nil {
 		log.Printf("config: forward-auth listener: %v", err)
 	}
+}
+
+// haRuntime reports this node's HA pair: whether it holds the virtual
+// addresses now and whether both daemons run. Nil when the node is in no pair.
+func (e *Engine) haRuntime() map[string]any {
+	st := e.conf.store.Current()
+	site, node := e.locate(st)
+	res, err := harender.Render(st, harender.Options{SiteID: site, NodeID: node})
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	if !res.Enabled {
+		return nil
+	}
+	active, held := hastage.Active(res.VirtualIPs)
+	role := "standby"
+	if active {
+		role = "active"
+	}
+	out := map[string]any{"pair": res.Pair, "role": role, "virtual_ips": res.VirtualIPs, "held": held, "peer": res.Peer}
+	daemons := map[string]string{}
+	for _, d := range []string{"keepalived", "conntrackd"} {
+		daemons[d] = "unavailable"
+		if e.netops != nil {
+			if s, err := e.netops.DaemonState(d, haRunDir); err == nil {
+				daemons[d] = s
+			}
+		}
+	}
+	out["daemons"] = daemons
+	return out
 }
 
 // proxyRuntime reports the proxy process and, per backend pool, its traffic
@@ -594,6 +639,11 @@ func (e *Engine) ConfigRuntime() map[string]any {
 	if e.conf.store != nil {
 		if f := e.fabricRuntime(); f != nil {
 			out["fabric"] = f
+		}
+	}
+	if e.conf.store != nil {
+		if h := e.haRuntime(); h != nil {
+			out["ha"] = h
 		}
 	}
 	if e.conf.proxy != nil {

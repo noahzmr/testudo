@@ -75,7 +75,7 @@ const PANE = {
   access_resource: 'access', access_policy: 'access',
   user: 'settings', group: 'settings', role: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
-  site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes',
+  site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes', ha_pair: 'cluster',
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
@@ -83,7 +83,7 @@ const LABEL = {
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies',
   user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
-  site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies',
+  site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies', ha_pair: 'HA pairs',
 };
 // Friendlier names for some select values.
 const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 'Imported',
@@ -95,7 +95,7 @@ const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'na
   'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf',
   'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy',
   'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate',
-  'user', 'group', 'role', 'oidc_provider', 'api_token', 'fabric', 'path_policy', 'site', 'cluster_node']);
+  'user', 'group', 'role', 'oidc_provider', 'api_token', 'fabric', 'path_policy', 'site', 'cluster_node', 'ha_pair']);
 // Sections that open on the model instead of their live view.
 const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'cluster-overview', changes: 'changesets' };
 const paneOf = seg => seg === 'cluster-overview' || seg === 'site-flows' ? 'cluster' : seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
@@ -787,7 +787,7 @@ async function clusterView() {
   const admin = (S.who?.permissions || []).some(p => p === '*:write' || p === 'cluster:write');
   if (!c.enabled) {
     return fill(main, head, el('p', { text: 'This node runs alone. To make it part of a cluster, start it with --cluster-raft and --cluster-api (addresses on the site mesh, never on a WAN interface).' }),
-      fabricSection(fab, rt.data?.routing?.bgp));
+      fabricSection(fab, rt.data?.routing?.bgp), haSection(rt.data?.ha));
   }
   if (!c.member) {
     const token = el('textarea', { rows: 3, placeholder: 'tdj1.…', spellcheck: 'false' });
@@ -842,7 +842,7 @@ async function clusterView() {
       el('button', { type: 'button', text: 'Hand over leadership', onclick: () => act('POST', '/cluster/transfer') })) : null,
     tokenOut,
     el('p', { class: 'dim', text: 'Voters decide: keep three or five, at three locations or more. Members without a vote receive the configuration and do not affect the majority.' }),
-    fabricSection(fab, rt.data?.routing?.bgp));
+    fabricSection(fab, rt.data?.routing?.bgp), haSection(rt.data?.ha));
 }
 
 // siteFlowsView lists connections seen at more than one member: where each
@@ -869,6 +869,19 @@ async function siteFlowsView() {
         el('td', { text: (c.paths || []).join(', ') }), el('td', { text: fmt(c.bytes || 0) }),
         el('td', {}, (c.sightings || []).map(s => el('div', { class: 'dim', text: `${s.node} ${s.iface || '(socket)'}${where(s) ? ' · ' + where(s) : ''}` }))))))) :
       el('p', { class: 'dim', text: 'No connection was seen at more than one member in the last minutes. Flow capture has to run on the members (Flows tab).' }));
+}
+
+// haSection shows this node's HA pair: whether it holds the virtual
+// addresses and whether keepalived and conntrackd run.
+function haSection(ha) {
+  if (!ha) return null;
+  const head = el('h3', { text: 'HA pair on this node' });
+  if (ha.error) return el('section', { class: 'cfg-card' }, head, el('p', { class: 'err', text: ha.error }));
+  const d = ha.daemons || {};
+  const ok = d.keepalived === 'running' && d.conntrackd === 'running';
+  return el('section', { class: 'cfg-card' }, head,
+    el('p', { class: ok ? '' : 'err', text: `${ha.pair}: ${ha.role === 'active' ? 'active, holds the virtual addresses' : 'standby'} · keepalived ${d.keepalived} · conntrackd ${d.conntrackd} · state sync with ${ha.peer}` }),
+    el('p', { class: 'dim', text: `Virtual addresses: ${(ha.virtual_ips || []).join(', ')}` }));
 }
 
 // fabricSection shows this member's tunnels to the other sites with what
