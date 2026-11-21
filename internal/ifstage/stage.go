@@ -10,6 +10,7 @@
 package ifstage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,12 +35,15 @@ type Runner interface {
 	SetMTU(iface string, mtu int) error
 	DaemonControl(req netops.DaemonRequest) error
 	DaemonStateOf(req netops.DaemonRequest) (string, error)
+	SyncLinks(spec netops.LinksSpec) error
 }
 
 // Link is what the kernel says about a device.
 type Link struct {
 	Up  bool
 	MTU int
+	// Master is the bond or bridge the device is a member of.
+	Master string
 	// Addresses are "address/prefix"; Dynamic are those with a lifetime
 	// (from a DHCP client or SLAAC).
 	Addresses []string
@@ -61,12 +65,14 @@ type Stage struct {
 	// clients' run directory.
 	Dir, RunDir string
 
-	mu      sync.Mutex
-	done    map[string]*record // by device; nil until loaded
-	applied []Device
-	cmu     sync.Mutex
-	client  string // the DHCP client installed here, once known (cmu)
-	missing []string
+	mu           sync.Mutex
+	done         map[string]*record // by device; nil until loaded
+	owned        bool               // the stage has made links (bonds, bridges, VLANs)
+	applied      []Device
+	appliedLinks []netops.LinkSpec
+	cmu          sync.Mutex
+	client       string // the DHCP client installed here, once known (cmu)
+	missing      []string
 }
 
 // Device is how one device is to be configured.
@@ -145,30 +151,98 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 			devs = append(devs, d)
 		}
 	}
+	links, lerrs := renderLinks(st, site, node)
+	errs = append(errs, lerrs...)
+	member := map[string]string{}
+	for _, l := range links {
+		for _, m := range l.Members {
+			member[m] = l.Name
+		}
+	}
+	for _, d := range devs {
+		if m, ok := member[d.Name]; ok && (len(d.Addresses) > 0 || d.DHCP) {
+			errs = append(errs, fmt.Errorf("%s is a member of %s and cannot have addresses of its own", d.Name, m))
+		}
+	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
 	sort.Slice(devs, func(a, b int) bool { return devs[a].Name < devs[b].Name })
-	return json.MarshalIndent(devs, "", " ")
+	return json.MarshalIndent(artifact{Devices: devs, Links: links}, "", " ")
 }
 
-func decode(raw []byte) ([]Device, error) {
-	var devs []Device
-	err := json.Unmarshal(raw, &devs)
-	return devs, err
+// artifact is what the stage applies: the links to create and how each
+// device is configured.
+type artifact struct {
+	Devices []Device          `json:"devices"`
+	Links   []netops.LinkSpec `json:"links,omitempty"`
+}
+
+func decode(raw []byte) (artifact, error) {
+	var a artifact
+	if t := bytes.TrimSpace(raw); len(t) > 0 && t[0] == '[' {
+		// Before links: the devices alone.
+		err := json.Unmarshal(t, &a.Devices)
+		return a, err
+	}
+	err := json.Unmarshal(raw, &a)
+	return a, err
+}
+
+// renderLinks lists the bonds, bridges and VLANs of the node.
+func renderLinks(st *confstore.State, site, node string) ([]netops.LinkSpec, []error) {
+	var out []netops.LinkSpec
+	var errs []error
+	each := func(k model.Kind, fn func(model.Entity)) {
+		for _, e := range st.List(k) {
+			if !model.AppliesTo(e, site, node) {
+				continue
+			}
+			eff, _, err := model.Effective(e, site, node)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s %q: %w", k, e.GetMeta().Name, err))
+				continue
+			}
+			fn(eff)
+		}
+	}
+	each(model.KindBond, func(e model.Entity) {
+		if b := e.(*model.Bond); b.Enabled {
+			out = append(out, netops.LinkSpec{Name: b.Device, Kind: "bond", Members: b.Members, Mode: b.Mode,
+				LACPRate: b.LACPRate, HashPolicy: b.HashPolicy, MIIMon: b.MIIMon, Primary: b.Primary})
+		}
+	})
+	each(model.KindBridge, func(e model.Entity) {
+		if b := e.(*model.Bridge); b.Enabled {
+			out = append(out, netops.LinkSpec{Name: b.Device, Kind: "bridge", Members: b.Ports, STP: b.STP, VLANFiltering: b.VLANFiltering})
+		}
+	})
+	each(model.KindVLAN, func(e model.Entity) {
+		if v := e.(*model.VLAN); v.Enabled {
+			out = append(out, netops.LinkSpec{Name: v.Device, Kind: "vlan", Parent: v.Parent, VID: v.VID, Protocol: v.Protocol})
+		}
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	for _, l := range out {
+		sort.Strings(l.Members)
+	}
+	if err := (netops.LinksSpec{Links: out}).Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	return out, errs
 }
 
 // Check makes sure the node can do what the devices ask for. Nothing is
 // changed.
 func (s *Stage) Check(_ context.Context, raw []byte) error {
-	devs, err := decode(raw)
-	if err != nil || len(devs) == 0 {
+	a, err := decode(raw)
+	if err != nil || (len(a.Devices) == 0 && len(a.Links) == 0) {
 		return err
 	}
 	if s.Runner == nil {
 		return errors.New("interfaces cannot be configured on this node (no network privileges)")
 	}
-	for _, d := range devs {
+	for _, d := range a.Devices {
 		if d.DHCP {
 			if _, err := s.dhcpClient(); err != nil {
 				return fmt.Errorf("interface %s: %w", d.Name, err)
@@ -223,7 +297,25 @@ func (s *Stage) loadLocked() error {
 	if err != nil {
 		return err
 	}
+	var f recordFile
+	if json.Unmarshal(b, &f) == nil && f.Version == recordVersion {
+		if f.Devices != nil {
+			s.done = f.Devices
+		}
+		s.owned = f.Links
+		return nil
+	}
+	// The first form: the devices alone.
 	return json.Unmarshal(b, &s.done)
+}
+
+const recordVersion = 2
+
+// recordFile is the record of what the stage did.
+type recordFile struct {
+	Version int                `json:"version"`
+	Devices map[string]*record `json:"devices"`
+	Links   bool               `json:"links,omitempty"`
 }
 
 func (s *Stage) saveLocked() error {
@@ -235,7 +327,7 @@ func (s *Stage) saveLocked() error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(s.done, "", " ")
+	b, err := json.MarshalIndent(recordFile{Version: recordVersion, Devices: s.done, Links: s.owned}, "", " ")
 	if err != nil {
 		return err
 	}
@@ -249,22 +341,34 @@ func (s *Stage) saveLocked() error {
 // Apply configures every device of the artifact and undoes what the stage
 // did to devices that left it.
 func (s *Stage) Apply(_ context.Context, raw []byte) error {
-	devs, err := decode(raw)
+	a, err := decode(raw)
 	if err != nil {
 		return err
 	}
+	devs := a.Devices
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.loadLocked(); err != nil {
 		return fmt.Errorf("record of configured interfaces: %w", err)
 	}
-	if len(devs) == 0 && len(s.done) == 0 {
-		s.applied, s.missing = nil, nil
+	if len(devs) == 0 && len(s.done) == 0 && len(a.Links) == 0 && !s.owned {
+		s.applied, s.appliedLinks, s.missing = nil, nil, nil
 		return nil
 	}
 	if s.Runner == nil {
 		return errors.New("interfaces cannot be configured on this node (no network privileges)")
 	}
+	// The links first: the devices below may be among them.
+	if len(a.Links) > 0 || s.owned {
+		if err := s.Runner.SyncLinks(netops.LinksSpec{Links: a.Links}); err != nil {
+			return err
+		}
+		s.owned = len(a.Links) > 0
+		if err := s.saveLocked(); err != nil {
+			return err
+		}
+	}
+	s.appliedLinks = a.Links
 	want := map[string]Device{}
 	names := map[string]bool{}
 	for _, d := range devs {
@@ -297,6 +401,9 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 		if !ok {
 			if _, wanted := want[name]; wanted {
 				s.missing = append(s.missing, name)
+			} else {
+				// Gone with what the stage did to it (a removed bond).
+				delete(s.done, name)
 			}
 			continue
 		}
@@ -417,9 +524,20 @@ func (s *Stage) configure(d Device, r *record, l Link) error {
 // Healthy reports whether every device that exists has what was applied.
 func (s *Stage) Healthy(context.Context) error {
 	s.mu.Lock()
-	devs := s.applied
+	devs, links := s.applied, s.appliedLinks
 	s.mu.Unlock()
 	var errs []error
+	for _, l := range links {
+		if _, ok, err := s.links()(l.Name); err != nil || !ok {
+			errs = append(errs, fmt.Errorf("%s %s is missing after the apply (%v)", l.Kind, l.Name, err))
+			continue
+		}
+		for _, m := range l.Members {
+			if ml, ok, _ := s.links()(m); ok && ml.Master != l.Name {
+				errs = append(errs, fmt.Errorf("%s is not a member of %s", m, l.Name))
+			}
+		}
+	}
 	for _, d := range devs {
 		l, ok, err := s.links()(d.Name)
 		if err != nil {

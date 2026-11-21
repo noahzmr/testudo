@@ -22,6 +22,11 @@ func netlinkLinks(name string) (Link, bool, error) {
 	}
 	attrs := link.Attrs()
 	l := Link{Up: attrs.Flags&net.FlagUp != 0, MTU: attrs.MTU}
+	if attrs.MasterIndex > 0 {
+		if m, err := netlink.LinkByIndex(attrs.MasterIndex); err == nil {
+			l.Master = m.Attrs().Name
+		}
+	}
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
 	if err != nil {
 		return l, true, err

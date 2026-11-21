@@ -73,7 +73,7 @@ function toast(msg, kind = '') {
 // keeps it as its "Running state" tab.
 const PANE = {
   filter_rule: 'firewall', zone: 'firewall', alias: 'firewall', firewall_policy: 'firewall',
-  nat_rule: 'nat', interface: 'ifaces',
+  nat_rule: 'nat', interface: 'ifaces', bond: 'ifaces', bridge: 'ifaces', vlan: 'ifaces',
   route: 'routes', gateway: 'routes', policy_route: 'routes', bgp_neighbor: 'routes', ospf_area: 'routes', vrf: 'routes',
   wg_tunnel: 'wireguard', wg_peer: 'wireguard',
   access_resource: 'access', access_policy: 'access', access_grant: 'access',
@@ -84,7 +84,7 @@ const PANE = {
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
-  interface: 'Configuration', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
+  interface: 'Configuration', bond: 'Bonds', bridge: 'Bridges', vlan: 'VLANs', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies', access_grant: 'Grants',
   user: 'Users', group: 'Groups', role: 'Roles', node_settings: 'Node settings', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',

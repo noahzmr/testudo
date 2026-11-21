@@ -194,3 +194,120 @@ func setDown(name string) error {
 	}
 	return netlink.LinkSetDown(l)
 }
+
+// TestLinksOnARealKernel: bonds, bridges and VLANs of the model on a real
+// kernel. A bond of two devices with a VLAN on it that carries an address,
+// a bridge with a port; a change of bond mode recreates the bond; a device
+// of the same name that Testudo did not make is refused and left alone;
+// when the model drops them, the stage's devices go and the members are
+// free again.
+func TestLinksOnARealKernel(t *testing.T) {
+	if testnet.Isolate(t) {
+		return
+	}
+	for _, d := range []string{"m1", "m2", "p1", "busy0"} {
+		testnet.Must(t, netlink.LinkAdd(&netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: d}}))
+	}
+	dir := t.TempDir()
+	store, err := confstore.Open(filepath.Join(dir, "config"))
+	testnet.Must(t, err)
+	defer store.Close()
+	ctx := context.Background()
+	site, err := store.Create(ctx, "t", &model.Site{Meta: model.Meta{Name: "hq"}})
+	testnet.Must(t, err)
+	node, err := store.Create(ctx, "t", &model.ClusterNode{Meta: model.Meta{Name: "fw1"},
+		Site: model.Ref[model.Site]{ID: site.GetMeta().ID}, Hostname: "fw1", Address: "10.255.0.1"})
+	testnet.Must(t, err)
+	at := func(name string) model.Meta {
+		return model.Meta{Name: name, Scope: model.NodeScope(node.GetMeta().ID)}
+	}
+	s := &Stage{Runner: &netops.Writer{AllowWrites: true}, Dir: filepath.Join(dir, "interfaces"), RunDir: filepath.Join(dir, "run"),
+		Locate: func(*confstore.State) (string, string) { return site.GetMeta().ID, node.GetMeta().ID }}
+	apply := func() error {
+		t.Helper()
+		raw, err := s.Render(store.Current())
+		testnet.Must(t, err)
+		if err := s.Check(ctx, raw); err != nil {
+			return err
+		}
+		if err := s.Apply(ctx, raw); err != nil {
+			return err
+		}
+		return s.Healthy(ctx)
+	}
+	kind := func(name string) string {
+		l, err := netlink.LinkByName(name)
+		if err != nil {
+			return ""
+		}
+		return l.Type()
+	}
+	master := func(name string) string {
+		l, _, _ := netlinkLinks(name)
+		return l.Master
+	}
+
+	bond, err := store.Create(ctx, "t", &model.Bond{Meta: at("uplink"), Enabled: true, Device: "bond0", Members: []string{"m1", "m2"}, Mode: "active-backup", Primary: "m1"})
+	testnet.Must(t, err)
+	_, err = store.Create(ctx, "t", &model.VLAN{Meta: at("office"), Enabled: true, Device: "bond0.30", Parent: "bond0", VID: 30})
+	testnet.Must(t, err)
+	_, err = store.Create(ctx, "t", &model.Bridge{Meta: at("lan"), Enabled: true, Device: "br0", Ports: []string{"p1"}, STP: true})
+	testnet.Must(t, err)
+	_, err = store.Create(ctx, "t", &model.Interface{Meta: at("office"), Enabled: true, Device: "bond0.30", Addresses: []string{"10.30.0.1/24"}})
+	testnet.Must(t, err)
+	testnet.Must(t, apply())
+	if kind("bond0") != "bond" || kind("bond0.30") != "vlan" || kind("br0") != "bridge" {
+		t.Fatalf("devices: bond0=%q bond0.30=%q br0=%q", kind("bond0"), kind("bond0.30"), kind("br0"))
+	}
+	if master("m1") != "bond0" || master("m2") != "bond0" || master("p1") != "br0" {
+		t.Errorf("members: m1=%q m2=%q p1=%q", master("m1"), master("m2"), master("p1"))
+	}
+	if l, _, _ := netlinkLinks("bond0.30"); !slices.Contains(l.Addresses, "10.30.0.1/24") || !l.Up {
+		t.Errorf("bond0.30: %+v", l)
+	}
+	if stp, err := netops.BridgeSTP("br0"); err != nil || !stp {
+		t.Errorf("br0 runs no spanning tree: %v", err)
+	}
+
+	// Another mode cannot be set in place: the bond is made anew, with
+	// its members and the VLAN on it.
+	b := bond.(*model.Bond)
+	b.Mode = "balance-xor"
+	_, err = store.Update(ctx, "t", b, b.Version)
+	testnet.Must(t, err)
+	testnet.Must(t, apply())
+	if l, _ := netlink.LinkByName("bond0"); l == nil || l.(*netlink.Bond).Mode != netlink.BOND_MODE_BALANCE_XOR {
+		t.Errorf("bond0 mode: %v", l)
+	}
+	if master("m1") != "bond0" || kind("bond0.30") != "vlan" {
+		t.Errorf("after the mode change: m1 in %q, bond0.30 %q", master("m1"), kind("bond0.30"))
+	}
+
+	// A device the node had before is not Testudo's to take.
+	_, err = store.Create(ctx, "t", &model.Bond{Meta: at("taken"), Enabled: true, Device: "busy0", Members: []string{"m3"}, Mode: "active-backup"})
+	testnet.Must(t, err)
+	if err := apply(); err == nil || !strings.Contains(err.Error(), "not made by Testudo") {
+		t.Errorf("a foreign device was taken: %v", err)
+	}
+	if kind("busy0") != "dummy" {
+		t.Errorf("busy0 was changed: %q", kind("busy0"))
+	}
+
+	// All of it leaves the model.
+	for _, k := range []model.Kind{model.KindInterface, model.KindVLAN, model.KindBridge, model.KindBond} {
+		for _, o := range store.Current().List(k) {
+			testnet.Must(t, store.Delete(ctx, "t", k, o.GetMeta().ID, o.GetMeta().Version))
+		}
+	}
+	testnet.Must(t, apply())
+	for _, d := range []string{"bond0", "bond0.30", "br0"} {
+		if kind(d) != "" {
+			t.Errorf("%s stayed", d)
+		}
+	}
+	for _, d := range []string{"m1", "m2", "p1", "busy0"} {
+		if kind(d) != "dummy" || master(d) != "" {
+			t.Errorf("%s: kind %q, master %q", d, kind(d), master(d))
+		}
+	}
+}
