@@ -1,0 +1,14 @@
+# Arguments for "testudo web" in addition to the ones in testudo.service
+# (see "testudo web -h"). This file is read by systemd, which does not
+# expand variables in it: write the whole line.
+#
+# The console listens on port 8443 with a certificate generated on first
+# start. The firewall keeps this port, SSH and established connections open
+# whatever the policy says.
+TESTUDO_ARGS="--listen 0.0.0.0:8443 --tls-auto"
+
+# A cluster member also listens on the site mesh, never on a WAN interface:
+# TESTUDO_ARGS="--listen 0.0.0.0:8443 --tls-auto --node-name fw1 --cluster-raft 10.255.255.1:7400 --cluster-api 10.255.255.1:7401"
+
+# JSON log lines for a log shipper:
+# TESTUDO_ARGS="--listen 0.0.0.0:8443 --tls-auto --log-json"

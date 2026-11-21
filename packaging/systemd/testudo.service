@@ -1,0 +1,61 @@
+# Testudo as a system service: the web console and API, the configuration
+# model and every subsystem it drives. The process runs as root and splits
+# itself: a small helper keeps the network capabilities, the rest drops
+# them (see docs/operations.md). The sandbox below limits what both can do.
+[Unit]
+Description=Testudo firewall and network operations
+Documentation=file:///usr/share/doc/testudo/operations.md
+Wants=network-online.target
+After=network-online.target nftables.service
+# FRR, keepalived and conntrackd are started and stopped by Testudo itself.
+
+[Service]
+Type=simple
+Environment=HOME=/var/lib/testudo
+EnvironmentFile=-/etc/default/testudo
+ExecStart=/usr/bin/testudo web --storage /var/lib/testudo --db /var/lib/testudo/testudo.db --allow-netops-write $TESTUDO_ARGS
+Restart=on-failure
+RestartSec=2s
+# The helper and the daemons it supervises stop with the main process.
+KillMode=mixed
+TimeoutStopSec=30s
+UMask=0077
+StateDirectory=testudo
+StateDirectoryMode=0700
+RuntimeDirectory=testudo-ha
+RuntimeDirectoryMode=0700
+
+# What the process may do. Network administration and capture; switching
+# user for the daemons it starts; reading other processes' sockets to name
+# the program behind a flow; PAM's audit record.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_KILL CAP_SYS_PTRACE CAP_AUDIT_WRITE
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+# Netlink for the kernel's tables, packet sockets for capture.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service @network-io @privileged
+SystemCallErrorNumber=EPERM
+
+# What the process may see and change on disk. Its state, the FRR and
+# netplan configuration it renders, and nothing else.
+ProtectSystem=strict
+ReadWritePaths=-/etc/frr -/etc/netplan -/run/frr
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+# Forwarding and conntrack settings are written through /proc/sys, so
+# ProtectKernelTunables stays off.
+ProtectKernelTunables=no
+DevicePolicy=closed
+
+[Install]
+WantedBy=multi-user.target
