@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"sort"
@@ -44,8 +45,10 @@ func (k *memKV) List() ([]string, error) {
 // stays its own, and the view shows both, newest first.
 func TestRequestsAreSharedAndLogsMerged(t *testing.T) {
 	ctx := context.Background()
+	paths := map[string]string{}
 	open := func(name string) *storage.Store {
-		s, err := storage.Open(filepath.Join(t.TempDir(), name+".db"))
+		paths[name] = filepath.Join(t.TempDir(), name+".db")
+		s, err := storage.Open(paths[name])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,12 +63,12 @@ func TestRequestsAreSharedAndLogsMerged(t *testing.T) {
 	}
 	fw1 := sharedAccess{local: db1, kv: shared, member: "fw1"}
 	fw2 := sharedAccess{local: db2, kv: shared, member: "fw2"}
-	fw1.remote = func(context.Context) []storage.AccessEvent {
+	fw1.remote = func(context.Context) ([]storage.AccessEvent, []storage.ChainStatus) {
 		evs, _ := db2.ListAccessEvents(ctx, 10)
 		for i := range evs {
 			evs[i].Member = "fw2"
 		}
-		return evs
+		return evs, []storage.ChainStatus{localChain(ctx, db2, "fw2")}
 	}
 
 	g := storage.PAMGrant{ID: "grant-1", User: "alice", State: "pending", RequestedAt: now}
@@ -95,9 +98,25 @@ func TestRequestsAreSharedAndLogsMerged(t *testing.T) {
 	if err != nil || len(evs) != 2 || evs[0].Member != "fw2" || evs[0].Action != "approved" || evs[1].Member != "fw1" {
 		t.Fatalf("merged log: %+v %v", evs, err)
 	}
-	// Each member's chain is intact and its own.
+	// Each member's chain is intact and its own, and fw1 reports both.
 	if n, broken, _ := fw1.VerifyAccessEvents(ctx); n != 1 || broken != 0 {
 		t.Errorf("fw1's chain: %d rows, broken at %d", n, broken)
+	}
+	chains := fw1.Chains(ctx)
+	if len(chains) != 2 || chains[0].Member != "fw1" || chains[1].Member != "fw2" || chains[0].BrokenAt != 0 || chains[1].BrokenAt != 0 || chains[1].Checked != 1 {
+		t.Errorf("chains: %+v", chains)
+	}
+	// A row rewritten on fw2 shows on fw1.
+	raw, err := sql.Open("sqlite", paths["fw2"]+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec("UPDATE access_events SET detail = 'nothing to see'"); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+	if chains := fw1.Chains(ctx); chains[1].BrokenAt == 0 {
+		t.Errorf("fw2's rewritten log is not reported on fw1: %+v", chains)
 	}
 
 	// Ended long ago: the shared store lets it go.

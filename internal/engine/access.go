@@ -17,6 +17,7 @@ import (
 
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/events"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/pam"
@@ -338,6 +339,7 @@ func (e *Engine) grantLoop(ctx context.Context) {
 	}
 	known := map[string]seen{}
 	var pruned time.Time
+	broken := map[string]int64{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -350,6 +352,9 @@ func (e *Engine) grantLoop(ctx context.Context) {
 		if time.Since(pruned) > time.Hour && e.LeadsCluster() && e.conf.secrets.Dir != "" {
 			if n := pruneRequests(e.conf.secrets, time.Now()); n > 0 {
 				log.Printf("access: %d ended request(s) left the shared store", n)
+			}
+			if e.store != nil {
+				broken = e.reportBrokenChains(ctx, broken)
 			}
 			pruned = time.Now()
 		}
@@ -589,4 +594,23 @@ func activeGrantOps(st *confstore.State, active []storage.PAMGrant, resID, polID
 		ops = append(ops, confstore.Op{Type: confstore.OpCreate, Kind: model.KindAccessGrant, ID: obj.ID, Object: raw})
 	}
 	return ops
+}
+
+// reportBrokenChains checks every member's access-log chain and raises an
+// alert for each one that broke since the last check. was is what the last
+// check found; the result is what this one did.
+func (e *Engine) reportBrokenChains(ctx context.Context, was map[string]int64) map[string]int64 {
+	now := map[string]int64{}
+	for _, c := range e.accessStore().Chains(ctx) {
+		if c.BrokenAt == 0 {
+			continue
+		}
+		now[c.Member] = c.BrokenAt
+		if was[c.Member] != c.BrokenAt {
+			e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: time.Now(), Source: "pam",
+				Payload: events.AnomalyPayload{Severity: string(events.SevError),
+					Message: fmt.Sprintf("access log of %s was changed: its hash chain breaks at row %d", c.Member, c.BrokenAt)}})
+		}
+	}
+	return now
 }

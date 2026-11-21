@@ -1766,8 +1766,13 @@
 
     const chain = document.getElementById('pam-chain');
     if (chain) {
-      chain.textContent = ov.chain_broken_at ? 'BROKEN at row ' + ov.chain_broken_at : (ov.chain_checked + ' events verified');
-      chain.className = ov.chain_broken_at ? 'status-pill off' : 'status-pill on';
+      // One check per member: each keeps and chains its own log.
+      const chains = (ov.chains && ov.chains.length) ? ov.chains
+        : [{ member: '', checked: ov.chain_checked, broken_at: ov.chain_broken_at }];
+      const bad = chains.some(c => c.broken_at || c.error);
+      chain.textContent = chains.map(c => (c.member ? c.member + ': ' : '')
+        + (c.error ? 'not checked (' + c.error + ')' : c.broken_at ? 'BROKEN at row ' + c.broken_at : c.checked + ' events verified')).join(' · ');
+      chain.className = bad ? 'status-pill off' : 'status-pill on';
     }
     const caEl = document.getElementById('pam-ssh-ca');
     if (caEl) {

@@ -37,9 +37,16 @@ type sharedAccess struct {
 	local *storage.Store
 	kv    kv
 	// member names this member in a merged log; remote returns the other
-	// members' logs.
+	// members' logs and the checks of their chains.
 	member string
-	remote func(ctx context.Context) []storage.AccessEvent
+	remote func(ctx context.Context) ([]storage.AccessEvent, []storage.ChainStatus)
+}
+
+// memberLog is what a member answers about its access log.
+type memberLog struct {
+	Member string                `json:"member"`
+	Events []storage.AccessEvent `json:"events"`
+	Chain  storage.ChainStatus   `json:"chain"`
 }
 
 func (s sharedAccess) UpsertPAMGrant(_ context.Context, g storage.PAMGrant) error {
@@ -116,7 +123,8 @@ func (s sharedAccess) ListAccessEvents(ctx context.Context, limit int) ([]storag
 	for i := range evs {
 		evs[i].Member = s.member
 	}
-	evs = append(evs, s.remote(ctx)...)
+	remote, _ := s.remote(ctx)
+	evs = append(evs, remote...)
 	sort.SliceStable(evs, func(i, j int) bool { return evs[i].TS.After(evs[j].TS) })
 	if limit > 0 && len(evs) > limit {
 		evs = evs[:limit]
@@ -128,30 +136,59 @@ func (s sharedAccess) VerifyAccessEvents(ctx context.Context) (int, int64, error
 	return s.local.VerifyAccessEvents(ctx)
 }
 
+// Chains checks this member's chain and reports the other members' own
+// checks of theirs.
+func (s sharedAccess) Chains(ctx context.Context) []storage.ChainStatus {
+	out := []storage.ChainStatus{localChain(ctx, s.local, s.member)}
+	if s.remote != nil {
+		_, remote := s.remote(ctx)
+		out = append(out, remote...)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Member < out[j].Member })
+	return out
+}
+
+func localChain(ctx context.Context, st *storage.Store, member string) storage.ChainStatus {
+	c := storage.ChainStatus{Member: member}
+	var err error
+	if c.Checked, c.BrokenAt, err = st.VerifyAccessEvents(ctx); err != nil {
+		c.Error = err.Error()
+	}
+	return c
+}
+
 // accessStore is the store of the access manager on this node.
 func (e *Engine) accessStore() sharedAccess {
 	s := sharedAccess{local: e.store, kv: e.conf.secrets, member: e.cfg.NodeName}
 	if mgr := e.cluster.mgr; mgr != nil {
-		s.remote = func(ctx context.Context) []storage.AccessEvent {
+		s.remote = func(ctx context.Context) ([]storage.AccessEvent, []storage.ChainStatus) {
 			if mgr.Node() == nil {
-				return nil
+				return nil, nil
 			}
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			var out []storage.AccessEvent
+			var events []storage.AccessEvent
+			var chains []storage.ChainStatus
 			for id, res := range mgr.Gather(ctx, "/cluster/v1/access-events") {
-				var evs []storage.AccessEvent
-				if res.Err != "" || json.Unmarshal(res.Body, &evs) != nil {
+				var ml memberLog
+				if res.Err == "" && json.Unmarshal(res.Body, &ml) != nil {
+					res.Err = "unreadable answer"
+				}
+				if res.Err != "" {
+					chains = append(chains, storage.ChainStatus{Member: id, Error: res.Err})
 					continue
 				}
-				for i := range evs {
-					if evs[i].Member == "" {
-						evs[i].Member = id
-					}
+				if ml.Member == "" {
+					ml.Member = id
 				}
-				out = append(out, evs...)
+				for i := range ml.Events {
+					ml.Events[i].Member = ml.Member
+				}
+				ml.Chain.Member = ml.Member
+				events = append(events, ml.Events...)
+				chains = append(chains, ml.Chain)
 			}
-			return out
+			return events, chains
 		}
 	}
 	return s
@@ -162,14 +199,15 @@ func (e *Engine) localAccessEvents() ([]byte, error) {
 	if e.store == nil {
 		return nil, errors.New("no database")
 	}
-	evs, err := e.store.ListAccessEvents(context.Background(), 200)
+	ctx := context.Background()
+	evs, err := e.store.ListAccessEvents(ctx, 200)
 	if err != nil {
 		return nil, err
 	}
 	for i := range evs {
 		evs[i].Member = e.cfg.NodeName
 	}
-	return json.Marshal(evs)
+	return json.Marshal(memberLog{Member: e.cfg.NodeName, Events: evs, Chain: localChain(ctx, e.store, e.cfg.NodeName)})
 }
 
 // shareOpenRequests copies the requests this node still has open from its
