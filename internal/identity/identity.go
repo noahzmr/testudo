@@ -41,7 +41,7 @@ const (
 var BuiltinRoles = map[string][]string{
 	RoleAdmin: {"*:write"},
 	RoleOperator: {"*:read", "firewall:write", "routing:write", "vpn:write", "loadbalancer:write",
-		"interfaces:write", "access:write"},
+		"interfaces:write", "access:write", "services:write"},
 	RoleReadOnly: {"*:read"},
 	// A VPN user may use tunnels and published services, not the console.
 	RoleVPNUser: {"self:read"},
