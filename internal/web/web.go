@@ -50,7 +50,7 @@ type Server struct {
 	static    *staticSet
 	index     *staticAsset // index.html with versioned asset URLs
 
-	mu       sync.RWMutex
+	mu sync.RWMutex
 	// sessions caches the sessions this member has seen; shared holds them
 	// for every member.
 	sessions map[string]*sessionRecord
