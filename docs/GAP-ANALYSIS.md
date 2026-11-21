@@ -3,7 +3,7 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 11 complete. Packet filter, NAT, routing, WireGuard
+**Status: Phases 0 to 12 complete. Packet filter, NAT, routing, WireGuard
 with identity-aware access, and load balancing with SNI routing and
 certificates are driven by the model and verified against a real kernel
 ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
@@ -21,6 +21,9 @@ endpoints, encrypted backups and a Debian package with a sandboxed unit
 ([phase-10](phase-10-ha.md), runbook in [operations.md](operations.md)).
 Nodes hand out addresses, answer names and serve time per interface, with
 DHCP leases shared across an HA pair ([phase-11](phase-11-services.md)).
+The code from before the model no longer runs next to it: the firewall,
+users, sessions and access grants have one source of truth, and the
+console's live views are pushed ([phase-12](phase-12-consolidation.md)).
 What is open is listed per area below.**
 
 Effort is rough engineering time for one experienced engineer, including
@@ -42,46 +45,37 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 9 | Flow analysis extensions | done | - | - |
 | 10 | Intra-site HA, hardening, operations | done | - | - |
 | 11 | DHCP, DNS and NTP per interface | done | - | - |
+| 12 | One source of truth, pushed live views | done | - | - |
 
 The Phase 0 estimate was 15 to 18 months of single-engineer work. Every
 area now exists; the open items per area are below.
 
 ## What the existing code gives the target for free
 
-* An atomic, owner-tagged nftables apply path with drift reconciliation.
+* An atomic, owner-tagged nftables apply path with drift reconciliation
+  (kept: the drift reload now serves the model's ruleset).
 * A privilege-separated writer with an audit row per mutation.
 * A commit-confirm mechanism (for one operation) that can be generalised.
-* WireGuard provisioning as a transaction with rollback.
+* WireGuard provisioning as a transaction with rollback (replaced by the
+  model's tunnels and peers).
 * Just-in-time access grants that already compile identity into firewall
-  rules, which is the core of identity-aware access.
+  rules, which is the core of identity-aware access (now model objects).
 * A hash-chained access log.
 * A flow pipeline with per-interface keying, enrichment and IPFIX export.
 
 ## What the existing code makes harder
 
-1. **Three sources of truth.** Firewall policy lives in a JSON file, WireGuard
-   in netplan YAML plus SQLite rows, users in another JSON file, settings in a
-   fourth. The target needs one replicated model. Every existing subsystem
-   has to be re-pointed at it, with a migration for each on-disk format.
-2. **Content-hash rule IDs.** Editing a rule changes its identity. The target
-   needs stable UUIDs with versions; counters, audit history and drift
-   detection all key on the current IDs.
-3. **"No shell-out, pure Go, no cgo."** The target requires `frr-reload.py`,
-   `vtysh`, `nft -c`, a Traefik check and Linux-PAM. FRR and Traefik become
-   supervised sibling daemons, Linux-PAM needs cgo or a separate helper, and
-   the privileged helper currently denies `execve`. This rule has to be
-   restated as "no shell-out in the packet and apply hot path; managed daemons
-   are driven through a narrow, audited runner".
-4. **Per-user home directory layout** (`~/.testudo`). An appliance needs
-   `/etc/testudo`, `/var/lib/testudo` and system units.
-5. **Path-prefix RBAC and in-memory sessions.** Object-level authorisation,
-   cluster-wide sessions and identity that travels with a Raft command need a
-   different shape.
-6. **A polling UI written by hand.** 3200 lines of hand-written forms cannot
-   follow a generated model. It needs a schema-driven renderer and a push
-   channel.
-7. **Name collision.** `internal/pam` is privileged access management. Linux
-   PAM integration needs a different package name (`internal/auth/hostpam`).
+Resolved in Phase 12 ([phase-12-consolidation.md](phase-12-consolidation.md)).
+
+| # | Obstacle | Now |
+| --- | --- | --- |
+| 1 | **Three sources of truth.** Firewall policy in a JSON file, WireGuard in netplan YAML plus SQLite rows, users in another JSON file, settings in a fourth. | The firewall, WireGuard, users, roles, access resources, policies and grants are model objects, replicated by the cluster. `firewall.json`, `users.json` and the access catalogue move into the model at the first start and are kept as backups; the old manager, provisioner and their write paths are gone. Node settings (`settings.json`) stay per node by design. Open: interface addressing has model fields but no stage, so the console's interface forms still write the kernel. |
+| 2 | **Content-hash rule IDs.** Editing a rule changed its identity. | Rules are model objects with UUIDs and versions; the kernel rule's comment is the UUID, so counters, history and drift checks key on the object. |
+| 3 | **"No shell-out, pure Go, no cgo."** | Restated: no shell-out in the packet path; dry runs (`nft -c`, FRR, Traefik, Kea, Unbound, chrony) and managed daemons go through one narrow, audited runner on the privileged side; host PAM is an opt-in cgo build. Open: the helper still accepts operations of the removed paths. |
+| 4 | **Per-user home directory layout.** | The package runs from `/var/lib/testudo` under a sandboxed unit (Phase 10); `~/.testudo` is only the default of a developer run. The CLI reaches the service through `<storage>/control.sock`. |
+| 5 | **Path-prefix RBAC and in-memory sessions.** | Permissions are scoped to a site or node and checked per object; sessions live in the replicated secret store and are good on every member; model changes carry the actor through Raft, also the leader-forwarded changes of access grants. |
+| 6 | **A polling UI written by hand.** | The model's forms are generated from the schema (Phase 1); the live views are pushed over `/api/live`; the hand-written forms for firewall, NAT, WireGuard, users and routes are gone. |
+| 7 | **Name collision `internal/pam`.** | Host PAM is `internal/pamauth`. |
 
 ## 1. Go core, data model and configuration
 
@@ -110,8 +104,8 @@ operators already have.
 Done; see [phase-2-packet-filter.md](phase-2-packet-filter.md) for what is
 enforced, how, and the three things that are not verified (the runner
 without root, GeoIP against a real database, reflection and one-to-one NAT
-under traffic). WireGuard presets and access grants are still rules of the
-firewall manager and move into the model in Phases 4 and 6.
+under traffic). WireGuard presets and access grants moved into the model
+in Phase 12; the old firewall manager is gone.
 
 ## 3. Routing
 
@@ -122,9 +116,8 @@ routes, IPv6 routes).
 
 ## 4. VPN (WireGuard)
 
-Done; see [phase-4-vpn.md](phase-4-vpn.md). Open by design: approval-gated
-access still runs through the existing access manager, and identities
-become login identities with Phase 6.
+Done; see [phase-4-vpn.md](phase-4-vpn.md). Access grants are model
+objects since Phase 12; requests and approvals are recorded per member.
 
 ## 5. Load balancing and SNI
 
@@ -135,20 +128,18 @@ provides the login service, and `least_connections` is not available.
 
 ## 6. Authentication and authorisation
 
-Done; see [phase-6-identity.md](phase-6-identity.md). Open: sessions are
-in memory until the cluster holds them, PAM is an opt-in build tag, and
-directory or one-time-code modules behind PAM have not been tried.
-
-The direct editing of firewall rules outside the model (Web UI, TUI,
-`testudo firewall import|enforce`) was removed on request; see
-[firewall.md](firewall.md).
+Done; see [phase-6-identity.md](phase-6-identity.md) and
+[identity.md](identity.md). Sessions and local users are cluster-wide and
+permissions can be limited to a site or node since Phase 12. Open: PAM is
+an opt-in build tag, and directory or one-time-code modules behind PAM have
+not been tried.
 
 ## 7. Multi-site clustering
 
 Done; see [phase-7-cluster.md](phase-7-cluster.md). Open: a rolling
 upgrade with two real builds has not been run, a backup holds one node's
-model and secrets but not the consensus state, the canary is always the
-leader, and sessions are per member.
+model and secrets but not the consensus state, and the canary is always the
+leader.
 
 ## 8. SDN fabric
 
