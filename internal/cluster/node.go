@@ -86,6 +86,11 @@ type Node struct {
 
 	attachMu sync.Mutex
 	attach   *RecordEntry // what the next record carries with it
+
+	// While leading, the members the leader cannot reach and since when.
+	hbMu   sync.Mutex
+	hbLost map[string]time.Time
+	hbObs  *raft.Observer
 }
 
 // Attach makes the next record this member proposes carry a pending
@@ -207,6 +212,7 @@ func Open(opt Options) (*Node, error) {
 		n.close()
 		return nil, fmt.Errorf("cluster: %w", err)
 	}
+	n.watchHeartbeats()
 	if opt.Changed != nil {
 		ch := make(chan raft.Observation, 16)
 		n.raft.RegisterObserver(raft.NewObserver(ch, false, func(o *raft.Observation) bool {
@@ -238,10 +244,63 @@ func (n *Node) close() {
 	}
 }
 
+// watchHeartbeats records which members the leader fails to reach. A new
+// term starts with a clean slate: what an earlier leadership saw is stale.
+func (n *Node) watchHeartbeats() {
+	n.hbLost = map[string]time.Time{}
+	ch := make(chan raft.Observation, 64)
+	n.hbObs = raft.NewObserver(ch, false, func(o *raft.Observation) bool {
+		switch o.Data.(type) {
+		case raft.FailedHeartbeatObservation, raft.ResumedHeartbeatObservation, raft.LeaderObservation:
+			return true
+		}
+		return false
+	})
+	n.raft.RegisterObserver(n.hbObs)
+	go func() {
+		for o := range ch {
+			n.hbMu.Lock()
+			switch d := o.Data.(type) {
+			case raft.FailedHeartbeatObservation:
+				if _, ok := n.hbLost[string(d.PeerID)]; !ok {
+					since := d.LastContact
+					if since.IsZero() {
+						since = time.Now()
+					}
+					n.hbLost[string(d.PeerID)] = since
+				}
+			case raft.ResumedHeartbeatObservation:
+				delete(n.hbLost, string(d.PeerID))
+			case raft.LeaderObservation:
+				n.hbLost = map[string]time.Time{}
+			}
+			n.hbMu.Unlock()
+		}
+	}()
+}
+
+// Unreachable returns, on the leader, how long each member it cannot reach
+// has been silent. Elsewhere it is empty.
+func (n *Node) Unreachable() map[string]time.Duration {
+	out := map[string]time.Duration{}
+	if n.raft.State() != raft.Leader {
+		return out
+	}
+	n.hbMu.Lock()
+	defer n.hbMu.Unlock()
+	for id, since := range n.hbLost {
+		out[id] = time.Since(since)
+	}
+	return out
+}
+
 // Shutdown stops the member. The cluster goes on without it.
 func (n *Node) Shutdown() error {
 	var err error
 	n.closeOnce.Do(func() {
+		if n.hbObs != nil {
+			n.raft.DeregisterObserver(n.hbObs)
+		}
 		err = n.raft.Shutdown().Error()
 		n.close()
 	})

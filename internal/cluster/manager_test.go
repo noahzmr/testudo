@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,11 +29,14 @@ type box struct {
 	forwarded []string
 }
 
-func newBox(t *testing.T, id string) *box {
+func newBox(t *testing.T, id string, tune ...func(*Config)) *box {
 	t.Helper()
 	b := &box{id: id, dir: t.TempDir()}
 	b.cfg = Config{ID: id, Name: "node-" + id, Dir: filepath.Join(b.dir, "cluster"), RaftBind: freeAddr(t), APIBind: freeAddr(t),
 		Build: "test", Heartbeat: 150 * time.Millisecond, Election: 150 * time.Millisecond, LeaderLease: 100 * time.Millisecond}
+	for _, f := range tune {
+		f(&b.cfg)
+	}
 	b.up(t)
 	return b
 }
@@ -108,9 +112,9 @@ func voters(b *box) int {
 
 // trio forms a cluster of three voters over TLS, the way an operator does:
 // init on one node, a token for each of the others.
-func trio(t *testing.T) (a, b, c *box) {
+func trio(t *testing.T, tune ...func(*Config)) (a, b, c *box) {
 	t.Helper()
-	a, b, c = newBox(t, "a"), newBox(t, "b"), newBox(t, "c")
+	a, b, c = newBox(t, "a", tune...), newBox(t, "b", tune...), newBox(t, "c", tune...)
 	if err := a.mgr.Init(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -435,4 +439,77 @@ func TestRenewalAndRestart(t *testing.T) {
 		t.Fatalf("join through the new leader: %v", err)
 	}
 	wait(t, "the new member has the model", func() bool { return d.store.Current().Index() == 2 })
+}
+
+// TestPartnerTakesTheVoteOfADeadVoter: three sites vote; the third site is
+// an HA pair whose second node is a non-voter. When the pair's voter stays
+// away, the leader hands the site's vote to the partner; when the old voter
+// returns it stays a non-voter (ADR 0004).
+func TestPartnerTakesTheVoteOfADeadVoter(t *testing.T) {
+	var mu sync.Mutex
+	var events []string
+	tune := func(c *Config) {
+		c.Partner = func(id string) string { return map[string]string{"c": "d", "d": "c"}[id] }
+		c.FailoverAfter = time.Second
+		c.FailedOver = func(dead, partner string) {
+			mu.Lock()
+			events = append(events, dead+"->"+partner)
+			mu.Unlock()
+		}
+	}
+	a, b, c := trio(t, tune)
+	d := newBox(t, "d", tune)
+	tok, err := a.mgr.NewToken(time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.mgr.Join(ctx, tok); err != nil {
+		t.Fatal(err)
+	}
+	isVoter := func(from *box, id string) bool {
+		servers, _ := from.mgr.Node().Servers()
+		for _, s := range servers {
+			if s.ID == id {
+				return s.Voter
+			}
+		}
+		return false
+	}
+	wait(t, "d announced as a non-voter", func() bool {
+		m, ok := a.mgr.Node().State().Members["d"]
+		return ok && m.Commands != nil && !isVoter(a, "d")
+	})
+	// The voter that fails must not be the leader itself.
+	if l := leaderOf(t, a, b, c); l == c {
+		if err := c.mgr.Node().TransferLeadership(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wait(t, "a leader other than c", func() bool {
+		l := leaderOf(t, a, b, c)
+		return l != c
+	})
+	c.down()
+	l := leaderOf(t, a, b)
+	wait(t, "d votes in c's place", func() bool { return isVoter(l, "d") && !isVoter(l, "c") && voters(l) == 3 })
+	mu.Lock()
+	if len(events) != 1 || events[0] != "c->d" {
+		t.Errorf("failover events: %v", events)
+	}
+	mu.Unlock()
+	if m := l.mgr.Node().State().Members; m["c"].Voter || !m["d"].Voter {
+		t.Errorf("member list: c voter %v, d voter %v", m["c"].Voter, m["d"].Voter)
+	}
+	// The cluster still takes changes.
+	if _, err := l.store.Create(ctx, "a", &model.Site{Meta: model.Meta{Name: "after-failover"}}); err != nil {
+		t.Fatalf("write after failover: %v", err)
+	}
+	// c returns and catches up as a non-voter.
+	c.up(t)
+	want := l.store.Current().Index()
+	wait(t, "c caught up", func() bool { return c.store.Current().Index() >= want })
+	time.Sleep(time.Second)
+	if isVoter(leaderOf(t, a, b, c, d), "c") {
+		t.Errorf("the returning voter took its vote back")
+	}
 }

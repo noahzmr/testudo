@@ -79,6 +79,13 @@ type Config struct {
 	// member that correlates what the sites saw. Flow data travels this
 	// way, member to member, and never through the consensus log.
 	Flows func() ([]byte, error)
+	// Partner names the other node of a member's HA pair, or "" when the
+	// member is in none. With it, the leader replaces a site's voter that
+	// stays unreachable for FailoverAfter by its partner (ADR 0004).
+	Partner       func(id string) string
+	FailoverAfter time.Duration
+	// FailedOver is told about every replacement, for the audit log.
+	FailedOver func(dead, partner string)
 	// Timing overrides for tests and unusual links (zero: the defaults).
 	Heartbeat, Election, LeaderLease time.Duration
 	LogOutput                        io.Writer
@@ -964,6 +971,7 @@ func (m *Manager) housekeeping(stop chan struct{}) {
 		}
 		if node.IsLeader() {
 			if servers, err := node.Servers(); err == nil {
+				m.failover(ctx, node, st, servers)
 				for _, s := range servers {
 					if mem, ok := st.Members[s.ID]; ok && mem.Voter && !s.Voter && mem.Commands != nil {
 						_ = node.Promote(s.ID)
@@ -975,6 +983,68 @@ func (m *Manager) housekeeping(stop chan struct{}) {
 			_ = m.Renew(ctx)
 		}
 		cancel()
+	}
+}
+
+// DefaultFailoverAfter is how long a site's voter may stay unreachable
+// before its partner takes its vote.
+const DefaultFailoverAfter = 30 * time.Second
+
+// failover replaces a voter the leader has not reached for FailoverAfter by
+// the other node of its HA pair, when that partner is reachable, announced
+// and not a voter yet. The dead voter steps down first, so the quorum for
+// the step is counted among the voters that are alive; the promotion loop
+// then raises the partner. Both decisions are recorded in the member list,
+// so a returning node stays a non-voter. Nothing happens without quorum:
+// the leader cannot change the membership alone.
+func (m *Manager) failover(ctx context.Context, node *Node, st *State, servers []Server) {
+	if m.cfg.Partner == nil {
+		return
+	}
+	after := m.cfg.FailoverAfter
+	if after <= 0 {
+		after = DefaultFailoverAfter
+	}
+	lost := node.Unreachable()
+	byID := make(map[string]Server, len(servers))
+	for _, s := range servers {
+		byID[s.ID] = s
+	}
+	for _, s := range servers {
+		if !s.Voter || s.ID == node.ID() || lost[s.ID] < after {
+			continue
+		}
+		p := m.cfg.Partner(s.ID)
+		ps, ok := byID[p]
+		if p == "" || !ok || ps.Voter {
+			continue
+		}
+		if _, down := lost[p]; down {
+			continue
+		}
+		dead, dk := st.Members[s.ID]
+		partner, pk := st.Members[p]
+		if !dk || !pk || partner.Commands == nil {
+			continue
+		}
+		dead.Voter, partner.Voter = false, true
+		ok = true
+		for _, mem := range []Member{dead, partner} {
+			c, err := command(CmdMember, "", mem)
+			if err != nil || m.propose(ctx, c) != nil {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		if err := node.Demote(s.ID); err != nil {
+			continue
+		}
+		if m.cfg.FailedOver != nil {
+			m.cfg.FailedOver(s.ID, p)
+		}
 	}
 }
 
