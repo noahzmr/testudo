@@ -329,6 +329,79 @@ func TestVPNEndToEnd(t *testing.T) {
 	if status, _ := call(remote, "GET", "/api/v1/whoami", nil); status != 200 {
 		t.Errorf("management over the VPN after the policy change: %d", status)
 	}
+	// Access that has to be asked for: a policy that needs approval opens
+	// nothing by itself. Alice asks, the administrator approves, and the
+	// grant is an object of the model that the packet filter renders for
+	// her device until it is revoked.
+	vault := create(local, "/api/v1/access-resources", map[string]any{"name": "vault", "type": "network", "target": "10.50.0.2",
+		"protocol": "tcp", "ports": "8444"})["id"].(string)
+	create(local, "/api/v1/access-policies", map[string]any{"name": "vault-on-request", "resource": vault, "users": []string{alice},
+		"max_duration": "1h", "requires_approval": true})
+	if got := reach("10.50.0.2:8444"); got != "" {
+		t.Errorf("a policy that needs approval opened the resource (%q)", got)
+	}
+	var roleList []map[string]any
+	{
+		res, _ := local.hc.Get(local.base + "/api/v1/roles")
+		json.NewDecoder(res.Body).Decode(&roleList)
+		res.Body.Close()
+	}
+	operator := ""
+	for _, r := range roleList {
+		if r["name"] == "operator" {
+			operator = r["id"].(string)
+		}
+	}
+	_, u := call(local, "GET", "/api/v1/users/"+alice, nil)
+	u["source"], u["roles"] = "local", []string{operator}
+	req, _ = json.Marshal(u)
+	hreq, _ = http.NewRequest("PUT", local.base+"/api/v1/users/"+alice, bytes.NewReader(req))
+	hreq.Header.Set("If-Match", fmt.Sprintf(`"%v"`, u["version"]))
+	hreq.Header.Set("Content-Type", "application/json")
+	if res, err := local.hc.Do(hreq); err != nil || res.StatusCode != 200 {
+		t.Fatalf("make alice a local operator: %v %v", err, res)
+	} else {
+		res.Body.Close()
+	}
+	call(local, "POST", "/api/v1/apply/confirm", nil)
+	if status, out := call(local, "POST", "/api/v1/users/"+alice+"/password", map[string]string{"password": "alice password 1"}); status != 204 {
+		t.Fatalf("alice's password: %d %v", status, out)
+	}
+	aliceS := login(local.base, nil, "")
+	if res, err := aliceS.hc.PostForm(local.base+"/login", url.Values{"username": {"alice"}, "password": {"alice password 1"}}); err != nil {
+		t.Fatal(err)
+	} else {
+		res.Body.Close()
+	}
+	status, asked := call(aliceS, "POST", "/api/pam/request", map[string]any{"resource_id": vault, "ttl_sec": 600,
+		"justification": "rotate the vault keys", "ticket": "CHG-7"})
+	if status != 200 || asked["state"] != "pending" {
+		t.Fatalf("request: %d %v", status, asked)
+	}
+	if status, out := call(aliceS, "POST", "/api/pam/approve", map[string]any{"grant_id": asked["id"]}); status/100 == 2 {
+		t.Errorf("alice approved her own request: %d %v", status, out)
+	}
+	if status, out := call(local, "POST", "/api/pam/approve", map[string]any{"grant_id": asked["id"]}); status != 200 || out["state"] != "active" {
+		t.Fatalf("approve: %d %v", status, out)
+	}
+	var grants []map[string]any
+	if res, err := local.hc.Get(local.base + "/api/v1/access-grants"); err == nil {
+		json.NewDecoder(res.Body).Decode(&grants)
+		res.Body.Close()
+	}
+	if len(grants) != 1 || grants[0]["request"] != asked["id"] || grants[0]["approved_by"] != "testudo" {
+		t.Fatalf("the grant in the model: %v", grants)
+	}
+	if got := reach("10.50.0.2:8444"); got != "10.8.0.2" {
+		t.Errorf("the granted resource: server saw %q, want 10.8.0.2", got)
+	}
+	if status, out := call(local, "POST", "/api/pam/revoke", map[string]any{"grant_id": asked["id"], "reason": "done"}); status != 200 {
+		t.Fatalf("revoke: %d %v", status, out)
+	}
+	if got := reach("10.50.0.2:8444"); got != "" {
+		t.Errorf("the resource is still reachable after the revoke (%q)", got)
+	}
+
 	// Revoking the peer ends the tunnel for it.
 	_, p := call(local, "GET", "/api/v1/wg-peers/"+peer, nil)
 	p["enabled"] = false
