@@ -63,6 +63,14 @@ func TestDHCPClientRequestsAreChecked(t *testing.T) {
 			t.Errorf("%+v was accepted: %v", req, err)
 		}
 	}
+	// pppd reads the options file named after its device, and no other.
+	ppp := daemonSpecs["pppd"]
+	for _, conf := range []string{"", "/x/ppp1.options", "/x/../ppp0.options", "relative/ppp0.options"} {
+		req := DaemonRequest{Name: "pppd", Interface: "ppp0", ConfigFile: conf, RunDir: dir}
+		if err := startDaemon(req, ppp, "/bin/true"); err == nil || !strings.Contains(err.Error(), "bad interface") {
+			t.Errorf("pppd with %q was accepted: %v", conf, err)
+		}
+	}
 	// A daemon with one instance per node does not take an interface.
 	if err := startDaemon(DaemonRequest{Name: "radvd", Interface: "eth0", ConfigFile: "/x/radvd.conf", RunDir: dir}, daemonSpecs["radvd"], "/bin/true"); err == nil {
 		t.Error("radvd took an interface")

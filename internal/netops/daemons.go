@@ -75,9 +75,11 @@ type daemonSpec struct {
 	options []string
 	// hup says the daemon reads its configuration again on SIGHUP.
 	hup bool
-	// perIface: one instance per interface, named by the request; such a
-	// daemon has no configuration file of Testudo's.
-	perIface bool
+	// perIface: one instance per interface, named by the request. Such a
+	// daemon has no configuration file of Testudo's, unless ifaceConf
+	// names one: <interface><ifaceConf> in the directory the request says.
+	perIface  bool
+	ifaceConf string
 	// unit is the systemd template that runs the daemon where systemd
 	// does (testudo-dhcp@): outside Testudo's own sandbox, so the client's
 	// script may set the resolver, and on when Testudo restarts.
@@ -131,6 +133,10 @@ var daemonSpecs = map[string]daemonSpec{
 		}},
 	"dhcpcd": {paths: []string{"/usr/sbin/dhcpcd", "/sbin/dhcpcd"}, perIface: true, unit: "testudo-dhcpcd@",
 		args: func(r DaemonRequest) []string { return []string{"-B", "-4", r.Interface} }},
+	// A PPPoE session, one per PPP device; the options file holds the
+	// credentials and is never passed on the command line.
+	"pppd": {paths: []string{"/usr/sbin/pppd", "/sbin/pppd"}, perIface: true, ifaceConf: ".options", unit: "testudo-pppoe@",
+		args: func(r DaemonRequest) []string { return []string{"file", r.ConfigFile} }},
 }
 
 // DHCPClients are the per-interface DHCP clients, in order of preference.
@@ -204,8 +210,12 @@ func stopDaemon(key string) {
 
 func startDaemon(req DaemonRequest, spec daemonSpec, bin string) error {
 	if spec.perIface {
-		if !ifaceRe.MatchString(req.Interface) || req.ConfigFile != "" || !cleanPath(req.RunDir) {
-			return fmt.Errorf("%s: bad interface or run directory", req.Name)
+		confOK := req.ConfigFile == ""
+		if spec.ifaceConf != "" {
+			confOK = cleanPath(req.ConfigFile) && filepath.Base(req.ConfigFile) == req.Interface+spec.ifaceConf
+		}
+		if !ifaceRe.MatchString(req.Interface) || !confOK || !cleanPath(req.RunDir) {
+			return fmt.Errorf("%s: bad interface, configuration or run directory", req.Name)
 		}
 	} else if req.Interface != "" || !cleanPath(req.ConfigFile) || filepath.Base(req.ConfigFile) != spec.conf || !cleanPath(req.RunDir) {
 		return fmt.Errorf("%s: bad configuration or run directory path", req.Name)
