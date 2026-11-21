@@ -44,3 +44,34 @@ func TestDaemonRequestsAreChecked(t *testing.T) {
 		t.Errorf("status of a daemon never started: %q", r.Output)
 	}
 }
+
+// TestDHCPClientRequestsAreChecked: a DHCP client runs for a valid
+// interface name only, never takes a configuration file, and an interface
+// name cannot smuggle in an option.
+func TestDHCPClientRequestsAreChecked(t *testing.T) {
+	spec := daemonSpecs["dhclient"]
+	dir := t.TempDir()
+	for _, req := range []DaemonRequest{
+		{Name: "dhclient", Interface: "-sf/tmp/x", RunDir: dir},
+		{Name: "dhclient", Interface: "eth0 eth1", RunDir: dir},
+		{Name: "dhclient", Interface: "averyveryverylongname", RunDir: dir},
+		{Name: "dhclient", Interface: "", RunDir: dir},
+		{Name: "dhclient", Interface: "eth0", ConfigFile: "/x/dhclient.conf", RunDir: dir},
+	} {
+		if err := startDaemon(req, spec, "/bin/true"); err == nil || !strings.Contains(err.Error(), "bad interface") {
+			t.Errorf("%+v was accepted: %v", req, err)
+		}
+	}
+	// A daemon with one instance per node does not take an interface.
+	if err := startDaemon(DaemonRequest{Name: "radvd", Interface: "eth0", ConfigFile: "/x/radvd.conf", RunDir: dir}, daemonSpecs["radvd"], "/bin/true"); err == nil {
+		t.Error("radvd took an interface")
+	}
+	args := spec.args(DaemonRequest{Interface: "eth0"})
+	if args[len(args)-1] != "eth0" || !strings.Contains(strings.Join(args, " "), "/var/lib/dhcp/dhclient-testudo-eth0.leases") {
+		t.Errorf("dhclient arguments: %v", args)
+	}
+	// Two interfaces are two instances.
+	if procKey(DaemonRequest{Name: "dhclient", Interface: "eth0", RunDir: dir}) == procKey(DaemonRequest{Name: "dhclient", Interface: "eth1", RunDir: dir}) {
+		t.Error("one process key for two interfaces")
+	}
+}

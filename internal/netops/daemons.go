@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -50,6 +51,9 @@ type DaemonRequest struct {
 	// Options are named switches the daemon's spec knows (chronyd:
 	// "serve-only").
 	Options []string `json:"options,omitempty"`
+	// Interface is the device of a daemon that runs once per interface
+	// (the DHCP clients).
+	Interface string `json:"interface,omitempty"`
 }
 
 func (r DaemonRequest) has(option string) bool {
@@ -71,6 +75,9 @@ type daemonSpec struct {
 	options []string
 	// hup says the daemon reads its configuration again on SIGHUP.
 	hup bool
+	// perIface: one instance per interface, named by the request; such a
+	// daemon has no configuration file of Testudo's.
+	perIface bool
 }
 
 // keaEnv keeps Kea's pid and lock files in the run directory instead of
@@ -110,7 +117,23 @@ var daemonSpecs = map[string]daemonSpec{
 		args: func(r DaemonRequest) []string {
 			return []string{"-n", "-m", "stderr", "-u", "radvd", "-p", filepath.Join(r.RunDir, "radvd.pid"), "-C", r.ConfigFile}
 		}},
+	// The DHCP clients of interfaces. dhclient keeps its pid and lease files
+	// where the distribution's AppArmor profile lets it write, and its
+	// script sets the routes and resolvers it is given.
+	"dhclient": {paths: []string{"/usr/sbin/dhclient", "/sbin/dhclient"}, perIface: true,
+		args: func(r DaemonRequest) []string {
+			return []string{"-d", "-4", "-pf", "/run/dhclient-testudo-" + r.Interface + ".pid",
+				"-lf", "/var/lib/dhcp/dhclient-testudo-" + r.Interface + ".leases", r.Interface}
+		}},
+	"dhcpcd": {paths: []string{"/usr/sbin/dhcpcd", "/sbin/dhcpcd"}, perIface: true,
+		args: func(r DaemonRequest) []string { return []string{"-B", "-4", r.Interface} }},
 }
+
+// DHCPClients are the per-interface DHCP clients, in order of preference.
+var DHCPClients = []string{"dhclient", "dhcpcd"}
+
+// ifaceRe is a kernel interface name that cannot be taken for an option.
+var ifaceRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,14}$`)
 
 // DaemonBinary returns where a managed daemon is installed.
 func DaemonBinary(name string) (string, error) {
@@ -154,7 +177,12 @@ func cleanPath(p string) bool {
 
 // procKey tells instances apart: one per daemon and run directory, so a
 // test can run two nodes' daemons in one process.
-func procKey(req DaemonRequest) string { return req.Name + "@" + req.RunDir }
+func procKey(req DaemonRequest) string {
+	if req.Interface != "" {
+		return req.Name + "%" + req.Interface + "@" + req.RunDir
+	}
+	return req.Name + "@" + req.RunDir
+}
 
 func stopDaemon(key string) {
 	p := daemons.procs[key]
@@ -171,7 +199,11 @@ func stopDaemon(key string) {
 }
 
 func startDaemon(req DaemonRequest, spec daemonSpec, bin string) error {
-	if !cleanPath(req.ConfigFile) || filepath.Base(req.ConfigFile) != spec.conf || !cleanPath(req.RunDir) {
+	if spec.perIface {
+		if !ifaceRe.MatchString(req.Interface) || req.ConfigFile != "" || !cleanPath(req.RunDir) {
+			return fmt.Errorf("%s: bad interface or run directory", req.Name)
+		}
+	} else if req.Interface != "" || !cleanPath(req.ConfigFile) || filepath.Base(req.ConfigFile) != spec.conf || !cleanPath(req.RunDir) {
 		return fmt.Errorf("%s: bad configuration or run directory path", req.Name)
 	}
 	if err := os.MkdirAll(req.RunDir, 0o700); err != nil {
@@ -304,7 +336,13 @@ func (w *Writer) DaemonControl(req DaemonRequest) error {
 // DaemonState reports "running", "stopped" or "missing" (not installed)
 // for the daemon with that run directory.
 func (w *Writer) DaemonState(name, runDir string) (string, error) {
+	return w.DaemonStateOf(DaemonRequest{Name: name, RunDir: runDir})
+}
+
+// DaemonStateOf is DaemonState for a daemon that runs per interface.
+func (w *Writer) DaemonStateOf(req DaemonRequest) (string, error) {
 	var out string
-	err := w.queryInto(Op{Kind: OpQueryDaemonStatus, Daemon: &DaemonRequest{Name: name, Mode: DaemonStatus, RunDir: runDir}}, &out)
+	req.Mode = DaemonStatus
+	err := w.queryInto(Op{Kind: OpQueryDaemonStatus, Daemon: &req}, &out)
 	return out, err
 }
