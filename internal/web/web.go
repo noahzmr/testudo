@@ -73,8 +73,11 @@ type Server struct {
 	OIDCHTTPClient *http.Client
 
 	// stopping is closed when the server shuts down; long-lived responses
-	// (the configuration event stream) end on it.
+	// (the configuration event stream, the live views) end on it.
 	stopping <-chan struct{}
+
+	// live pushes the console's snapshot to every open console.
+	live *liveHub
 }
 
 // sessionRecord is one logged-in browser. The role is captured at login so a
@@ -133,6 +136,7 @@ func New(eng *engine.Engine, addr string) *Server {
 		sessions: make(map[string]*sessionRecord),
 		shared:   &shared{},
 	}
+	srv.live = newLiveHub(srv)
 	if eng != nil {
 		if sec, ok := eng.SessionStore(); ok {
 			srv.shared.sec, srv.shared.local = sec, sec.Local()
@@ -204,6 +208,7 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/pam/ssh/cert", s.protect(s.handlePAMSSHCert))
 
 	mux.HandleFunc("/api/snapshot", s.protect(s.handleSnapshot))
+	mux.HandleFunc("/api/live", s.protect(s.handleLive))
 	mux.HandleFunc("/api/settings", s.protect(s.handleSettings))
 	mux.HandleFunc("/api/baseline/reset", s.protect(s.handleBaselineReset))
 	mux.HandleFunc("/api/probe", s.protect(s.handleProbe))
@@ -229,16 +234,11 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/route/add", s.protect(s.handleRouteAdd))
 	mux.HandleFunc("/api/route/del", s.protect(s.handleRouteDel))
 
-	// Firewall / NAT: every mutation goes through the policy manager (desired
-	// state in firewall.json, applied atomically, reconciled after reboot).
-	// The policy view is read-only; defaults and rules are model objects.
+	// Firewall / NAT: rules are model objects; these show the running state.
 	mux.HandleFunc("/api/firewall/reset-counter", s.protect(s.handleFirewallResetCounter))
 	mux.HandleFunc("/api/firewall/view", s.protect(s.handleFirewallView))
 	mux.HandleFunc("/api/firewall/rendered", s.protect(s.handleFirewallRendered))
 	mux.HandleFunc("/api/conntrack/flush", s.protect(s.handleConntrackFlush))
-
-	// WireGuard: read via /api/snapshot; provision/deprovision here. Peer
-	// provisioning is a write-gated, audit-logged transaction with rollback.
 
 	// TCPDump
 	mux.HandleFunc("/api/tcpdump/start", s.protect(s.handleTCPDumpStart))
