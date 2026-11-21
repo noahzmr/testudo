@@ -29,7 +29,7 @@ type ConntrackFlow struct {
 	ReplyDst   string `json:"reply_dst"` // != OrigSrc when SNAT'd
 	ReplySport uint16 `json:"reply_sport,omitempty"`
 	ReplyDport uint16 `json:"reply_dport,omitempty"`
-	State      string `json:"state"`     // ESTABLISHED / TIME_WAIT / ASSURED / ...
+	State      string `json:"state"` // ESTABLISHED / TIME_WAIT / ASSURED / ...
 	NATed      bool   `json:"natted"`
 	Packets    uint64 `json:"packets"`
 	Bytes      uint64 `json:"bytes"`
