@@ -379,3 +379,53 @@ func keys(m map[flows.FlowKey]flows.FlowStats) []string {
 	}
 	return out
 }
+
+// TestCaptureFollowsNewInterfaces: an auto-discovered capture starts on a
+// interface that appears after the start, and its traffic is
+// counted there.
+func TestCaptureFollowsNewInterfaces(t *testing.T) {
+	if testnet.Isolate(t) {
+		return
+	}
+	old := capture.Rediscover
+	capture.Rediscover = 200 * time.Millisecond
+	defer func() { capture.Rediscover = old }()
+	agg := flows.NewAggregator()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		_ = (&capture.Multi{Flows: agg}).Run(ctx, events.NewBus(16))
+		close(done)
+	}()
+	time.Sleep(300 * time.Millisecond)
+	// An interface that appears later, as a tunnel the appliance creates does.
+	peer := testnet.NewNS(t, "peer")
+	testnet.Veth(t, "late0", peer, "eth0")
+	testnet.Must(t, testnet.Addr("late0", "10.77.9.1/24"))
+	testnet.Must(t, peer.Do(func() error { return testnet.Addr("eth0", "10.77.9.2/24") }))
+	srv := listenUDP(t, peer, "10.77.9.2", 6000)
+	defer srv.Close()
+	var seen bool
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !seen; time.Sleep(100 * time.Millisecond) {
+		c, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("10.77.9.2"), Port: 6000})
+		if err == nil {
+			c.Write([]byte("hello"))
+			c.Close()
+		}
+		for _, f := range agg.Snapshot() {
+			if f.Key.Iface == "late0" && (f.Key.A.Port == 6000 || f.Key.B.Port == 6000) {
+				seen = true
+			}
+		}
+	}
+	if !seen {
+		t.Fatal("the capture did not pick up an interface that appeared after it started")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the capture did not stop")
+	}
+}

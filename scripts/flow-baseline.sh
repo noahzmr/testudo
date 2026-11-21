@@ -40,7 +40,7 @@ if command -v docker >/dev/null 2>&1 && docker image inspect "$image" >/dev/null
 	CGO_ENABLED=0 go test -c -o "$tmp/capture.test" ./internal/capture
 	if docker run --rm --privileged --network none \
 		-e TESTUDO_REQUIRE_NETNS=1 -v "$tmp:/t:ro" "$image" \
-		/t/capture.test -test.run '^TestFlowBaseline$' -test.count=1 >"$tmp/log" 2>&1; then
+		/t/capture.test -test.run '^(TestFlowBaseline|TestCaptureFollowsNewInterfaces)$' -test.count=1 >"$tmp/log" 2>&1; then
 		echo "flow-baseline: ok (container namespace, $image)"
 		exit 0
 	fi

@@ -12,6 +12,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -54,9 +55,9 @@ func isL3Interface(iface string) bool {
 	return len(ifi.HardwareAddr) == 0
 }
 
-// Multi captures packets from many interfaces concurrently. Discover the
-// interface list once at Start; the set is fixed for the session's lifetime
-// (interface hotplug is Phase 4 work).
+// Multi captures packets from many interfaces concurrently. With an
+// explicit list the set is fixed; auto-discovery follows interfaces that
+// come and go.
 //
 // Capture writes directly into the supplied FlowAggregator rather than
 // publishing per-packet events on the bus - on a busy link the bus fanout
@@ -78,21 +79,31 @@ type Multi struct {
 
 func (m *Multi) Name() string { return "capture" }
 
+// Rediscover is how often an auto-discovered capture looks for interfaces
+// that came or went: tunnels the appliance creates after the start (a
+// WireGuard device, a fabric tunnel) are captured too.
+var Rediscover = 5 * time.Second
+
 // Run spawns one capture goroutine per interface. Each goroutine respects
-// ctx cancellation. Returns nil once all per-iface workers exit.
+// ctx cancellation. With an explicit interface list the set is fixed; with
+// auto-discovery it follows the interfaces that come and go. Returns nil
+// once all per-iface workers exit.
 func (m *Multi) Run(ctx context.Context, bus *events.Bus) error {
 	if m.Flows == nil {
 		return fmt.Errorf("capture: Flows aggregator required")
 	}
-	ifaces := m.Ifaces
-	if len(ifaces) == 0 {
-		discovered, err := AutoDiscover(m.ExcludePatterns)
-		if err != nil {
-			return fmt.Errorf("auto-discover interfaces: %w", err)
+	fixed := len(m.Ifaces) > 0
+	discover := func() ([]string, error) {
+		if fixed {
+			return m.Ifaces, nil
 		}
-		ifaces = discovered
+		return AutoDiscover(m.ExcludePatterns)
 	}
-	if len(ifaces) == 0 {
+	ifaces, err := discover()
+	if err != nil {
+		return fmt.Errorf("auto-discover interfaces: %w", err)
+	}
+	if len(ifaces) == 0 && fixed {
 		bus.Publish(events.Event{
 			Kind: events.KindAnomaly, Source: m.Name(),
 			Payload: events.AnomalyPayload{
@@ -104,12 +115,14 @@ func (m *Multi) Run(ctx context.Context, bus *events.Bus) error {
 	}
 
 	var wg sync.WaitGroup
-	for _, iface := range ifaces {
-		iface := iface
+	running := map[string]context.CancelFunc{}
+	start := func(iface string) {
+		ictx, cancel := context.WithCancel(ctx)
+		running[iface] = cancel
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := captureOne(ctx, iface, m.Flows, m.Ring, bus); err != nil {
+			if err := captureOne(ictx, iface, m.Flows, m.Ring, bus); err != nil && ictx.Err() == nil {
 				bus.Publish(events.Event{
 					Kind: events.KindAnomaly, Source: m.Name(),
 					Payload: events.AnomalyPayload{
@@ -120,6 +133,9 @@ func (m *Multi) Run(ctx context.Context, bus *events.Bus) error {
 			}
 		}()
 	}
+	for _, iface := range ifaces {
+		start(iface)
+	}
 	bus.Publish(events.Event{
 		Kind: events.KindAnomaly, Source: m.Name(),
 		Payload: events.AnomalyPayload{
@@ -127,6 +143,46 @@ func (m *Multi) Run(ctx context.Context, bus *events.Bus) error {
 			Message:  fmt.Sprintf("capture started on %d interface(s): %s", len(ifaces), strings.Join(ifaces, ", ")),
 		},
 	})
+	if !fixed {
+		tick := time.NewTicker(Rediscover)
+		defer tick.Stop()
+	follow:
+		for {
+			select {
+			case <-ctx.Done():
+				break follow
+			case <-tick.C:
+			}
+			now, err := AutoDiscover(m.ExcludePatterns)
+			if err != nil {
+				continue
+			}
+			seen := map[string]bool{}
+			var added []string
+			for _, iface := range now {
+				seen[iface] = true
+				if _, ok := running[iface]; !ok {
+					start(iface)
+					added = append(added, iface)
+				}
+			}
+			for iface, cancel := range running {
+				if !seen[iface] {
+					cancel()
+					delete(running, iface)
+				}
+			}
+			if len(added) > 0 {
+				bus.Publish(events.Event{
+					Kind: events.KindAnomaly, Source: m.Name(),
+					Payload: events.AnomalyPayload{
+						Severity: string(events.SevInfo),
+						Message:  "capture follows new interface(s): " + strings.Join(added, ", "),
+					},
+				})
+			}
+		}
+	}
 	wg.Wait()
 	return nil
 }
