@@ -755,6 +755,210 @@
       ]
     },
     {
+      "kind": "pppoe",
+      "plural": "pppoe",
+      "title": "PPPoE link",
+      "menu": "interfaces/pppoe",
+      "scopes": [
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "device",
+          "label": "Device",
+          "type": "string",
+          "order": 10,
+          "help": "Name of the PPP device such as ppp0",
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "parent",
+          "label": "Ethernet device",
+          "type": "string",
+          "order": 20,
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "username",
+          "label": "User name",
+          "type": "string",
+          "order": 30,
+          "required": true
+        },
+        {
+          "name": "password",
+          "label": "Password",
+          "type": "string",
+          "widget": "password",
+          "order": 40,
+          "secret": true
+        },
+        {
+          "name": "service_name",
+          "label": "Service name",
+          "type": "string",
+          "order": 50,
+          "help": "Only when the provider asks for one"
+        },
+        {
+          "name": "mtu",
+          "label": "MTU",
+          "type": "integer",
+          "order": 60,
+          "help": "Empty is 1492"
+        },
+        {
+          "name": "default_route",
+          "label": "Default route",
+          "type": "boolean",
+          "order": 70
+        },
+        {
+          "name": "peer_dns",
+          "label": "Use the provider's name servers",
+          "type": "boolean",
+          "order": 80
+        },
+        {
+          "name": "ipv6",
+          "label": "IPv6",
+          "type": "boolean",
+          "order": 90,
+          "help": "Negotiates a link-local address; the prefix comes by DHCPv6"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
       "kind": "zone",
       "plural": "zones",
       "title": "Zone",

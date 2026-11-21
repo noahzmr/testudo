@@ -47,6 +47,7 @@ const (
 	KindBond           Kind = "bond"
 	KindBridge         Kind = "bridge"
 	KindVLAN           Kind = "vlan"
+	KindPPPoE          Kind = "pppoe"
 )
 
 func init() {
@@ -54,6 +55,7 @@ func init() {
 	register("bonds", "Bond", "interfaces/bonds", nodeOnly, func() Entity { return &Bond{} })
 	register("bridges", "Bridge", "interfaces/bridges", nodeOnly, func() Entity { return &Bridge{} })
 	register("vlans", "VLAN", "interfaces/vlans", nodeOnly, func() Entity { return &VLAN{} })
+	register("pppoe", "PPPoE link", "interfaces/pppoe", nodeOnly, func() Entity { return &PPPoE{} })
 	register("zones", "Zone", "firewall/zones", allLevels, func() Entity { return &Zone{} })
 	register("aliases", "Alias", "firewall/aliases", allLevels, func() Entity { return &Alias{} })
 	register("filter-rules", "Filter rule", "firewall/rules", allLevels, func() Entity { return &FilterRule{} })
@@ -799,3 +801,21 @@ type VLAN struct {
 }
 
 func (VLAN) Kind() Kind { return KindVLAN }
+
+// PPPoE is a dial-up link over Ethernet to a provider: a PPP device (such
+// as ppp0) that an interface of the model can put in a zone.
+type PPPoE struct {
+	Meta         `yaml:",inline"`
+	Enabled      bool   `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Device       string `json:"device" yaml:"device" validate:"required,ifname" ui:"label=Device,order=10,help=Name of the PPP device such as ppp0"`
+	Parent       string `json:"parent" yaml:"parent" validate:"required,ifname" ui:"label=Ethernet device,order=20"`
+	Username     string `json:"username" yaml:"username" validate:"required,max=128" ui:"label=User name,order=30"`
+	Password     string `json:"password,omitempty" yaml:"password,omitempty" validate:"max=128" ui:"label=Password,widget=password,order=40" secret:"true"`
+	ServiceName  string `json:"service_name,omitempty" yaml:"service_name,omitempty" validate:"max=64" ui:"label=Service name,order=50,help=Only when the provider asks for one"`
+	MTU          int    `json:"mtu,omitempty" yaml:"mtu,omitempty" validate:"omitempty,min=576,max=1500" ui:"label=MTU,order=60,help=Empty is 1492"`
+	DefaultRoute bool   `json:"default_route,omitempty" yaml:"default_route,omitempty" validate:"-" ui:"label=Default route,order=70"`
+	PeerDNS      bool   `json:"peer_dns,omitempty" yaml:"peer_dns,omitempty" validate:"-" ui:"label=Use the provider's name servers,order=80"`
+	IPv6         bool   `json:"ipv6,omitempty" yaml:"ipv6,omitempty" validate:"-" ui:"label=IPv6,order=90,help=Negotiates a link-local address; the prefix comes by DHCPv6"`
+}
+
+func (PPPoE) Kind() Kind { return KindPPPoE }
