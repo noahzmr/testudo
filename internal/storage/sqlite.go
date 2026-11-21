@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS flows (
     last_seen    INTEGER NOT NULL,
     process      TEXT NOT NULL DEFAULT '',
     dns_name     TEXT NOT NULL DEFAULT '',
+    attrs        TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (session_id, iface, a_ip, a_port, b_ip, b_port, proto)
 );
 CREATE INDEX IF NOT EXISTS idx_flows_session ON flows(session_id);
@@ -342,6 +343,22 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
+	// Flow attribution (zone, tunnel, NAT, load balancer) as one JSON
+	// column; older rows keep ''.
+	if ok, err := tableExists(db, "flows"); err != nil {
+		return err
+	} else if ok {
+		has, err := columnExists(db, "flows", "attrs")
+		if err != nil {
+			return err
+		}
+		if !has {
+			if _, err := db.Exec("ALTER TABLE flows ADD COLUMN attrs TEXT NOT NULL DEFAULT ''"); err != nil {
+				return fmt.Errorf("add flows attrs column: %w", err)
+			}
+		}
+	}
+
 	// Identity (PAM P3): audit rows gained the human actor next to the
 	// process uid. Older rows keep ''.
 	hasAudit, err := tableExists(db, "audit_log")
@@ -545,6 +562,9 @@ type FlowRow struct {
 	LastSeen       time.Time
 	Process        string
 	DNSName        string
+	// Attrs is the flow's attribution as JSON (flows.Attrs); empty when
+	// nothing is known.
+	Attrs string
 }
 
 // UpsertFlow inserts or updates a flow row. Counters accumulate on conflict.
@@ -552,8 +572,8 @@ func (s *Store) UpsertFlow(ctx context.Context, sessionID string, f FlowRow) err
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO flows (session_id, iface, a_ip, a_port, b_ip, b_port, proto,
 		                   packets, bytes, bytes_a_to_b, bytes_b_to_a,
-		                   first_seen, last_seen, process, dns_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                   first_seen, last_seen, process, dns_name, attrs)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(session_id, iface, a_ip, a_port, b_ip, b_port, proto) DO UPDATE SET
 		  packets      = packets + excluded.packets,
 		  bytes        = bytes + excluded.bytes,
@@ -561,12 +581,13 @@ func (s *Store) UpsertFlow(ctx context.Context, sessionID string, f FlowRow) err
 		  bytes_b_to_a = bytes_b_to_a + excluded.bytes_b_to_a,
 		  last_seen    = excluded.last_seen,
 		  process      = CASE WHEN excluded.process != '' THEN excluded.process ELSE flows.process END,
-		  dns_name     = CASE WHEN excluded.dns_name != '' THEN excluded.dns_name ELSE flows.dns_name END
+		  dns_name     = CASE WHEN excluded.dns_name != '' THEN excluded.dns_name ELSE flows.dns_name END,
+		  attrs        = CASE WHEN excluded.attrs != '' THEN excluded.attrs ELSE flows.attrs END
 	`,
 		sessionID, f.Iface, f.AIP, f.APort, f.BIP, f.BPort, f.Proto,
 		f.Packets, f.Bytes, f.BytesAtoB, f.BytesBtoA,
 		f.FirstSeen.UnixMilli(), f.LastSeen.UnixMilli(),
-		f.Process, f.DNSName,
+		f.Process, f.DNSName, f.Attrs,
 	)
 	return err
 }
@@ -578,7 +599,7 @@ func (s *Store) FlowsBySession(ctx context.Context, sessionID string, limit int)
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT iface, a_ip, a_port, b_ip, b_port, proto, packets, bytes,
-		       bytes_a_to_b, bytes_b_to_a, first_seen, last_seen, process, dns_name
+		       bytes_a_to_b, bytes_b_to_a, first_seen, last_seen, process, dns_name, attrs
 		  FROM flows
 		 WHERE session_id = ?
 		 ORDER BY last_seen DESC
@@ -593,7 +614,7 @@ func (s *Store) FlowsBySession(ctx context.Context, sessionID string, limit int)
 		var firstMs, lastMs int64
 		if err := rows.Scan(&f.Iface, &f.AIP, &f.APort, &f.BIP, &f.BPort, &f.Proto,
 			&f.Packets, &f.Bytes, &f.BytesAtoB, &f.BytesBtoA,
-			&firstMs, &lastMs, &f.Process, &f.DNSName); err != nil {
+			&firstMs, &lastMs, &f.Process, &f.DNSName, &f.Attrs); err != nil {
 			return nil, err
 		}
 		f.FirstSeen = time.UnixMilli(firstMs)

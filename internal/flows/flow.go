@@ -56,11 +56,57 @@ type FlowStats struct {
 	NATMapping    string // e.g. "DNAT 192.168.1.10:443 => 10.0.0.5:443"
 	RouteVia      string // e.g. "10.0.0.1 dev eth0"
 
+	// Attrs say where the flow belongs in the appliance: zone, tunnel,
+	// identity, address translation, load balancer. See internal/flowattr.
+	Attrs Attrs
+
 	// TCP carries per-flow TCP quality joined from the telemetry source
 	// (INET_DIAG/ss -ti or eBPF). TCP.Source is empty when no telemetry has
 	// been observed for this flow. See internal/telemetry.
 	TCP FlowTCPStats
 }
+
+// Attrs place a flow in the appliance's own terms. Every field is empty
+// when nothing is known about it.
+type Attrs struct {
+	// Site is the site that saw the flow; Zone and VRF are those of the
+	// interface it was seen on.
+	Site string `json:"site,omitempty"`
+	Zone string `json:"zone,omitempty"`
+	VRF  string `json:"vrf,omitempty"`
+	// Tunnel is the WireGuard tunnel the flow travels in ("fabric" for the
+	// network between the sites), Peer the peer at its other end, PeerSite
+	// that peer's site and Path the fabric color.
+	Tunnel   string `json:"tunnel,omitempty"`
+	Peer     string `json:"peer,omitempty"`
+	PeerSite string `json:"peer_site,omitempty"`
+	Path     string `json:"path,omitempty"`
+	// Carrier is set on the encrypted traffic of a tunnel: the flow that
+	// carries Tunnel/Peer over an uplink.
+	Carrier bool `json:"carrier,omitempty"`
+	// User is the person behind the flow, where a tunnel peer is bound to
+	// one.
+	User string `json:"user,omitempty"`
+	// PreNAT and PostNAT are the connection before and after address
+	// translation, "proto src:port > dst:port".
+	PreNAT  string `json:"pre_nat,omitempty"`
+	PostNAT string `json:"post_nat,omitempty"`
+	// Load balancing: whether the flow is a client's connection to a
+	// service or the balancer's connection to a backend, and what routed
+	// it where.
+	LBRole    string `json:"lb_role,omitempty"`
+	LBService string `json:"lb_service,omitempty"`
+	LBRouter  string `json:"lb_router,omitempty"`
+	LBHost    string `json:"lb_host,omitempty"`
+	LBBackend string `json:"lb_backend,omitempty"`
+	// Conversation is shared by flows that are parts of one exchange: both
+	// sides of an address translation, a client's connection and the
+	// backend connection it was passed to.
+	Conversation string `json:"conversation,omitempty"`
+}
+
+// Empty reports whether nothing is known.
+func (a Attrs) Empty() bool { return a == Attrs{} }
 
 // FlowTCPStats holds per-flow TCP quality sampled from tcp_info - delivered by
 // the kernel via INET_DIAG (pure-Go, Stage A) or an eBPF tracepoint (Stage B).
