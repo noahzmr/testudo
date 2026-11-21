@@ -193,7 +193,7 @@ func (w *Writer) queryDirect(op Op) ([]byte, error) {
 		if op.Daemon == nil {
 			return nil, fmt.Errorf("daemon status missing request")
 		}
-		return marshalResult(runDaemon(DaemonRequest{Name: op.Daemon.Name, Mode: DaemonStatus, RunDir: op.Daemon.RunDir}))
+		return marshalResult(runDaemon(DaemonRequest{Name: op.Daemon.Name, Mode: DaemonStatus, RunDir: op.Daemon.RunDir, Interface: op.Daemon.Interface}))
 	case OpQueryPAMAuth:
 		if op.PAM == nil {
 			return nil, fmt.Errorf("pam login missing request")

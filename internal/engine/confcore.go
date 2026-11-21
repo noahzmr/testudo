@@ -24,6 +24,7 @@ import (
 	"github.com/noahzmr/testudo/internal/harender"
 	"github.com/noahzmr/testudo/internal/hastage"
 	"github.com/noahzmr/testudo/internal/identity"
+	"github.com/noahzmr/testudo/internal/ifstage"
 	"github.com/noahzmr/testudo/internal/lbhealth"
 	"github.com/noahzmr/testudo/internal/lbstage"
 	"github.com/noahzmr/testudo/internal/model"
@@ -50,7 +51,10 @@ type confCore struct {
 	// feed holds the content of URL-table and GeoIP aliases.
 	feed *aliasfeed.Feed
 	// wg is the WireGuard stage; secrets holds its keys on this node.
-	wg      *wgstage.Stage
+	wg *wgstage.Stage
+	// ifaces configures the node's devices: addresses, DHCP clients, MTU,
+	// link state.
+	ifaces  *ifstage.Stage
 	secrets secrets.Store
 	// routing is the routing stage; gateways watches the gateways whose
 	// health decides which routes it renders.
@@ -90,6 +94,9 @@ const (
 	// svcRunDir holds the services' configuration, which daemons that drop
 	// privileges read again on a reload, their pid files and sockets.
 	svcRunDir = "/run/testudo-svc"
+	// ifRunDir is where the DHCP clients of interfaces are supervised
+	// from; their own pid and lease files are where the client keeps them.
+	ifRunDir = "/run/testudo-if"
 )
 
 // ConfigDir is where the configuration log and the pending-apply marker live.
@@ -125,6 +132,11 @@ func (e *Engine) openConfig() {
 		}
 		return local.Put(name, value)
 	}
+	// The devices come first: everything after them uses their addresses.
+	c.ifaces = &ifstage.Stage{Locate: e.locate, Dir: filepath.Join(e.cfg.StorageDir, "interfaces"), RunDir: ifRunDir}
+	if e.netops != nil {
+		c.ifaces.Runner = e.netops
+	}
 	c.wg = &wgstage.Stage{Locate: e.locate, Secrets: c.secrets}
 	if e.netops != nil {
 		c.wg.Runner = e.netops
@@ -156,7 +168,7 @@ func (e *Engine) openConfig() {
 	if e.netops != nil {
 		c.proxy.Runner = e.netops
 	}
-	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.wg, stage, c.routing, c.ha, c.services, c.proxy)
+	c.apply, c.err = confapply.New(c.store, confapply.Options{Dir: dir, Notify: e.configNotice}, c.ifaces, c.wg, stage, c.routing, c.ha, c.services, c.proxy)
 	if c.err != nil {
 		log.Printf("config: apply engine unavailable: %v", c.err)
 		c.store.Close()
