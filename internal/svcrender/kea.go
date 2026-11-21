@@ -145,7 +145,7 @@ func (r *renderer) kea(scopes []*model.DHCPScope, v6 bool, res *Result) (string,
 		"control-socket":    obj{"socket-type": "unix", "socket-name": filepath.Join(r.opt.RunDir, sock)},
 		"lease-database":    obj{"type": "memfile", "persist": true, "name": filepath.Join(r.opt.Dir, leases), "lfc-interval": 3600},
 		subnets:             list,
-		"loggers": []any{obj{"name": "kea-dhcp" + fam, "output_options": []any{obj{"output": "stdout"}}, "severity": "INFO"}},
+		"loggers":           []any{obj{"name": "kea-dhcp" + fam, "output_options": []any{obj{"output": "stdout"}}, "severity": "INFO"}},
 		// Client names are kept with the lease only when name updates are
 		// on; they go to the engine on the loopback, which enters them in
 		// the resolver.

@@ -145,7 +145,9 @@ type pair struct {
 	partnerID string
 }
 
-func (r *renderer) fail(format string, args ...any) { r.errs = append(r.errs, fmt.Sprintf(format, args...)) }
+func (r *renderer) fail(format string, args ...any) {
+	r.errs = append(r.errs, fmt.Sprintf(format, args...))
+}
 
 // effective returns the objects of one kind that apply to the node, with
 // overrides resolved, ordered by name.

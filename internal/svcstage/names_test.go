@@ -22,7 +22,7 @@ func TestDesiredNames(t *testing.T) {
 	leases := []Lease{
 		{Address: "192.168.1.100", Hostname: "laptop.home.arpa", SubnetID: 1, Expires: later},
 		{Address: "2001:db8:1::1000", Hostname: "laptop.home.arpa", SubnetID: 1, V6: true, Expires: later},
-		{Address: "192.168.1.101", Hostname: "nas.home.arpa", SubnetID: 1, Expires: later},     // the model's name
+		{Address: "192.168.1.101", Hostname: "nas.home.arpa", SubnetID: 1, Expires: later},    // the model's name
 		{Address: "192.168.1.102", Hostname: "evil.example.com", SubnetID: 1, Expires: later}, // outside the domain
 		{Address: "192.168.1.103", Hostname: "old.home.arpa", SubnetID: 1, Expires: now.Add(-time.Minute)},
 		{Address: "192.168.1.104", Hostname: "declined.home.arpa", SubnetID: 1, Expires: later, State: 1},
