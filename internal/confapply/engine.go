@@ -130,7 +130,7 @@ type Engine struct {
 	// alias contents, backend health), so this, not a fresh render of the
 	// current model, is what a change is compared with.
 	appliedArt map[string][]byte
-	timer   *time.Timer
+	timer      *time.Timer
 
 	// Cluster membership (see cluster.go). applied is the model index this
 	// member last put into effect, failed the one it last failed at.
