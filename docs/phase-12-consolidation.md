@@ -27,7 +27,7 @@ second paths. It answers the list "What the existing code makes harder" in
 | WireGuard provisioner, presets, netplan files | `wg_tunnel`, `wg_peer`, filter rules | the provisioner's rules come with `firewall.json` |
 | `users.json` | `user` objects; password hashes and TOTP secrets in the secret store | at the first start; file kept as `.migrated` |
 | PAM resources, policies, peer bindings (SQLite) | `access_resource`, `access_policy`, the user on `wg_peer` | at the first start |
-| PAM grants as firewall rules owned by `pam-grant:<id>` | `access_grant` objects | not carried over: a grant active at the upgrade loses its rules and is asked for again |
+| PAM grants as firewall rules owned by `pam-grant:<id>` | `access_grant` objects | at the first start: a grant active at the upgrade becomes a model grant with the same end |
 | sessions in memory | `session-<id>` entries in the secret store | a login after the upgrade |
 | `/api/firewall/*` writes, `/api/nat/del`, `/api/wireguard/*`, `/api/users*`, `/api/route/add|del` | the model's API (`/api/v1`) | - |
 | 2 s snapshot poll | `/api/live` (server-sent events) | - |

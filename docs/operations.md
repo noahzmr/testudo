@@ -46,7 +46,7 @@ and keeps each original next to it:
 | --- | --- | --- |
 | `users.json` | local users, their hashes and second factors in the secret store | `users.json.migrated` |
 | `firewall.json` | firewall policy, zones, filter and NAT rules, with the old WireGuard provisioner's rules | `firewall.json.migrated` |
-| access resources, policies and peer bindings in the database | `access_resource` and `access_policy` objects, the user on each `wg_peer` | the database rows |
+| access resources, policies, peer bindings and active grants in the database | `access_resource`, `access_policy` and `access_grant` objects, the user on each `wg_peer` | the database rows |
 
 What could not be carried over is in the log and in the audit row
 `firewall_migration`. The hand-written forms that changed rules, routes,

@@ -465,9 +465,14 @@ func (e *Engine) migratePAMCatalog(ctx context.Context) {
 		resID[r.ID] = m.ID
 		add(m)
 	}
+	polID := map[string]string{} // old id -> model id
 	for _, p := range policies {
 		name := safeObjName(p.Name)
-		if _, ok := byName[model.KindAccessPolicy][name]; ok || resID[p.ResourceID] == "" {
+		if id, ok := byName[model.KindAccessPolicy][name]; ok {
+			polID[p.ID] = id
+			continue
+		}
+		if resID[p.ResourceID] == "" {
 			continue
 		}
 		m := &model.AccessPolicy{Meta: model.Meta{ID: confstore.NewID(), Name: name, Description: "Moved from the access manager"},
@@ -487,8 +492,12 @@ func (e *Engine) migratePAMCatalog(ctx context.Context) {
 			// Asked for before; asking stays the way to get it.
 			m.RequiresApproval = true
 		}
+		polID[p.ID] = m.ID
 		add(m)
 	}
+	// Grants that were active when the access manager still wrote firewall
+	// rules become grants of the model, so they last until their end.
+	ops = append(ops, activeGrantOps(st, mustList(e.store.ListPAMGrants(ctx, []string{pam.StateActive}, 1000)), resID, polID, time.Now())...)
 	for _, obj := range st.List(model.KindWGPeer) {
 		p := obj.(*model.WGPeer)
 		if p.User.ID != "" {
@@ -504,7 +513,7 @@ func (e *Engine) migratePAMCatalog(ctx context.Context) {
 	if len(ops) == 0 {
 		return
 	}
-	if err := e.systemChange(ctx, "access resources and policies moved into the model", ops); err != nil {
+	if err := e.systemChange(ctx, "access resources, policies and active grants moved into the model", ops); err != nil {
 		log.Printf("access: moving resources and policies into the model: %v", err)
 		return
 	}
@@ -528,4 +537,49 @@ func safeObjName(s string) string {
 		out = out[:63]
 	}
 	return out
+}
+
+func mustList(gs []storage.PAMGrant, err error) []storage.PAMGrant {
+	if err != nil {
+		log.Printf("access: active grants not read: %v", err)
+		return nil
+	}
+	return gs
+}
+
+// activeGrantOps returns the model grants for active requests of the access
+// manager that have none yet. resID and polID map the manager's ids to the
+// model's.
+func activeGrantOps(st *confstore.State, active []storage.PAMGrant, resID, polID map[string]string, now time.Time) []confstore.Op {
+	have := map[string]bool{}
+	for _, obj := range st.List(model.KindAccessGrant) {
+		have[obj.(*model.AccessGrant).Request] = true
+	}
+	var ops []confstore.Op
+	for _, g := range active {
+		if have[g.ID] || !g.EndsAt.After(now) {
+			continue
+		}
+		res := resID[g.ResourceID]
+		if res == "" {
+			if _, ok := st.Get(model.KindAccessResource, g.ResourceID); ok {
+				res = g.ResourceID
+			}
+		}
+		u := modelUser(st, g.User)
+		if res == "" || u == nil {
+			log.Printf("access: active grant %s of %s has no resource or user in the model and ends now", g.ID, g.User)
+			continue
+		}
+		ends := g.EndsAt.UTC()
+		obj := &model.AccessGrant{Meta: model.Meta{ID: confstore.NewID(), Name: g.ID, Description: "Access for " + g.User},
+			Resource: model.Ref[model.AccessResource]{ID: res}, User: model.Ref[model.User]{ID: u.ID}, Ends: &ends,
+			Reason: g.Justification, ApprovedBy: g.ApprovedBy, BreakGlass: g.BreakGlass, Request: g.ID}
+		if id := polID[g.PolicyID]; id != "" {
+			obj.Policy = model.Ref[model.AccessPolicy]{ID: id}
+		}
+		raw, _ := json.Marshal(obj)
+		ops = append(ops, confstore.Op{Type: confstore.OpCreate, Kind: model.KindAccessGrant, ID: obj.ID, Object: raw})
+	}
+	return ops
 }
