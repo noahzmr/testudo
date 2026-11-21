@@ -317,6 +317,43 @@ func TestClusterEndToEnd(t *testing.T) {
 		eventually(n.name+" has the first node's model", 30*time.Second, func() bool { return count(n, "zones") == 1 })
 	}
 
+	// A session started on one member is good on the others, and a logout
+	// ends it on all of them. The first node's administrator is the
+	// cluster's now; its password is the first node's.
+	{
+		pw, _ := os.ReadFile(filepath.Join(n1.dir, "pw"))
+		jar, _ := cookiejar.New(nil)
+		browser := &http.Client{Jar: jar, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		res, err := browser.PostForm(n1.base()+"/login", url.Values{"username": {"testudo"}, "password": {string(pw)}})
+		if err != nil || res.StatusCode != http.StatusSeeOther {
+			t.Fatalf("login on %s: %v %v", n1.name, err, res)
+		}
+		res.Body.Close()
+		u1, _ := url.Parse(n1.base())
+		cookies := jar.Cookies(u1)
+		on := func(n *clusterNode, path string) int {
+			req, _ := http.NewRequest("GET", n.base()+path, nil)
+			for _, c := range cookies {
+				req.AddCookie(c)
+			}
+			res, err := browser.Do(req)
+			if err != nil {
+				return 0
+			}
+			res.Body.Close()
+			return res.StatusCode
+		}
+		eventually("the session of "+n1.name+" works on "+n3.name, 15*time.Second, func() bool { return on(n3, "/api/me") == 200 })
+		req, _ := http.NewRequest("POST", n1.base()+"/api/logout", nil)
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		if res, err := browser.Do(req); err == nil {
+			res.Body.Close()
+		}
+		eventually("the logout on "+n1.name+" ends the session on "+n3.name, 15*time.Second, func() bool { return on(n3, "/api/me") == 401 })
+	}
+
 	// 2. A change made on a member that does not lead is decided by the
 	//    leader and takes effect in every node's own packet filter.
 	l := leader(nodes...)
