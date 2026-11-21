@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -68,6 +69,57 @@ var CustomRules = map[string]struct {
 	"community":        {"BGP community (standard, large or well-known)", communityRe.String(), communityRe.MatchString},
 	"ospfarea":         {"OSPF area as dotted quad or number", "", validOSPFArea},
 	"permission":       {"<area>:read or <area>:write; area may be *", permRe.String(), permRe.MatchString},
+	"mac":              {"hardware address such as 52:54:00:12:34:56", `^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`, validMAC},
+	"duid":             {"DHCPv6 DUID as colon-separated hex bytes", `^([0-9A-Fa-f]{2}:){1,129}[0-9A-Fa-f]{2}$`, duidRe.MatchString},
+	"iprange":          {"address range such as 192.168.1.100-192.168.1.199, or a network", "", validIPRange},
+	"dnsupstream":      {"IP address, optionally @port and #TLS name", "", validDNSUpstream},
+	"hostorip":         {"host name or IP address", "", validHostOrIP},
+}
+
+var duidRe = regexp.MustCompile(`^([0-9A-Fa-f]{2}:){1,129}[0-9A-Fa-f]{2}$`)
+
+var macRe = regexp.MustCompile(`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`)
+
+func validMAC(s string) bool { return macRe.MatchString(s) }
+
+// validIPRange accepts first-last of one family, first not after last, or
+// a network in CIDR form.
+func validIPRange(s string) bool {
+	if _, _, err := net.ParseCIDR(s); err == nil {
+		return true
+	}
+	a, b, ok := strings.Cut(s, "-")
+	if !ok {
+		return false
+	}
+	x, y := net.ParseIP(strings.TrimSpace(a)), net.ParseIP(strings.TrimSpace(b))
+	if x == nil || y == nil || (x.To4() == nil) != (y.To4() == nil) {
+		return false
+	}
+	if x4 := x.To4(); x4 != nil {
+		x, y = x4, y.To4()
+	}
+	return bytes.Compare(x, y) <= 0
+}
+
+// validDNSUpstream accepts an address with an optional @port and #name
+// (the name a TLS upstream's certificate has to carry).
+func validDNSUpstream(s string) bool {
+	addr, name, hasName := strings.Cut(s, "#")
+	if hasName && !validFQDNOrWildcard(name) {
+		return false
+	}
+	host, port, hasPort := strings.Cut(addr, "@")
+	if hasPort {
+		if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+			return false
+		}
+	}
+	return net.ParseIP(host) != nil
+}
+
+func validHostOrIP(s string) bool {
+	return net.ParseIP(s) != nil || (!strings.HasPrefix(s, "*") && validFQDNOrWildcard(s))
 }
 
 func validScope(s string) bool {
@@ -212,3 +264,9 @@ func Validate(e Entity) error {
 	slices.SortFunc(out.Fields, func(a, b FieldError) int { return strings.Compare(a.Field+a.Rule, b.Field+b.Rule) })
 	return out
 }
+
+var hostnameRe = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.?$`)
+
+// ValidHostname reports whether s is a host name in RFC 1123 form, with an
+// optional trailing dot.
+func ValidHostname(s string) bool { return len(s) <= 253 && hostnameRe.MatchString(s) }

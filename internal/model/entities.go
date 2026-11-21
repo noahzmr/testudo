@@ -37,6 +37,11 @@ const (
 	KindFabric         Kind = "fabric"
 	KindPathPolicy     Kind = "path_policy"
 	KindHAPair         Kind = "ha_pair"
+	KindDHCPScope      Kind = "dhcp_scope"
+	KindRouterAdvert   Kind = "router_advert"
+	KindDNSResolver    Kind = "dns_resolver"
+	KindDNSRecord      Kind = "dns_record"
+	KindNTPService     Kind = "ntp_service"
 )
 
 func init() {
@@ -71,6 +76,11 @@ func init() {
 	register("fabrics", "Fabric", "cluster/fabric", globalOny, func() Entity { return &Fabric{} })
 	register("path-policies", "Path policy", "routing/paths", allLevels, func() Entity { return &PathPolicy{} })
 	register("ha-pairs", "HA pair", "cluster/ha", []string{"site"}, func() Entity { return &HAPair{} })
+	register("dhcp-scopes", "DHCP scope", "services/dhcp", []string{"site", "node"}, func() Entity { return &DHCPScope{} })
+	register("router-adverts", "Router advertisement", "services/ra", []string{"site", "node"}, func() Entity { return &RouterAdvert{} })
+	register("dns-resolvers", "DNS resolver", "services/dns", allLevels, func() Entity { return &DNSResolver{} })
+	register("dns-records", "DNS record", "services/dns-records", allLevels, func() Entity { return &DNSRecord{} })
+	register("ntp-services", "NTP service", "services/ntp", allLevels, func() Entity { return &NTPService{} })
 }
 
 // Interface binds a kernel network device on one node to a zone.
@@ -577,3 +587,98 @@ type VRRPInstance struct {
 	VRID       int      `json:"vrid" yaml:"vrid" validate:"required,min=1,max=255" ui:"label=Virtual router ID,order=20,help=Unique on the network segment"`
 	VirtualIPs []string `json:"virtual_ips" yaml:"virtual_ips" validate:"required,min=1,max=16,dive,cidr" ui:"label=Virtual addresses,widget=list,order=30,help=One address family per instance"`
 }
+
+// DHCPScope hands out addresses on one interface, for one address family:
+// the family of its subnet. On the nodes of an HA pair both servers run and
+// share their leases; the first node of the pair answers while it is up.
+type DHCPScope struct {
+	Meta         `yaml:",inline"`
+	Enabled      bool              `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Interface    string            `json:"interface" yaml:"interface" validate:"required,ifname" ui:"label=Interface,order=10"`
+	Subnet       string            `json:"subnet" yaml:"subnet" validate:"required,cidr" ui:"label=Subnet,order=20,help=The network on the interface such as 192.168.1.0/24 or 2001:db8:1::/64"`
+	Pools        []string          `json:"pools,omitempty" yaml:"pools,omitempty" validate:"max=16,dive,iprange" ui:"label=Pools,widget=list,order=30,help=Address ranges to lease such as 192.168.1.100-192.168.1.199; empty: reservations only"`
+	Router       string            `json:"router,omitempty" yaml:"router,omitempty" validate:"omitempty,ip" ui:"label=Default gateway,order=40,help=IPv4 only; default: the interface's virtual address or its own address in the subnet"`
+	DNSServers   []string          `json:"dns_servers,omitempty" yaml:"dns_servers,omitempty" validate:"max=8,dive,ip" ui:"label=DNS servers,widget=list,order=50,help=Default: this node when its resolver answers on the interface"`
+	Domain       string            `json:"domain,omitempty" yaml:"domain,omitempty" validate:"omitempty,hostname_rfc1123" ui:"label=Domain,order=60,help=Search domain; leased names are registered under it"`
+	NTPServers   []string          `json:"ntp_servers,omitempty" yaml:"ntp_servers,omitempty" validate:"max=8,dive,ip" ui:"label=NTP servers,widget=list,order=70,help=Default: this node when its NTP service answers on the interface"`
+	LeaseSeconds int               `json:"lease_seconds,omitempty" yaml:"lease_seconds,omitempty" validate:"omitempty,min=300,max=2592000" ui:"label=Lease time (s),order=80,help=Default 3600"`
+	Reservations []DHCPReservation `json:"reservations,omitempty" yaml:"reservations,omitempty" validate:"max=1024,dive" ui:"label=Reservations,widget=table,order=90"`
+	RegisterDNS  bool              `json:"register_dns,omitempty" yaml:"register_dns,omitempty" validate:"-" ui:"label=Register client names in DNS,order=100"`
+}
+
+func (DHCPScope) Kind() Kind { return KindDHCPScope }
+
+// DHCPReservation gives one client a fixed address. An IPv4 client is known
+// by its hardware address; an IPv6 client by its DUID or hardware address.
+type DHCPReservation struct {
+	MAC      string `json:"mac,omitempty" yaml:"mac,omitempty" validate:"omitempty,mac" ui:"label=Hardware address,order=10"`
+	DUID     string `json:"duid,omitempty" yaml:"duid,omitempty" validate:"omitempty,duid" ui:"label=DUID (IPv6),order=20"`
+	Address  string `json:"address" yaml:"address" validate:"required,ip" ui:"label=Address,order=30"`
+	Hostname string `json:"hostname,omitempty" yaml:"hostname,omitempty" validate:"omitempty,hostname_rfc1123" ui:"label=Host name,order=40"`
+}
+
+// RouterAdvert announces this node as an IPv6 router on one interface, with
+// the prefixes clients configure addresses from.
+type RouterAdvert struct {
+	Meta      `yaml:",inline"`
+	Enabled   bool     `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Interface string   `json:"interface" yaml:"interface" validate:"required,ifname" ui:"label=Interface,order=10"`
+	Mode      string   `json:"mode" yaml:"mode" validate:"required,oneof=slaac stateless managed" ui:"label=Address assignment,widget=select,order=20,help=slaac: clients form addresses; stateless: and ask DHCPv6 for options; managed: DHCPv6 assigns addresses"`
+	Prefixes  []string `json:"prefixes,omitempty" yaml:"prefixes,omitempty" validate:"max=8,dive,cidr" ui:"label=Prefixes,widget=list,order=30,help=/64 prefixes; default: the interface's IPv6 networks"`
+	DNS       []string `json:"dns,omitempty" yaml:"dns,omitempty" validate:"max=4,dive,ip" ui:"label=DNS servers (RDNSS),widget=list,order=40,help=Default: this node when its resolver answers on the interface"`
+	Domains   []string `json:"domains,omitempty" yaml:"domains,omitempty" validate:"max=4,dive,hostname_rfc1123" ui:"label=Search domains (DNSSL),widget=list,order=50"`
+	MTU       int      `json:"mtu,omitempty" yaml:"mtu,omitempty" validate:"omitempty,min=1280,max=65535" ui:"label=Announced MTU,order=60"`
+}
+
+func (RouterAdvert) Kind() Kind { return KindRouterAdvert }
+
+// DNSResolver is the node's caching resolver. It answers only on the listed
+// interfaces, and only to the networks behind them (plus AllowFrom).
+type DNSResolver struct {
+	Meta           `yaml:",inline"`
+	Enabled        bool            `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Interfaces     []string        `json:"interfaces" yaml:"interfaces" validate:"required,min=1,max=32,dive,ifname" ui:"label=Answer on interfaces,widget=list,order=10"`
+	Mode           string          `json:"mode" yaml:"mode" validate:"required,oneof=recursive forward" ui:"label=Resolution,widget=select,order=20,help=recursive: ask the root and authoritative servers; forward: ask the upstream servers"`
+	Upstreams      []string        `json:"upstreams,omitempty" yaml:"upstreams,omitempty" validate:"required_if=Mode forward,max=8,dive,dnsupstream" ui:"label=Upstream servers,widget=list,order=30,help=Address or address#name for DNS over TLS such as 9.9.9.9#dns.quad9.net"`
+	TLS            bool            `json:"tls,omitempty" yaml:"tls,omitempty" validate:"-" ui:"label=Upstream over TLS,order=40,help=Port 853; every upstream needs its #name"`
+	DNSSEC         bool            `json:"dnssec" yaml:"dnssec" validate:"-" ui:"label=Validate DNSSEC,order=50"`
+	LocalDomain    string          `json:"local_domain,omitempty" yaml:"local_domain,omitempty" validate:"omitempty,hostname_rfc1123" ui:"label=Local domain,order=60,help=Names under it are answered from records and leases only; default home.arpa"`
+	DomainForwards []DomainForward `json:"domain_forwards,omitempty" yaml:"domain_forwards,omitempty" validate:"max=32,dive" ui:"label=Domain forwards,widget=table,order=70"`
+	AllowFrom      []string        `json:"allow_from,omitempty" yaml:"allow_from,omitempty" validate:"max=32,dive,cidr" ui:"label=Also answer,widget=list,order=80,help=Networks reaching the listed interfaces through a router or tunnel"`
+}
+
+func (DNSResolver) Kind() Kind { return KindDNSResolver }
+
+// DomainForward sends the questions for one domain to its own servers, for
+// example an internal directory's domain.
+type DomainForward struct {
+	Domain  string   `json:"domain" yaml:"domain" validate:"required,hostname_rfc1123" ui:"label=Domain,order=10"`
+	Servers []string `json:"servers" yaml:"servers" validate:"required,min=1,max=8,dive,dnsupstream" ui:"label=Servers,widget=list,order=20"`
+}
+
+// DNSRecord is a name the resolver answers itself. A and AAAA records get
+// their reverse entries.
+type DNSRecord struct {
+	Meta  `yaml:",inline"`
+	Host  string `json:"host" yaml:"host" validate:"required,hostname_rfc1123" ui:"label=Name,order=10,help=Fully qualified such as nas.home.arpa"`
+	Type  string `json:"type" yaml:"type" validate:"required,oneof=A AAAA CNAME TXT" ui:"label=Type,widget=select,order=20"`
+	Value string `json:"value" yaml:"value" validate:"required,max=255" ui:"label=Value,order=30"`
+	TTL   int    `json:"ttl,omitempty" yaml:"ttl,omitempty" validate:"omitempty,min=0,max=86400" ui:"label=TTL (s),order=40,help=Default 3600"`
+}
+
+func (DNSRecord) Kind() Kind { return KindDNSRecord }
+
+// NTPService keeps the node's clock in step with upstream servers and
+// serves time on the listed interfaces.
+type NTPService struct {
+	Meta       `yaml:",inline"`
+	Enabled    bool     `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Interfaces []string `json:"interfaces,omitempty" yaml:"interfaces,omitempty" validate:"max=32,dive,ifname" ui:"label=Serve time on interfaces,widget=list,order=10,help=Empty: keep this node's clock only"`
+	Servers    []string `json:"servers,omitempty" yaml:"servers,omitempty" validate:"max=8,dive,hostorip" ui:"label=Servers,widget=list,order=20"`
+	Pools      []string `json:"pools,omitempty" yaml:"pools,omitempty" validate:"max=4,dive,hostname_rfc1123" ui:"label=Pools,widget=list,order=30,help=Such as 2.debian.pool.ntp.org"`
+	NTS        bool     `json:"nts,omitempty" yaml:"nts,omitempty" validate:"-" ui:"label=Authenticate servers with NTS,order=40"`
+	AllowFrom  []string `json:"allow_from,omitempty" yaml:"allow_from,omitempty" validate:"max=32,dive,cidr" ui:"label=Also serve,widget=list,order=50,help=Networks reaching the listed interfaces through a router or tunnel"`
+	ServeOnly  bool     `json:"serve_only,omitempty" yaml:"serve_only,omitempty" validate:"-" ui:"label=Leave the system clock alone,order=60,help=Track time and serve it without setting the clock: when something else sets it"`
+}
+
+func (NTPService) Kind() Kind { return KindNTPService }

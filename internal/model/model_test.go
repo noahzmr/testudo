@@ -173,6 +173,11 @@ func TestCustomRules(t *testing.T) {
 		"community":        {[]string{"65000:100", "65000:1:2", "no-export"}, []string{"65000", "a:b"}},
 		"ifname":           {[]string{"eth0", "wg0", "br-lan.10"}, []string{"", "averyveryverylongname", "bad name"}},
 		"objname":          {[]string{"a", "web-servers_1.x"}, []string{"", "-a", "a b", strings.Repeat("a", 64)}},
+		"mac":              {[]string{"52:54:00:12:34:56", "AA:BB:CC:DD:EE:FF"}, []string{"", "52:54:00:12:34", "52-54-00-12-34-56", "52:54:00:12:34:5g"}},
+		"duid":             {[]string{"00:01:00:01:2a:3b:4c:5d:52:54:00:12:34:56", "00:03"}, []string{"", "00", "0001:0001", "zz:01"}},
+		"iprange":          {[]string{"10.0.0.100-10.0.0.199", "10.0.0.5-10.0.0.5", "2001:db8::100-2001:db8::1ff", "10.0.1.0/26"}, []string{"10.0.0.9-10.0.0.1", "10.0.0.1-2001:db8::1", "10.0.0.1", "a-b"}},
+		"dnsupstream":      {[]string{"9.9.9.9", "9.9.9.9@853#dns.quad9.net", "2620:fe::fe#dns.quad9.net", "10.0.0.53@5353"}, []string{"", "dns.quad9.net", "9.9.9.9@0", "9.9.9.9#", "9.9.9.9@x"}},
+		"hostorip":         {[]string{"ntp.example.org", "192.0.2.1", "2001:db8::1"}, []string{"", "*.example.org", "a..b"}},
 	}
 	for name, rule := range CustomRules {
 		c, ok := cases[name]

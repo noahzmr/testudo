@@ -1469,6 +1469,586 @@
           "global"
         ]
       },
+      "DHCPScope": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "dns_servers": {
+            "description": "Default: this node when its resolver answers on the interface",
+            "items": {
+              "format": "ip",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "DNS servers",
+            "type": "array"
+          },
+          "domain": {
+            "description": "Search domain; leased names are registered under it",
+            "format": "hostname",
+            "title": "Domain",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "interface": {
+            "description": "kernel interface name, at most 15 characters",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Interface",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "lease_seconds": {
+            "description": "Default 3600",
+            "maximum": 2592000,
+            "minimum": 300,
+            "title": "Lease time (s)",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "ntp_servers": {
+            "description": "Default: this node when its NTP service answers on the interface",
+            "items": {
+              "format": "ip",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "NTP servers",
+            "type": "array"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "pools": {
+            "description": "Address ranges to lease such as 192.168.1.100-192.168.1.199; empty: reservations only",
+            "items": {
+              "description": "address range such as 192.168.1.100-192.168.1.199, or a network",
+              "type": "string",
+              "x-rule": "iprange"
+            },
+            "maxItems": 16,
+            "title": "Pools",
+            "type": "array"
+          },
+          "register_dns": {
+            "title": "Register client names in DNS",
+            "type": "boolean"
+          },
+          "reservations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "address": {
+                  "format": "ip",
+                  "minLength": 1,
+                  "title": "Address",
+                  "type": "string"
+                },
+                "duid": {
+                  "description": "DHCPv6 DUID as colon-separated hex bytes",
+                  "pattern": "^([0-9A-Fa-f]{2}:){1,129}[0-9A-Fa-f]{2}$",
+                  "title": "DUID (IPv6)",
+                  "type": "string",
+                  "x-rule": "duid"
+                },
+                "hostname": {
+                  "format": "hostname",
+                  "title": "Host name",
+                  "type": "string"
+                },
+                "mac": {
+                  "description": "hardware address such as 52:54:00:12:34:56",
+                  "pattern": "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$",
+                  "title": "Hardware address",
+                  "type": "string",
+                  "x-rule": "mac"
+                }
+              },
+              "required": [
+                "address"
+              ],
+              "type": "object"
+            },
+            "maxItems": 1024,
+            "title": "Reservations",
+            "type": "array"
+          },
+          "router": {
+            "description": "IPv4 only; default: the interface's virtual address or its own address in the subnet",
+            "format": "ip",
+            "title": "Default gateway",
+            "type": "string"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "subnet": {
+            "description": "The network on the interface such as 192.168.1.0/24 or 2001:db8:1::/64",
+            "format": "cidr",
+            "minLength": 1,
+            "title": "Subnet",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "interface",
+          "name",
+          "scope",
+          "subnet"
+        ],
+        "type": "object",
+        "x-kind": "dhcp_scope",
+        "x-menu": "services/dhcp",
+        "x-scopes": [
+          "site",
+          "node"
+        ]
+      },
+      "DNSRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "host": {
+            "description": "Fully qualified such as nas.home.arpa",
+            "format": "hostname",
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "ttl": {
+            "description": "Default 3600",
+            "maximum": 86400,
+            "minimum": 0,
+            "title": "TTL (s)",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "A",
+              "AAAA",
+              "CNAME",
+              "TXT"
+            ],
+            "minLength": 1,
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host",
+          "id",
+          "name",
+          "scope",
+          "type",
+          "value"
+        ],
+        "type": "object",
+        "x-kind": "dns_record",
+        "x-menu": "services/dns-records",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
+      "DNSResolver": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_from": {
+            "description": "Networks reaching the listed interfaces through a router or tunnel",
+            "items": {
+              "format": "cidr",
+              "type": "string"
+            },
+            "maxItems": 32,
+            "title": "Also answer",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "dnssec": {
+            "title": "Validate DNSSEC",
+            "type": "boolean"
+          },
+          "domain_forwards": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "domain": {
+                  "format": "hostname",
+                  "minLength": 1,
+                  "title": "Domain",
+                  "type": "string"
+                },
+                "servers": {
+                  "items": {
+                    "description": "IP address, optionally @port and #TLS name",
+                    "type": "string",
+                    "x-rule": "dnsupstream"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "title": "Servers",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "domain",
+                "servers"
+              ],
+              "type": "object"
+            },
+            "maxItems": 32,
+            "title": "Domain forwards",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "interfaces": {
+            "items": {
+              "description": "kernel interface name, at most 15 characters",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+              "type": "string",
+              "x-rule": "ifname"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Answer on interfaces",
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "local_domain": {
+            "description": "Names under it are answered from records and leases only; default home.arpa",
+            "format": "hostname",
+            "title": "Local domain",
+            "type": "string"
+          },
+          "mode": {
+            "description": "recursive: ask the root and authoritative servers; forward: ask the upstream servers",
+            "enum": [
+              "recursive",
+              "forward"
+            ],
+            "minLength": 1,
+            "title": "Resolution",
+            "type": "string"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "tls": {
+            "description": "Port 853; every upstream needs its #name",
+            "title": "Upstream over TLS",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "upstreams": {
+            "description": "Address or address#name for DNS over TLS such as 9.9.9.9#dns.quad9.net",
+            "items": {
+              "description": "IP address, optionally @port and #TLS name",
+              "type": "string",
+              "x-rule": "dnsupstream"
+            },
+            "maxItems": 8,
+            "title": "Upstream servers",
+            "type": "array",
+            "x-required-if": "Mode forward"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "interfaces",
+          "mode",
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "dns_resolver",
+        "x-menu": "services/dns",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
       "Fabric": {
         "additionalProperties": false,
         "properties": {
@@ -3695,6 +4275,173 @@
           "node"
         ]
       },
+      "NTPService": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_from": {
+            "description": "Networks reaching the listed interfaces through a router or tunnel",
+            "items": {
+              "format": "cidr",
+              "type": "string"
+            },
+            "maxItems": 32,
+            "title": "Also serve",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "interfaces": {
+            "description": "Empty: keep this node's clock only",
+            "items": {
+              "description": "kernel interface name, at most 15 characters",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+              "type": "string",
+              "x-rule": "ifname"
+            },
+            "maxItems": 32,
+            "title": "Serve time on interfaces",
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "nts": {
+            "title": "Authenticate servers with NTS",
+            "type": "boolean"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "pools": {
+            "description": "Such as 2.debian.pool.ntp.org",
+            "items": {
+              "format": "hostname",
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Pools",
+            "type": "array"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "serve_only": {
+            "description": "Track time and serve it without setting the clock: when something else sets it",
+            "title": "Leave the system clock alone",
+            "type": "boolean"
+          },
+          "servers": {
+            "items": {
+              "description": "host name or IP address",
+              "type": "string",
+              "x-rule": "hostorip"
+            },
+            "maxItems": 8,
+            "title": "Servers",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "ntp_service",
+        "x-menu": "services/ntp",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
       "OIDCProvider": {
         "additionalProperties": false,
         "properties": {
@@ -4625,6 +5372,177 @@
         "x-menu": "routing/static",
         "x-scopes": [
           "global",
+          "site",
+          "node"
+        ]
+      },
+      "RouterAdvert": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "dns": {
+            "description": "Default: this node when its resolver answers on the interface",
+            "items": {
+              "format": "ip",
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "DNS servers (RDNSS)",
+            "type": "array"
+          },
+          "domains": {
+            "items": {
+              "format": "hostname",
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Search domains (DNSSL)",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "interface": {
+            "description": "kernel interface name, at most 15 characters",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Interface",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "mode": {
+            "description": "slaac: clients form addresses; stateless: and ask DHCPv6 for options; managed: DHCPv6 assigns addresses",
+            "enum": [
+              "slaac",
+              "stateless",
+              "managed"
+            ],
+            "minLength": 1,
+            "title": "Address assignment",
+            "type": "string"
+          },
+          "mtu": {
+            "maximum": 65535,
+            "minimum": 1280,
+            "title": "Announced MTU",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "prefixes": {
+            "description": "/64 prefixes; default: the interface's IPv6 networks",
+            "items": {
+              "format": "cidr",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Prefixes",
+            "type": "array"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "interface",
+          "mode",
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "router_advert",
+        "x-menu": "services/ra",
+        "x-scopes": [
           "site",
           "node"
         ]
@@ -8246,6 +9164,822 @@
         ]
       }
     },
+    "/api/v1/dhcp-scopes": {
+      "get": {
+        "operationId": "list_dhcp_scope",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DHCPScope"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List DHCP scope objects",
+        "tags": [
+          "services"
+        ]
+      },
+      "post": {
+        "operationId": "create_dhcp_scope",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DHCPScope"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DHCPScope"
+                }
+              }
+            },
+            "description": "DHCP scope",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a DHCP scope",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/dhcp-scopes/{id}": {
+      "delete": {
+        "operationId": "delete_dhcp_scope",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a DHCP scope",
+        "tags": [
+          "services"
+        ]
+      },
+      "get": {
+        "operationId": "get_dhcp_scope",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DHCPScope"
+                }
+              }
+            },
+            "description": "DHCP scope",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a DHCP scope",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_dhcp_scope",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DHCPScope"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DHCPScope"
+                }
+              }
+            },
+            "description": "DHCP scope",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a DHCP scope",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/dhcp-scopes/{id}/effective": {
+      "get": {
+        "operationId": "effective_dhcp_scope",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/DHCPScope"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The DHCP scope as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/dhcp-scopes/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_dhcp_scope",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this DHCP scope",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/dns-records": {
+      "get": {
+        "operationId": "list_dns_record",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DNSRecord"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List DNS record objects",
+        "tags": [
+          "services"
+        ]
+      },
+      "post": {
+        "operationId": "create_dns_record",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DNSRecord"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSRecord"
+                }
+              }
+            },
+            "description": "DNS record",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a DNS record",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/dns-records/{id}": {
+      "delete": {
+        "operationId": "delete_dns_record",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a DNS record",
+        "tags": [
+          "services"
+        ]
+      },
+      "get": {
+        "operationId": "get_dns_record",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSRecord"
+                }
+              }
+            },
+            "description": "DNS record",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a DNS record",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_dns_record",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DNSRecord"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSRecord"
+                }
+              }
+            },
+            "description": "DNS record",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a DNS record",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/dns-records/{id}/effective": {
+      "get": {
+        "operationId": "effective_dns_record",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/DNSRecord"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The DNS record as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/dns-records/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_dns_record",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this DNS record",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/dns-resolvers": {
+      "get": {
+        "operationId": "list_dns_resolver",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DNSResolver"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List DNS resolver objects",
+        "tags": [
+          "services"
+        ]
+      },
+      "post": {
+        "operationId": "create_dns_resolver",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DNSResolver"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSResolver"
+                }
+              }
+            },
+            "description": "DNS resolver",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a DNS resolver",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/dns-resolvers/{id}": {
+      "delete": {
+        "operationId": "delete_dns_resolver",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a DNS resolver",
+        "tags": [
+          "services"
+        ]
+      },
+      "get": {
+        "operationId": "get_dns_resolver",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSResolver"
+                }
+              }
+            },
+            "description": "DNS resolver",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a DNS resolver",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_dns_resolver",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DNSResolver"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSResolver"
+                }
+              }
+            },
+            "description": "DNS resolver",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a DNS resolver",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/dns-resolvers/{id}/effective": {
+      "get": {
+        "operationId": "effective_dns_resolver",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/DNSResolver"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The DNS resolver as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/dns-resolvers/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_dns_resolver",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this DNS resolver",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
     "/api/v1/events": {
       "get": {
         "operationId": "events",
@@ -11766,6 +13500,278 @@
         }
       ]
     },
+    "/api/v1/ntp-services": {
+      "get": {
+        "operationId": "list_ntp_service",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NTPService"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List NTP service objects",
+        "tags": [
+          "services"
+        ]
+      },
+      "post": {
+        "operationId": "create_ntp_service",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NTPService"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NTPService"
+                }
+              }
+            },
+            "description": "NTP service",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a NTP service",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/ntp-services/{id}": {
+      "delete": {
+        "operationId": "delete_ntp_service",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a NTP service",
+        "tags": [
+          "services"
+        ]
+      },
+      "get": {
+        "operationId": "get_ntp_service",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NTPService"
+                }
+              }
+            },
+            "description": "NTP service",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a NTP service",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_ntp_service",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NTPService"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NTPService"
+                }
+              }
+            },
+            "description": "NTP service",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a NTP service",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/ntp-services/{id}/effective": {
+      "get": {
+        "operationId": "effective_ntp_service",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/NTPService"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The NTP service as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/ntp-services/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_ntp_service",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this NTP service",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
     "/api/v1/oidc-providers": {
       "get": {
         "operationId": "list_oidc_provider",
@@ -13397,6 +15403,278 @@
         "summary": "List the objects that reference this Role",
         "tags": [
           "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/router-adverts": {
+      "get": {
+        "operationId": "list_router_advert",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RouterAdvert"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Router advertisement objects",
+        "tags": [
+          "services"
+        ]
+      },
+      "post": {
+        "operationId": "create_router_advert",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouterAdvert"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouterAdvert"
+                }
+              }
+            },
+            "description": "Router advertisement",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Router advertisement",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/router-adverts/{id}": {
+      "delete": {
+        "operationId": "delete_router_advert",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Router advertisement",
+        "tags": [
+          "services"
+        ]
+      },
+      "get": {
+        "operationId": "get_router_advert",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouterAdvert"
+                }
+              }
+            },
+            "description": "Router advertisement",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Router advertisement",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_router_advert",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouterAdvert"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouterAdvert"
+                }
+              }
+            },
+            "description": "Router advertisement",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Router advertisement",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/api/v1/router-adverts/{id}/effective": {
+      "get": {
+        "operationId": "effective_router_advert",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/RouterAdvert"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Router advertisement as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "services"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/router-adverts/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_router_advert",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Router advertisement",
+        "tags": [
+          "services"
         ]
       },
       "parameters": [

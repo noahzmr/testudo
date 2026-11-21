@@ -6159,6 +6159,1040 @@
           "order": 906
         }
       ]
+    },
+    {
+      "kind": "dhcp_scope",
+      "plural": "dhcp-scopes",
+      "title": "DHCP scope",
+      "menu": "services/dhcp",
+      "scopes": [
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "interface",
+          "label": "Interface",
+          "type": "string",
+          "order": 10,
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "subnet",
+          "label": "Subnet",
+          "type": "string",
+          "order": 20,
+          "help": "The network on the interface such as 192.168.1.0/24 or 2001:db8:1::/64",
+          "required": true
+        },
+        {
+          "name": "pools",
+          "label": "Pools",
+          "type": "string",
+          "widget": "list",
+          "order": 30,
+          "help": "Address ranges to lease such as 192.168.1.100-192.168.1.199; empty: reservations only",
+          "list": true,
+          "rules": [
+            "iprange"
+          ]
+        },
+        {
+          "name": "router",
+          "label": "Default gateway",
+          "type": "string",
+          "order": 40,
+          "help": "IPv4 only; default: the interface's virtual address or its own address in the subnet"
+        },
+        {
+          "name": "dns_servers",
+          "label": "DNS servers",
+          "type": "string",
+          "widget": "list",
+          "order": 50,
+          "help": "Default: this node when its resolver answers on the interface",
+          "list": true
+        },
+        {
+          "name": "domain",
+          "label": "Domain",
+          "type": "string",
+          "order": 60,
+          "help": "Search domain; leased names are registered under it"
+        },
+        {
+          "name": "ntp_servers",
+          "label": "NTP servers",
+          "type": "string",
+          "widget": "list",
+          "order": 70,
+          "help": "Default: this node when its NTP service answers on the interface",
+          "list": true
+        },
+        {
+          "name": "lease_seconds",
+          "label": "Lease time (s)",
+          "type": "integer",
+          "order": 80,
+          "help": "Default 3600"
+        },
+        {
+          "name": "reservations",
+          "label": "Reservations",
+          "type": "object",
+          "widget": "table",
+          "order": 90,
+          "list": true,
+          "fields": [
+            {
+              "name": "mac",
+              "label": "Hardware address",
+              "type": "string",
+              "order": 10,
+              "rules": [
+                "mac"
+              ]
+            },
+            {
+              "name": "duid",
+              "label": "DUID (IPv6)",
+              "type": "string",
+              "order": 20,
+              "rules": [
+                "duid"
+              ]
+            },
+            {
+              "name": "address",
+              "label": "Address",
+              "type": "string",
+              "order": 30,
+              "required": true
+            },
+            {
+              "name": "hostname",
+              "label": "Host name",
+              "type": "string",
+              "order": 40
+            }
+          ]
+        },
+        {
+          "name": "register_dns",
+          "label": "Register client names in DNS",
+          "type": "boolean",
+          "order": 100
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "router_advert",
+      "plural": "router-adverts",
+      "title": "Router advertisement",
+      "menu": "services/ra",
+      "scopes": [
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "interface",
+          "label": "Interface",
+          "type": "string",
+          "order": 10,
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "mode",
+          "label": "Address assignment",
+          "type": "string",
+          "widget": "select",
+          "order": 20,
+          "help": "slaac: clients form addresses; stateless: and ask DHCPv6 for options; managed: DHCPv6 assigns addresses",
+          "required": true,
+          "enum": [
+            "slaac",
+            "stateless",
+            "managed"
+          ]
+        },
+        {
+          "name": "prefixes",
+          "label": "Prefixes",
+          "type": "string",
+          "widget": "list",
+          "order": 30,
+          "help": "/64 prefixes; default: the interface's IPv6 networks",
+          "list": true
+        },
+        {
+          "name": "dns",
+          "label": "DNS servers (RDNSS)",
+          "type": "string",
+          "widget": "list",
+          "order": 40,
+          "help": "Default: this node when its resolver answers on the interface",
+          "list": true
+        },
+        {
+          "name": "domains",
+          "label": "Search domains (DNSSL)",
+          "type": "string",
+          "widget": "list",
+          "order": 50,
+          "list": true
+        },
+        {
+          "name": "mtu",
+          "label": "Announced MTU",
+          "type": "integer",
+          "order": 60
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "dns_resolver",
+      "plural": "dns-resolvers",
+      "title": "DNS resolver",
+      "menu": "services/dns",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "interfaces",
+          "label": "Answer on interfaces",
+          "type": "string",
+          "widget": "list",
+          "order": 10,
+          "required": true,
+          "list": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "mode",
+          "label": "Resolution",
+          "type": "string",
+          "widget": "select",
+          "order": 20,
+          "help": "recursive: ask the root and authoritative servers; forward: ask the upstream servers",
+          "required": true,
+          "enum": [
+            "recursive",
+            "forward"
+          ]
+        },
+        {
+          "name": "upstreams",
+          "label": "Upstream servers",
+          "type": "string",
+          "widget": "list",
+          "order": 30,
+          "help": "Address or address#name for DNS over TLS such as 9.9.9.9#dns.quad9.net",
+          "list": true,
+          "rules": [
+            "dnsupstream"
+          ]
+        },
+        {
+          "name": "tls",
+          "label": "Upstream over TLS",
+          "type": "boolean",
+          "order": 40,
+          "help": "Port 853; every upstream needs its #name"
+        },
+        {
+          "name": "dnssec",
+          "label": "Validate DNSSEC",
+          "type": "boolean",
+          "order": 50
+        },
+        {
+          "name": "local_domain",
+          "label": "Local domain",
+          "type": "string",
+          "order": 60,
+          "help": "Names under it are answered from records and leases only; default home.arpa"
+        },
+        {
+          "name": "domain_forwards",
+          "label": "Domain forwards",
+          "type": "object",
+          "widget": "table",
+          "order": 70,
+          "list": true,
+          "fields": [
+            {
+              "name": "domain",
+              "label": "Domain",
+              "type": "string",
+              "order": 10,
+              "required": true
+            },
+            {
+              "name": "servers",
+              "label": "Servers",
+              "type": "string",
+              "widget": "list",
+              "order": 20,
+              "required": true,
+              "list": true,
+              "rules": [
+                "dnsupstream"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "allow_from",
+          "label": "Also answer",
+          "type": "string",
+          "widget": "list",
+          "order": 80,
+          "help": "Networks reaching the listed interfaces through a router or tunnel",
+          "list": true
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "dns_record",
+      "plural": "dns-records",
+      "title": "DNS record",
+      "menu": "services/dns-records",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "host",
+          "label": "Name",
+          "type": "string",
+          "order": 10,
+          "help": "Fully qualified such as nas.home.arpa",
+          "required": true
+        },
+        {
+          "name": "type",
+          "label": "Type",
+          "type": "string",
+          "widget": "select",
+          "order": 20,
+          "required": true,
+          "enum": [
+            "A",
+            "AAAA",
+            "CNAME",
+            "TXT"
+          ]
+        },
+        {
+          "name": "value",
+          "label": "Value",
+          "type": "string",
+          "order": 30,
+          "required": true
+        },
+        {
+          "name": "ttl",
+          "label": "TTL (s)",
+          "type": "integer",
+          "order": 40,
+          "help": "Default 3600"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "ntp_service",
+      "plural": "ntp-services",
+      "title": "NTP service",
+      "menu": "services/ntp",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "interfaces",
+          "label": "Serve time on interfaces",
+          "type": "string",
+          "widget": "list",
+          "order": 10,
+          "help": "Empty: keep this node's clock only",
+          "list": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "servers",
+          "label": "Servers",
+          "type": "string",
+          "widget": "list",
+          "order": 20,
+          "list": true,
+          "rules": [
+            "hostorip"
+          ]
+        },
+        {
+          "name": "pools",
+          "label": "Pools",
+          "type": "string",
+          "widget": "list",
+          "order": 30,
+          "help": "Such as 2.debian.pool.ntp.org",
+          "list": true
+        },
+        {
+          "name": "nts",
+          "label": "Authenticate servers with NTS",
+          "type": "boolean",
+          "order": 40
+        },
+        {
+          "name": "allow_from",
+          "label": "Also serve",
+          "type": "string",
+          "widget": "list",
+          "order": 50,
+          "help": "Networks reaching the listed interfaces through a router or tunnel",
+          "list": true
+        },
+        {
+          "name": "serve_only",
+          "label": "Leave the system clock alone",
+          "type": "boolean",
+          "order": 60,
+          "help": "Track time and serve it without setting the clock: when something else sets it"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
     }
   ],
   "secret_mask": "********"

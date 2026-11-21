@@ -158,6 +158,7 @@ func runChecks(s *State) []Problem {
 	}
 
 	out = append(out, fabricChecks(s, add)...)
+	serviceChecks(s, add)
 
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
