@@ -25,6 +25,7 @@ import (
 
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/firewall"
+	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 )
@@ -369,6 +370,11 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 		}
 	}
 
+	if mesh.Fabric(v.st) != nil {
+		if p, _ := mesh.Build(v.st, v.s.SiteID, v.s.NodeID); p.Enabled {
+			v.bad.add(p.Fabric, "the fabric needs the nftables packet filter; install nft")
+		}
+	}
 	each(v, model.KindLBService, func(l *model.LBService) {
 		if l.Enabled && l.Mode == "kernel" {
 			v.bad.add(l, "balancing in the packet filter is not available in the running packet filter yet; use proxy mode")

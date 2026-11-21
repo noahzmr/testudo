@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 )
@@ -183,6 +184,15 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 			r.zoneIfs[t.Zone.ID] = append(r.zoneIfs[t.Zone.ID], t.Device)
 		}
 	}
+	// The fabric's tunnels are in the fabric's zone, so rules about traffic
+	// between the sites are written against that zone.
+	plan, perr := mesh.Build(r.st, opt.SiteID, opt.NodeID)
+	if perr != nil {
+		r.errs = append(r.errs, perr.Error())
+	}
+	if plan.Enabled {
+		r.zoneIfs[plan.Fabric.Zone.ID] = append(r.zoneIfs[plan.Fabric.Zone.ID], plan.Devices()...)
+	}
 	r.sets()
 	f.Sets = r.take()
 
@@ -203,6 +213,25 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 		c.Rules = r.takeLines()
 		if chain == "forward" {
 			c.Rules = append(c.Rules, r.access()...)
+		}
+		if chain == "input" && plan.Enabled && len(plan.Tunnels) > 0 {
+			// What the fabric itself needs, ahead of the operator's rules
+			// so that a default-deny policy cannot cut the sites apart:
+			// the tunnels from anywhere (WireGuard answers only to the
+			// keys it knows), BGP and BFD inside the tunnels only.
+			ports := make([]string, 0, len(plan.Tunnels))
+			for _, p := range plan.Ports() {
+				ports = append(ports, fmt.Sprint(p))
+			}
+			devs := make([]string, 0, len(plan.Tunnels))
+			for _, d := range plan.Devices() {
+				devs = append(devs, quote(d))
+			}
+			c.Rules = append([]string{
+				fmt.Sprintf("udp dport { %s } counter accept comment \"fabric: tunnels\"", strings.Join(ports, ", ")),
+				fmt.Sprintf("iifname { %s } tcp dport 179 counter accept comment \"fabric: bgp\"", strings.Join(devs, ", ")),
+				fmt.Sprintf("iifname { %s } udp dport { 3784, 3785, 4784 } counter accept comment \"fabric: bfd\"", strings.Join(devs, ", ")),
+			}, c.Rules...)
 		}
 		if chain != "output" {
 			for _, id := range zoneIDs {
