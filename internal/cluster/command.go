@@ -57,6 +57,10 @@ type Member struct {
 	Voter  bool   `json:"voter"`
 	// Commands is the member's Supported map.
 	Commands map[string]int `json:"commands"`
+	// MeshKey is the public key of the member's fabric tunnels. The
+	// private key stays on the member; the leader copies this one into the
+	// member's cluster_node object.
+	MeshKey string `json:"mesh_key,omitempty"`
 }
 
 // Result is a member's report on applying the model up to Index.

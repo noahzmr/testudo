@@ -65,6 +65,7 @@ func (e *Engine) openCluster() {
 			default:
 			}
 		},
+		MeshKey: func() string { return e.meshPublicKey(false) },
 	})
 	if err != nil {
 		log.Printf("cluster: %v", err)

@@ -72,6 +72,9 @@ type Config struct {
 	Forwarded func(w http.ResponseWriter, r *http.Request, identity string)
 	// Changed is called when the replicated state or the leader changed.
 	Changed func()
+	// MeshKey returns the public key of this member's fabric tunnels, or
+	// "" when it has none.
+	MeshKey func() string
 	// Timing overrides for tests and unusual links (zero: the defaults).
 	Heartbeat, Election, LeaderLease time.Duration
 	LogOutput                        io.Writer
@@ -930,9 +933,13 @@ func (m *Manager) housekeeping(stop chan struct{}) {
 		// Tell the cluster what this build can do. After an upgrade this
 		// is what lets the leader use newer commands.
 		me, known := st.Members[m.cfg.ID]
+		meshKey := ""
+		if m.cfg.MeshKey != nil {
+			meshKey = m.cfg.MeshKey()
+		}
 		if known && (!announced || me.Build != m.cfg.Build || me.API != m.cfg.APIAdvertise || me.Raft != m.cfg.RaftAdvertise ||
-			fmt.Sprint(me.Commands) != fmt.Sprint(Supported)) {
-			me.Name, me.Build, me.API, me.Raft = m.cfg.Name, m.cfg.Build, m.cfg.APIAdvertise, m.cfg.RaftAdvertise
+			me.MeshKey != meshKey || fmt.Sprint(me.Commands) != fmt.Sprint(Supported)) {
+			me.Name, me.Build, me.API, me.Raft, me.MeshKey = m.cfg.Name, m.cfg.Build, m.cfg.APIAdvertise, m.cfg.RaftAdvertise, meshKey
 			me.Schema, me.Commands = schemaVersion(), Supported
 			if c, err := command(CmdMember, "", me); err == nil && m.propose(ctx, c) == nil {
 				announced = true

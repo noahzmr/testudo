@@ -67,6 +67,8 @@ type Engine struct {
 	conf confCore
 	// cluster is this node's place in a cluster, if it has one.
 	cluster clusterCore
+	// fabric is this node's part in the network between the sites.
+	fabric fabricCore
 	// pam is the privileged-access manager (JIT grants compiled into firewall
 	// rules for the requester's WireGuard peers); nil when disabled.
 	pam *pam.Manager
@@ -272,6 +274,7 @@ func (e *Engine) Start(parent context.Context) error {
 	e.incidents = incidents.New(e.store, e.flowAgg, e.cfg.StorageDir, e.cfg.Thresholds.IncidentCooldown)
 	e.startConfig(ctx)
 	go e.clusterLoop(ctx)
+	go e.fabricLoop(ctx)
 
 	e.startMetricsAndStorageConsumer(ctx)
 	e.startAnalyzers(ctx)

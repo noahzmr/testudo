@@ -27,6 +27,7 @@ import (
 	"github.com/noahzmr/testudo/internal/lbstage"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/pathmon"
 	"github.com/noahzmr/testudo/internal/pki"
 	"github.com/noahzmr/testudo/internal/secrets"
 	"github.com/noahzmr/testudo/internal/storage"
@@ -92,7 +93,7 @@ func (e *Engine) openConfig() {
 	c.backends = &lbhealth.Monitor{}
 	var stage confapply.Stage
 	if e.fwNft != nil {
-		e.fwNft.Locate, e.fwNft.Elements, e.fwNft.BackendDown = localNode, c.feed.Snapshot, c.backends.Down
+		e.fwNft.Locate, e.fwNft.Elements, e.fwNft.BackendDown = e.locate, c.feed.Snapshot, c.backends.Down
 		stage = e.fwNft
 	} else {
 		// A typed nil must not reach the interface, hence the explicit check.
@@ -100,7 +101,7 @@ func (e *Engine) openConfig() {
 		if e.fw != nil {
 			fw = e.fw
 		}
-		stage = &fwbridge.Stage{Manager: fw, Locate: localNode}
+		stage = &fwbridge.Stage{Manager: fw, Locate: e.locate}
 	}
 	// WireGuard devices come first: the packet filter names them and the
 	// routing daemon routes through them.
@@ -117,19 +118,20 @@ func (e *Engine) openConfig() {
 		}
 		return local.Put(name, value)
 	}
-	c.wg = &wgstage.Stage{Locate: localNode, Secrets: c.secrets}
+	c.wg = &wgstage.Stage{Locate: e.locate, Secrets: c.secrets}
 	if e.netops != nil {
 		c.wg.Runner = e.netops
 	}
 	// Routing follows the packet filter: marks are set there and used here.
 	c.gateways = &gwmon.Monitor{}
-	c.routing = &frrstage.Stage{Locate: localNode, Down: c.gateways.Down, StateDir: dir}
+	e.fabric.paths = &pathmon.Monitor{}
+	c.routing = &frrstage.Stage{Locate: e.locate, Down: c.gateways.Down, StateDir: dir, Paths: e.fabric.paths}
 	if e.netops != nil {
 		c.routing.Runner = e.netops
 	}
 	// The proxy comes last: its backends are reached over the routes and
 	// tunnels the earlier stages set up.
-	c.proxy = &lbstage.Stage{Locate: localNode, Dir: filepath.Join(e.cfg.StorageDir, "proxy"), SecretsDir: c.secrets.Dir,
+	c.proxy = &lbstage.Stage{Locate: e.locate, Dir: filepath.Join(e.cfg.StorageDir, "proxy"), SecretsDir: c.secrets.Dir,
 		APIAddr: proxyAPIAddr, AuthURL: "http://" + forwardAuthAddr + "/"}
 	if e.netops != nil {
 		c.proxy.Runner = e.netops
@@ -225,7 +227,7 @@ func (e *Engine) backendHealthLoop(ctx context.Context) {
 		case <-tick.C:
 		}
 		st := e.conf.store.Current()
-		site, node := localNode(st)
+		site, node := e.locate(st)
 		pools := fwrender.KernelBackends(st, fwrender.Options{SiteID: site, NodeID: node})
 		if !e.conf.backends.Check(ctx, pools, time.Now()) {
 			continue
@@ -477,7 +479,7 @@ func (e *Engine) gatewayLoop(ctx context.Context) {
 		case <-tick.C:
 		}
 		st := e.conf.store.Current()
-		site, node := localNode(st)
+		site, node := e.locate(st)
 		gws := frrender.Gateways(st, frrender.Options{SiteID: site, NodeID: node})
 		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		changed := e.conf.gateways.Check(probeCtx, gws, time.Now())
@@ -589,6 +591,11 @@ func (e *Engine) ConfigRuntime() map[string]any {
 	if e.conf.store != nil {
 		out["certificates"] = e.certificateRuntime()
 	}
+	if e.conf.store != nil {
+		if f := e.fabricRuntime(); f != nil {
+			out["fabric"] = f
+		}
+	}
 	if e.conf.proxy != nil {
 		lb := map[string]any{"backends": e.conf.backends.Status()}
 		for k, v := range e.proxyRuntime() {
@@ -599,14 +606,17 @@ func (e *Engine) ConfigRuntime() map[string]any {
 	return out
 }
 
-// localNode finds this machine in the model by host name. Until a node is
+// e.locate finds this machine in the model by host name. Until a node is
 // defined, only objects with global scope apply here.
-func localNode(st *confstore.State) (siteID, nodeID string) {
-	host, err := os.Hostname()
-	if err != nil {
-		return "", ""
+func (e *Engine) locate(st *confstore.State) (siteID, nodeID string) {
+	host := strings.ToLower(e.cfg.NodeName)
+	if host == "" {
+		h, err := os.Hostname()
+		if err != nil {
+			return "", ""
+		}
+		host = strings.ToLower(h)
 	}
-	host = strings.ToLower(host)
 	for _, e := range st.List(model.KindClusterNode) {
 		n := e.(*model.ClusterNode)
 		if strings.ToLower(n.Hostname) == host || strings.ToLower(n.Name) == host {

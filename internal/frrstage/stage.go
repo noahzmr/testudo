@@ -38,6 +38,8 @@ type Stage struct {
 	Locate func(*confstore.State) (siteID, nodeID string)
 	// Down returns the gateways whose monitor currently fails.
 	Down func() map[string]bool
+	// Paths says which fabric paths are best; nil without measurements.
+	Paths frrender.PathChooser
 	// StateDir holds the marker that says this program manages the routing
 	// daemon's configuration.
 	StateDir string
@@ -57,6 +59,7 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 	if s.Down != nil {
 		opt.Down = s.Down()
 	}
+	opt.Paths = s.Paths
 	res, err := frrender.Render(st, opt)
 	if err != nil {
 		return nil, err
