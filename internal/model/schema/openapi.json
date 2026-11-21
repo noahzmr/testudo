@@ -9436,6 +9436,30 @@
         }
       ]
     },
+    "/api/v1/dhcp/leases": {
+      "get": {
+        "operationId": "dhcp_leases",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Leases"
+          }
+        },
+        "summary": "The addresses this node's DHCP servers handed out, newest expiry first",
+        "tags": [
+          "services"
+        ]
+      }
+    },
     "/api/v1/dns-records": {
       "get": {
         "operationId": "list_dns_record",
