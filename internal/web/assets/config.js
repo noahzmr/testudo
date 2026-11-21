@@ -75,7 +75,7 @@ const PANE = {
   access_resource: 'access', access_policy: 'access',
   user: 'settings', group: 'settings', role: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
-  site: 'cluster', cluster_node: 'cluster',
+  site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes',
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
@@ -83,7 +83,7 @@ const LABEL = {
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies',
   user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
-  site: 'Sites', cluster_node: 'Nodes',
+  site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies',
 };
 // Friendlier names for some select values.
 const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 'Imported',
@@ -95,7 +95,7 @@ const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'na
   'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf',
   'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy',
   'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate',
-  'user', 'group', 'role', 'oidc_provider', 'api_token']);
+  'user', 'group', 'role', 'oidc_provider', 'api_token', 'fabric', 'path_policy', 'site', 'cluster_node']);
 // Sections that open on the model instead of their live view.
 const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'cluster-overview', changes: 'changesets' };
 const paneOf = seg => seg === 'cluster-overview' ? 'cluster' : seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
@@ -773,9 +773,9 @@ async function historyView() {
 // leads, what each member runs, and whether changes can be made at all.
 async function clusterView() {
   const g = gen;
-  const r = await api('GET', '/cluster');
+  const [r, rt] = await Promise.all([api('GET', '/cluster'), api('GET', '/runtime')]);
   if (g !== gen) return;
-  const main = $('#cfg-main'), c = r.data || {};
+  const main = $('#cfg-main'), c = r.data || {}, fab = rt.data?.fabric;
   const head = el('header', {}, el('h2', { text: 'Cluster' }));
   if (!r.ok) return fill(main, head, el('p', { class: 'err', text: r.data?.message || 'failed' }));
   const act = async (method, path, body, done) => {
@@ -785,7 +785,8 @@ async function clusterView() {
   };
   const admin = (S.who?.permissions || []).some(p => p === '*:write' || p === 'cluster:write');
   if (!c.enabled) {
-    return fill(main, head, el('p', { text: 'This node runs alone. To make it part of a cluster, start it with --cluster-raft and --cluster-api (addresses on the site mesh, never on a WAN interface).' }));
+    return fill(main, head, el('p', { text: 'This node runs alone. To make it part of a cluster, start it with --cluster-raft and --cluster-api (addresses on the site mesh, never on a WAN interface).' }),
+      fabricSection(fab, rt.data?.routing?.bgp));
   }
   if (!c.member) {
     const token = el('textarea', { rows: 3, placeholder: 'tdj1.…', spellcheck: 'false' });
@@ -839,7 +840,33 @@ async function clusterView() {
       el('button', { type: 'button', text: 'Token for a member without a vote', onclick: () => mkToken(false) }),
       el('button', { type: 'button', text: 'Hand over leadership', onclick: () => act('POST', '/cluster/transfer') })) : null,
     tokenOut,
-    el('p', { class: 'dim', text: 'Voters decide: keep three or five, at three locations or more. Members without a vote receive the configuration and do not affect the majority.' }));
+    el('p', { class: 'dim', text: 'Voters decide: keep three or five, at three locations or more. Members without a vote receive the configuration and do not affect the majority.' }),
+    fabricSection(fab, rt.data?.routing?.bgp));
+}
+
+// fabricSection shows this member's tunnels to the other sites with what
+// was measured on them and whether BGP runs over them.
+function fabricSection(fab, bgp) {
+  if (!fab) return null;
+  const head = el('h3', { text: 'Fabric on this member' });
+  if (!fab.enabled) return el('section', { class: 'cfg-card' }, head,
+    el('p', { class: fab.error ? 'err' : 'dim', text: fab.error || 'This member is not part of the fabric yet: it needs a node object with a fabric index and uplinks; its key is filled in by itself.' }));
+  const paths = Object.fromEntries((fab.paths || []).map(p => [p.device, p]));
+  const ms = v => v == null ? '' : `${v.toFixed(1)} ms`;
+  return el('section', { class: 'cfg-card' }, head,
+    el('p', { class: 'dim', text: `Loopback ${fab.loopback} · AS ${fab.asn} · key ${String(fab.public_key || '').slice(0, 12)}…` }),
+    (fab.tunnels || []).length ? el('table', { class: 'cfg-table' },
+      el('thead', {}, el('tr', {}, ['Tunnel', 'To', 'Color', 'VRF', 'Session', 'Latency', 'Jitter', 'Loss', ''].map(h => el('th', { text: h })))),
+      el('tbody', {}, fab.tunnels.map(t => {
+        const p = paths[t.device], s = bgp?.[t.peer];
+        const state = !s ? 'not running' : s.state === 'Established' ? `${t.session} up · ${s.received} prefixes` : `${t.session} ${s.state}`;
+        return el('tr', {},
+          el('td', { text: t.device }), el('td', { text: `${t.peer_node} (${t.endpoint})` }), el('td', { text: t.color }), el('td', { text: t.vrf || '' }),
+          el('td', { class: s && s.state === 'Established' ? '' : 'err', text: state }),
+          el('td', { text: p ? ms(p.latency_ms) : '' }), el('td', { text: p ? ms(p.jitter_ms) : '' }),
+          el('td', { class: p && p.loss > 0.05 ? 'err' : '', text: p ? `${Math.round(p.loss * 100)} %` : '' }),
+          el('td', { class: p?.down ? 'err' : 'dim', text: p?.down ? 'down' : p?.preferred ? 'preferred' : '' }));
+      }))) : el('p', { class: 'dim', text: 'No tunnels: no other site shares an uplink color with this member.' }));
 }
 
 // auditView lists who did what: logins with their source, configuration
