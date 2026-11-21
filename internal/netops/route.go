@@ -2,7 +2,6 @@ package netops
 
 import (
 	"fmt"
-	"net"
 	"sort"
 
 	"github.com/vishvananda/netlink"
@@ -38,81 +37,6 @@ func (w *Writer) ListRoutes() ([]RouteInfo, error) {
 		return out[i].Dst < out[j].Dst
 	})
 	return out, nil
-}
-
-// AddDefaultRoute installs a default route via gateway on iface.
-func (w *Writer) AddDefaultRoute(iface, gateway string) error {
-	if !w.AllowWrites {
-		return ErrWritesDisabled
-	}
-	return w.mutate(Op{Kind: OpAddDefaultRoute, Iface: iface, Gateway: gateway})
-}
-
-func (w *Writer) addDefaultRouteDirect(iface, gateway string) error {
-	link, err := netlink.LinkByName(iface)
-	if err != nil {
-		return fmt.Errorf("link %s: %w", iface, err)
-	}
-	gw := net.ParseIP(gateway)
-	if gw == nil {
-		return fmt.Errorf("invalid gateway %q", gateway)
-	}
-	_, dst, _ := net.ParseCIDR("0.0.0.0/0")
-	if gw.To4() == nil {
-		_, dst, _ = net.ParseCIDR("::/0")
-	}
-	return netlink.RouteAdd(&netlink.Route{
-		LinkIndex: link.Attrs().Index,
-		Dst:       dst,
-		Gw:        gw,
-	})
-}
-
-// AddRoute installs a route to a CIDR via gateway (optional) and iface.
-func (w *Writer) AddRoute(cidr, gateway, iface string) error {
-	if !w.AllowWrites {
-		return ErrWritesDisabled
-	}
-	return w.mutate(Op{Kind: OpAddRoute, CIDR: cidr, Gateway: gateway, Iface: iface})
-}
-
-func (w *Writer) addRouteDirect(cidr, gateway, iface string) error {
-	_, dst, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return fmt.Errorf("parse cidr %q: %w", cidr, err)
-	}
-	r := &netlink.Route{Dst: dst}
-	if gateway != "" {
-		gw := net.ParseIP(gateway)
-		if gw == nil {
-			return fmt.Errorf("invalid gateway %q", gateway)
-		}
-		r.Gw = gw
-	}
-	if iface != "" {
-		link, err := netlink.LinkByName(iface)
-		if err != nil {
-			return fmt.Errorf("link %s: %w", iface, err)
-		}
-		r.LinkIndex = link.Attrs().Index
-	}
-	return netlink.RouteAdd(r)
-}
-
-// DelRoute removes the route to a CIDR.
-func (w *Writer) DelRoute(cidr string) error {
-	if !w.AllowWrites {
-		return ErrWritesDisabled
-	}
-	return w.mutate(Op{Kind: OpDelRoute, CIDR: cidr})
-}
-
-func (w *Writer) delRouteDirect(cidr string) error {
-	_, dst, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return fmt.Errorf("parse cidr %q: %w", cidr, err)
-	}
-	return netlink.RouteDel(&netlink.Route{Dst: dst})
 }
 
 func routeToInfo(r netlink.Route) RouteInfo {

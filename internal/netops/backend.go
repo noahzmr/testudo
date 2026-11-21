@@ -38,57 +38,8 @@ const (
 	OpDelAddr          OpKind = "addr_del"
 	OpFlushAddrs       OpKind = "addr_flush"
 	OpSetMTU           OpKind = "mtu_set"
-	OpAddRoute         OpKind = "route_add"
-	OpAddDefaultRoute  OpKind = "route_add_default"
-	OpDelRoute         OpKind = "route_del"
 	OpFlushConntrack   OpKind = "ct_flush"
 	OpResetRuleCounter OpKind = "fw_reset_counter"
-
-	// OpApplyFilterTable / OpApplyNATTable replace the whole testudo_filter /
-	// testudo_nat table with the carried spec in one atomic netlink batch. They
-	// are the only firewall/NAT mutations: the policy manager (internal/firewall)
-	// owns the desired state and re-applies it, so rules are never added or
-	// removed one at a time behind its back.
-	OpApplyFilterTable OpKind = "filter_apply"
-	OpApplyNATTable    OpKind = "nat_apply"
-
-	// WireGuard peer mutations. Only public keys travel on the wire - private
-	// and preshared keys never reach the helper protocol (secrets rule).
-	OpWGConfigurePeer OpKind = "wg_peer_config"
-	OpWGRemovePeer    OpKind = "wg_peer_remove"
-
-	// OpWriteNetplan writes a netplan YAML file for a WireGuard interface. The
-	// path is validated to live under /etc/netplan and end in .yaml, and the
-	// file is written 0600 (it may contain the interface private key).
-	OpWriteNetplan OpKind = "netplan_write"
-
-	// OpSyncNetplan rewrites only the peers: block of a Testudo-managed netplan
-	// file so a live peer change persists across reboots. It preserves the
-	// interface block (including the private key) and refuses files that lack the
-	// Testudo marker, so it can never clobber an operator's own netplan.
-	OpSyncNetplan OpKind = "netplan_sync"
-
-	// OpNetplanApply runs `netplan apply` (privileged exec in the helper, like
-	// the capture path). A mutation. It runs `netplan generate` first and refuses
-	// to apply a YAML that does not render.
-	OpNetplanApply OpKind = "netplan_apply"
-
-	// OpSafeApplyNetplan is the transactional write+apply of §2: back up the
-	// target file, write the new content, `netplan generate` (validate), `netplan
-	// apply`, and on any failure restore the backup and re-apply (rollback).
-	OpSafeApplyNetplan OpKind = "netplan_safe_apply"
-
-	// OpRemoveNetplan deletes a Testudo-managed netplan file (marker-gated) and
-	// runs `netplan apply`. Used to delete a wg interface Testudo created.
-	OpRemoveNetplan OpKind = "netplan_remove"
-
-	// OpSetTxQLen sets an interface's transmit queue length (performance tuning).
-	OpSetTxQLen OpKind = "txqlen_set"
-
-	// OpSetSysctl writes a single kernel sysctl. The key is validated against a
-	// performance allowlist (net.core.* / net.ipv4.udp_* buffers) so it can never
-	// write an arbitrary /proc/sys value.
-	OpSetSysctl OpKind = "sysctl_set"
 
 	// OpListNetplan is a QUERY (not a mutation): it reads every *.yaml under
 	// /etc/netplan and returns them. Routed through Backend.Query / OpQuery so it
@@ -100,12 +51,10 @@ const (
 	// every one of these is routed through Backend.Query like netplan_list.
 	// Results are JSON; large ones (rule dumps, conntrack tables) span several
 	// privsep frames.
-	OpQueryFirewallSummary OpKind = "fw_summary"   // -> FirewallSummary
-	OpQueryFirewallRules   OpKind = "fw_rules"     // -> []RuleInfo
-	OpQueryFilterState     OpKind = "filter_state" // -> FilterTableState
-	OpQueryNATState        OpKind = "nat_state"    // -> NATTableState
-	OpQueryWGDevices       OpKind = "wg_devices"   // -> []WGDeviceInfo
-	OpQueryConntrack       OpKind = "ct_list"      // CtQuery -> ConntrackResult
+	OpQueryFirewallSummary OpKind = "fw_summary" // -> FirewallSummary
+	OpQueryFirewallRules   OpKind = "fw_rules"   // -> []RuleInfo
+	OpQueryWGDevices       OpKind = "wg_devices" // -> []WGDeviceInfo
+	OpQueryConntrack       OpKind = "ct_list"    // CtQuery -> ConntrackResult
 )
 
 // Op is a serializable description of one privileged mutation. It is the unit
@@ -116,12 +65,11 @@ type Op struct {
 	// Actor is the human behind the request (Web UI session user, TUI/CLI
 	// login), stamped by Writer.WithActor so the helper's audit row names a
 	// person next to the process uid. Never secret material.
-	Actor   string `json:"actor,omitempty"`
-	Name    string `json:"name,omitempty"`    // interface name
-	CIDR    string `json:"cidr,omitempty"`    // address / route destination
-	Gateway string `json:"gateway,omitempty"` // route gateway
-	Iface   string `json:"iface,omitempty"`   // route outgoing interface
-	MTU     int    `json:"mtu,omitempty"`
+	Actor string `json:"actor,omitempty"`
+	Name  string `json:"name,omitempty"`  // interface name
+	CIDR  string `json:"cidr,omitempty"`  // address
+	Iface string `json:"iface,omitempty"` // interface of an address or MTU change
+	MTU   int    `json:"mtu,omitempty"`
 	// Nft is an nftables ruleset for the nft_* operations. It is large and
 	// not secret; audit rows record its size and hash, not the text.
 	Nft string `json:"nft,omitempty"`
@@ -133,11 +81,6 @@ type Op struct {
 	Proxy   *ProxyRequest  `json:"proxy,omitempty"`
 	PAM     *PAMRequest    `json:"pam,omitempty"`
 	Daemon  *DaemonRequest `json:"daemon,omitempty"`
-	TxQLen  int            `json:"txqlen,omitempty"` // interface transmit queue length
-
-	// Sysctl write (performance tuning; key allowlisted).
-	SysctlKey string `json:"sysctl_key,omitempty"`
-	SysctlVal string `json:"sysctl_val,omitempty"`
 
 	// Firewall counter reset.
 	Family string `json:"family,omitempty"`
@@ -145,37 +88,9 @@ type Op struct {
 	Chain  string `json:"chain,omitempty"`
 	Handle uint64 `json:"handle,omitempty"`
 
-	// Struct-carrying ops. The table specs carry the complete desired table;
-	// a policy that does not fit privsep.MaxFrame is rejected by the manager.
-	FilterSpec *FilterTableSpec `json:"filter_spec,omitempty"`
-	NATSpec    *NATSpec         `json:"nat_spec,omitempty"`
-	Conntrack  *ConntrackFlow   `json:"conntrack,omitempty"`
-	CtQuery    *ConntrackQuery  `json:"ct_query,omitempty"` // filter for OpQueryConntrack
+	Conntrack *ConntrackFlow  `json:"conntrack,omitempty"`
+	CtQuery   *ConntrackQuery `json:"ct_query,omitempty"` // filter for OpQueryConntrack
 
-	// WireGuard peer mutation (public key only).
-	WGDevice     string   `json:"wg_device,omitempty"`
-	WGPeerKey    string   `json:"wg_peer_key,omitempty"`
-	WGAllowedIPs []string `json:"wg_allowed_ips,omitempty"`
-	WGEndpoint   string   `json:"wg_endpoint,omitempty"` // host:port; "" leaves it unset
-	// WGKeepalive is the persistent-keepalive in seconds: -1 leaves it unchanged,
-	// 0 clears it, >0 sets it. Not omitempty so 0 (clear) survives the wire.
-	WGKeepalive int `json:"wg_keepalive"`
-
-	// Netplan file write (WireGuard interface config). NetplanContent may hold a
-	// private key, so it is written 0600 and never echoed to the audit args.
-	NetplanPath    string `json:"netplan_path,omitempty"`
-	NetplanContent string `json:"netplan_content,omitempty"`
-
-	// Netplan peer-sync (public material only).
-	NetplanPeers []NetplanPeerWire `json:"netplan_peers,omitempty"`
-}
-
-// NetplanPeerWire is one peer for OpSyncNetplan - public material only.
-type NetplanPeerWire struct {
-	PublicKey  string   `json:"public_key"`
-	AllowedIPs []string `json:"allowed_ips,omitempty"`
-	Endpoint   string   `json:"endpoint,omitempty"`
-	Keepalive  int      `json:"keepalive,omitempty"`
 }
 
 // EncodeOp serialises an Op for the helper wire.
@@ -288,10 +203,6 @@ func (w *Writer) queryDirect(op Op) ([]byte, error) {
 		return marshalResult(w.listFirewallDirect())
 	case OpQueryFirewallRules:
 		return marshalResult(w.listFirewallRulesDirect())
-	case OpQueryFilterState:
-		return marshalResult(w.filterTableStateDirect())
-	case OpQueryNATState:
-		return marshalResult(w.natTableStateDirect())
 	case OpQueryWGDevices:
 		return marshalResult(w.listWGDevicesDirect())
 	case OpQueryConntrack:
@@ -341,12 +252,6 @@ func (w *Writer) applyDirect(op Op) error {
 		return w.flushAddrsDirect(op.Iface)
 	case OpSetMTU:
 		return w.setMTUDirect(op.Iface, op.MTU)
-	case OpAddRoute:
-		return w.addRouteDirect(op.CIDR, op.Gateway, op.Iface)
-	case OpAddDefaultRoute:
-		return w.addDefaultRouteDirect(op.Iface, op.Gateway)
-	case OpDelRoute:
-		return w.delRouteDirect(op.CIDR)
 	case OpFlushConntrack:
 		if op.Conntrack == nil {
 			return fmt.Errorf("conntrack op missing flow")
@@ -382,34 +287,6 @@ func (w *Writer) applyDirect(op Op) error {
 	case OpNftApply:
 		_, err := runNft(NftRequest{Mode: NftLoad, Ruleset: op.Nft})
 		return err
-	case OpApplyFilterTable:
-		if op.FilterSpec == nil {
-			return fmt.Errorf("filter apply missing spec")
-		}
-		return w.applyFilterTableDirect(*op.FilterSpec)
-	case OpApplyNATTable:
-		if op.NATSpec == nil {
-			return fmt.Errorf("nat apply missing spec")
-		}
-		return w.applyNATTableDirect(*op.NATSpec)
-	case OpWGConfigurePeer:
-		return w.wgConfigurePeerDirect(op.WGDevice, op.WGPeerKey, op.WGAllowedIPs, op.WGEndpoint, op.WGKeepalive)
-	case OpWriteNetplan:
-		return w.writeNetplanDirect(op.NetplanPath, op.NetplanContent)
-	case OpSyncNetplan:
-		return w.syncNetplanDirect(op.NetplanPath, op.NetplanPeers)
-	case OpNetplanApply:
-		return w.netplanApplyDirect()
-	case OpSafeApplyNetplan:
-		return w.safeApplyNetplanDirect(op.NetplanPath, op.NetplanContent)
-	case OpRemoveNetplan:
-		return w.removeNetplanDirect(op.NetplanPath)
-	case OpSetTxQLen:
-		return w.setTxQLenDirect(op.Iface, op.TxQLen)
-	case OpSetSysctl:
-		return w.setSysctlDirect(op.SysctlKey, op.SysctlVal)
-	case OpWGRemovePeer:
-		return w.wgRemovePeerDirect(op.WGDevice, op.WGPeerKey)
 	default:
 		return fmt.Errorf("unknown op kind %q", op.Kind)
 	}

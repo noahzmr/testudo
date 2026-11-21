@@ -56,8 +56,9 @@ func (e *Engine) snapshotOnce(ctx context.Context, topo *topology.Builder) {
 	if routes, err := e.netops.ListRoutes(); err == nil {
 		_ = e.store.InsertSnapshot(ctx, e.sessionID, storage.SnapshotKindRoute, routes)
 	}
-	if nats, err := e.netops.ListPortForwards(); err == nil {
-		_ = e.store.InsertSnapshot(ctx, e.sessionID, storage.SnapshotKindNAT, nats)
+	// NAT is the model's NAT rules with what each has matched.
+	if v := e.FirewallView(); v.Error == "" {
+		_ = e.store.InsertSnapshot(ctx, e.sessionID, storage.SnapshotKindNAT, v.NAT)
 	}
 	e.snapshotL3(ctx)
 	devs := []flows.FlowStats{}

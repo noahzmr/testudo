@@ -136,7 +136,7 @@ func TestRulesetOnARealKernel(t *testing.T) {
 
 	// A host that used the netlink path has its two tables; the switch has to
 	// remove them in the same transaction that installs the new one.
-	if err := nw.ApplyFilterTable(netops.FilterTableSpec{Baseline: netops.DefaultBaseline()}); err != nil {
+	if err := nw.NftApply("add table inet testudo_filter\nadd table ip testudo_nat\n"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(nft("list", "tables"), "testudo_filter") {

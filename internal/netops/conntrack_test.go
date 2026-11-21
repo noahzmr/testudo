@@ -7,7 +7,7 @@ import (
 )
 
 // be32/be64 build big-endian payloads, matching how netfilter stores
-// addresses, counters and the status word on the wire (be16 lives in nat.go).
+// addresses, counters and the status word on the wire.
 func be32(v uint32) []byte { b := make([]byte, 4); binary.BigEndian.PutUint32(b, v); return b }
 func be64(v uint64) []byte { b := make([]byte, 8); binary.BigEndian.PutUint64(b, v); return b }
 
@@ -153,3 +153,5 @@ func TestConntrackUtilisation(t *testing.T) {
 		t.Error("util with max=0 should be ok=false")
 	}
 }
+
+func be16(v uint16) []byte { return []byte{byte(v >> 8), byte(v)} }
