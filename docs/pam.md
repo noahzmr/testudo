@@ -15,28 +15,32 @@ request ──► pending ──approve──► active ──ttl / revoke──
 
 | Piece | Where | Role |
 | ----- | ----- | ---- |
-| control plane | `internal/pam` | resources, policies, grant lifecycle, separation of duties |
-| enforcement | `internal/firewall` | grant → `forward accept iif wg0 src <peer> dst <resource> …` rules owned by `pam-grant:<id>` |
+| catalogue | the model | `access_resource`, `access_policy` and `access_grant` objects, replicated to every member |
+| control plane | `internal/pam` | requests, approvals, grant lifecycle, separation of duties |
+| enforcement | `internal/fwrender` | an `access_grant` → `forward accept` rules from the user's peers to the resource, commented with the grant's id |
 | session kill | `netops.ListConntrack` / `FlushConntrack` | connections from the peers to the resource are flushed when the grant ends |
 | recording | `capture.TCPDumpManager` | one rolling pcap per grant: `(host <peer> …) and net <resource>` |
-| identity | `internal/auth` | roles, MFA; peers bind to users via `wg_peer_meta.user` |
+| identity | `internal/identity` | users, roles, MFA; a WireGuard peer belongs to the user named on it in the model |
 | proof | `access_events` (`internal/storage/pam.go`) | SHA-256 hash chain; `VerifyAccessEvents` detects edits and deletions |
 
 ## Objects
 
-**Resource** - what can be reached: name, kind (`l3`, `ssh`, `rdp`, `https`),
-address or CIDR, optional proto/port range, a login hint and a broker
-reference (Guacamole connection id, SSH CA profile). `ssh`/`rdp`/`https`
-default to tcp/22, 3389, 443 when no port is given.
+**Resource** (`access_resource`, model) - what can be reached: type
+(`network`, `ssh`, `rdp`), address or network, protocol and ports, a login
+name and a broker reference (Guacamole connection id).
 
-**Policy** - who may ask: `subject` is `user:<name>` or `role:<role>` (the
-requester's role must be at least that role), a resource, `max_ttl_sec`,
-`requires_approval`, `requires_mfa`.
+**Policy** (`access_policy`, model) - who may ask: users, groups or every
+authenticated user, a resource, the longest grant, whether it needs
+approval and a second factor.
 
-**Grant** - one request and its whole life: user, resource, policy, state,
-justification, ticket, requested/decided/started/ended timestamps, the peer
-addresses it was compiled for, capture id, observed flows/bytes, break-glass
-flag.
+**Request** (SQLite, per member) - one request and its whole life: user,
+resource, policy, state, justification, ticket, requested/decided/started/
+ended timestamps, capture id, observed flows/bytes, break-glass flag.
+
+**Grant** (`access_grant`, model) - what an approved request, a policy
+without approval or a break-glass becomes: user, resource, end, policy,
+justification, approver. While it exists the packet filter of every member
+lets the user's peers reach the resource.
 
 ## Rules
 
@@ -45,27 +49,34 @@ flag.
   nobody approves their own request.
 * **MFA-gated resources** refuse requesters who have not enrolled an
   authenticator.
-* A user with **no bound WireGuard peer** cannot be granted anything
-  (`ErrNoPeer`); bind peers under Access → Peer bindings (admin).
-* Activation is **all-or-nothing**: if one rule fails to install, the ones
-  already added are removed and the grant stays pending with the error shown.
+* A user with **no WireGuard peer** in the model cannot be granted anything
+  (`ErrNoPeer`); a peer belongs to the user named on it.
+* Activation is a model change: if it fails, the request stays pending with
+  the error shown.
 * **Break-glass** (admin only) bypasses policy and approval, is capped at 4 h,
   and raises a WARN alert.
-* Resources with pending or active grants cannot be deleted.
+* Resources with grants cannot be deleted (the model refuses to delete an
+  object something refers to).
 
 ## Lifecycle details
 
-* **Activate**: resolve the user's peer tunnel addresses → one
-  `forward accept` rule per address (`Owner: pam-grant:<id>`) → start the
-  capture → state `active`, `ends_at = now + ttl`.
-* **Deactivate** (expire / revoke): `DelRulesByOwner` → flush every conntrack
-  entry from the peers to the resource → stop the capture → record how many
-  rules were removed and flows killed.
-* The manager ticks every 10 s: expires overdue grants and samples conntrack
-  so `observed_flows` / `observed_bytes` show whether the access was used.
-* After a restart the firewall reconciler re-installs the rules of grants that
-  are still valid (they are ordinary policy rules) and the PAM manager expires
-  the ones whose window passed while Testudo was down.
+* **Activate**: create the `access_grant` object (forwarded to the cluster's
+  leader, with the actor `system`) → every member renders it into its packet
+  filter → start the capture → state `active`, `ends_at = now + ttl`.
+* **Deactivate** (expire / revoke): delete the grant object → every member's
+  ruleset loses its rules, and every member flushes the conntrack entries
+  from the peers to the resource → stop the capture → record how many flows
+  were killed.
+* The manager ticks every 10 s: expires overdue requests and samples
+  conntrack so `observed_flows` / `observed_bytes` show whether the access was
+  used. The cluster's leader also removes any grant 30 s past its end, so a
+  grant ends even when the member that made it is down.
+* After a restart the grants are still in the model and still in the
+  ruleset; the ones whose end passed while Testudo was down are removed.
+
+Resources and policies are edited like every other model object (Access in
+the Web UI, `/api/v1`). Those of older builds were moved into the model on
+the first start.
 
 ## HTTP API
 
@@ -76,7 +87,6 @@ flag.
 | POST | `/api/pam/approve`, `/api/pam/deny` | approver or admin |
 | POST | `/api/pam/revoke` | requester, approver or admin |
 | POST | `/api/pam/breakglass` | admin |
-| POST | `/api/pam/resource/add|del`, `/api/pam/policy/add|del`, `/api/pam/peer/bind` | admin |
 
 Alerts: break-glass, denials and activation failures surface as WARN
 anomalies; the ordinary lifecycle as INFO (source `pam`).
@@ -96,7 +106,7 @@ credential never left Guacamole. A broker failure is recorded
 (`broker_failed`) and does not block the L3 grant.
 
 **SSH CA** (`internal/sshca`): Testudo keeps an Ed25519 user CA under
-`~/.testudo/sshca/` (private key 0600, never exported). Targets trust it with
+`<storage>/sshca/` (private key 0600, never exported). Targets trust it with
 
 ```text
 TrustedUserCAKeys /etc/ssh/testudo_ca.pub      # the key shown on the Access tab
@@ -113,4 +123,4 @@ the grant.
 
 Password vaulting and rotation, endpoint privilege elevation. See
 [GAP-ANALYSIS.md](GAP-ANALYSIS.md) for what is still open
-(OIDC, export/replay, enrollment links, approvals notifications).
+(export/replay, enrollment links, approvals notifications).

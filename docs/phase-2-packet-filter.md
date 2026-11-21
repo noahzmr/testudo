@@ -1,7 +1,9 @@
 # Phase 2: packet filter and NAT
 
-Design note. The status at the end says what is enforced today and what is
-still owed.
+Design note. The status at the end says what was enforced at the end of
+the phase and what was still owed. Since Phase 12 the firewall manager and
+the bridge are gone and the model's ruleset is the only one
+([phase-12-consolidation.md](phase-12-consolidation.md)).
 
 ## One place to edit the firewall
 

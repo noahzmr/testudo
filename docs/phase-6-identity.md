@@ -3,6 +3,11 @@
 Who someone is can be proven in four ways. What they may do is decided in
 one place.
 
+Since Phase 12 local users are model objects too (no more `users.json`),
+sessions are cluster-wide and permissions can be limited to a site or node
+([phase-12-consolidation.md](phase-12-consolidation.md),
+[identity.md](identity.md)).
+
 ```text
 built-in account ─┐
 host account (PAM) ┼─► identity.Resolve ─► principal ─► API, console,

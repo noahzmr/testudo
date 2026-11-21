@@ -136,24 +136,25 @@ what replay and the metrics layer serialise. See
 
 ## 6. Firewall
 
-The firewall is a **policy file applied atomically to nftables and reconciled
-back when the kernel drifts** - see [docs/firewall.md](docs/firewall.md).
+The packet filter is **the configuration model, rendered into one nftables
+table and loaded in one transaction** - see [docs/firewall.md](docs/firewall.md).
 
-* **policy** - `internal/firewall`: desired state in `~/.testudo/firewall.json`,
-  validation, candidate → apply → persist, 30 s drift reconcile, commit-confirm
-  for default-deny. The engine exposes it as `Engine.Firewall()`; TUI, Web UI,
-  CLI and the WireGuard provisioner all mutate rules through it - never through
-  `netops` directly.
-* **mechanism** - `internal/netops/filter.go` + `nat.go`: the rule model
-  (`FilterRule`, `PortForward`, `Masquerade`), the expression compiler and the
-  one-batch table rebuild (`ApplyFilterTable` / `ApplyNATTable`), plus the live
-  read-back (`FilterTableState` / `NATTableState`) used for drift and hit counts.
+* **render** - `internal/fwrender`: the model for one node (policy, zones,
+  aliases, filter and NAT rules, access grants, kernel load balancing) as
+  the table `inet testudo`. Golden files in `testdata/`.
+* **apply** - `internal/fwstage`: the packet-filter stage of the
+  transactional apply (`nft -c`, `nft -f`, a generation set to check the
+  kernel holds it), the 30 s drift reload and the per-object counters.
+  Nothing else writes the table; TUI, Web UI and CLI read it through
+  `Engine.FirewallView()`.
 * **views** - `internal/netops/firewall.go` decodes *any* nftables ruleset for the
   diagnostic per-rule counter view; `firewall_iptables.go` is a read-only legacy
-  fallback that shells out to `iptables -L -v -n -x`.
+  fallback that runs `iptables -L -v -n -x`.
+* `internal/firewall` only reads an old `firewall.json` for its one-time
+  move into the model (`internal/engine/legacyfw.go`).
 
-Integration tests run against a real kernel inside `unshare -Urn` (no root
-needed); see `internal/netops/nft_integration_test.go`.
+Real-kernel tests of the ruleset run in a privileged container through
+`scripts/netns-tests.sh`.
 
 Privilege separation: the engine drops all capabilities after spawning the helper,
 so every nf_tables / conntrack / WireGuard **read** (not just writes) is routed

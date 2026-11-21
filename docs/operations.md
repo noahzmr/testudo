@@ -31,7 +31,27 @@ testudo user passwd testudo      # set your own
 
 Commands run as root on the host work on `/var/lib/testudo` once the
 service has created it (or wherever `$TESTUDO_STORAGE` points); as another
-user they use `~/.testudo`. `--storage` overrides both.
+user they use `~/.testudo`. `--storage` overrides both. `testudo user`,
+`testudo firewall` and `testudo nat` talk to the running service over
+`<storage>/control.sock`, which only root and the service's own user may
+use; they act as the break-glass administrator `host-root`, and their
+changes are model changes like any other.
+
+### Upgrading from a build before the model
+
+The first start of this build moves the older files into the model, once,
+and keeps each original next to it:
+
+| File | Becomes | Kept as |
+| --- | --- | --- |
+| `users.json` | local users, their hashes and second factors in the secret store | `users.json.migrated` |
+| `firewall.json` | firewall policy, zones, filter and NAT rules, with the old WireGuard provisioner's rules | `firewall.json.migrated` |
+| access resources, policies and peer bindings in the database | `access_resource` and `access_policy` objects, the user on each `wg_peer` | the database rows |
+
+What could not be carried over is in the log and in the audit row
+`firewall_migration`. The hand-written forms that changed rules, routes,
+WireGuard peers and users directly are gone; all of that is changed in the
+model now.
 
 The console is at `https://<host>:8443` with a self-signed certificate
 until you configure one (Settings → Certificates: Let's Encrypt or the
@@ -195,8 +215,10 @@ curl -fsk https://localhost:8443/readyz
 * **Locked out by a change**: wait 60 seconds, the change rolls back. A
   confirmed change that locks you out: log in over SSH or on the console
   port (both stay open) and revert the record in Changes → History.
-* **Identity provider down**: the built-in user `testudo`, or a host account
-  in `testudo-admin`. Reset the built-in password with `testudo user passwd`.
+* **Identity provider down**: a local user such as `testudo`, or a host
+  account in `testudo-admin`. As root on the host, `testudo user passwd
+  testudo` resets the password through the control socket; the new one is
+  good on every member.
 * **A site cut off from the cluster**: it keeps running its configuration
   read-only. An urgent local change is an emergency override
   (`POST /api/v1/cluster/override`, break-glass administrators only); it is

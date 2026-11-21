@@ -1,6 +1,9 @@
 # Architecture: current state
 
-What exists in the repository today, written before the appliance work starts.
+What existed in the repository before the appliance work started; kept as
+the reference point it was written as. The firewall manager, `users.json`,
+the WireGuard provisioner and in-memory sessions described here were
+replaced in Phase 12 ([phase-12-consolidation.md](phase-12-consolidation.md)).
 It is the reference point for [GAP-ANALYSIS.md](GAP-ANALYSIS.md). Line
 references are to the tree at commit `b80d362`.
 
