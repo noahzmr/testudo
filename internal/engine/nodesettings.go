@@ -61,7 +61,7 @@ func fromModel(t *config.Thresholds, ns *model.NodeSettings) {
 	if c, err := time.ParseDuration(ns.IncidentCooldown); err == nil && c > 0 {
 		t.IncidentCooldown = c
 	}
-	t.IPFIXEnabled, t.IPFIXEndpoint, t.IPFIXDomainID = ns.IPFIXEnabled, ns.IPFIXEndpoint, ns.IPFIXDomainID
+	t.IPFIXEnabled, t.IPFIXEndpoint, t.IPFIXDomainID, t.IPFIXProtocol = ns.IPFIXEnabled, ns.IPFIXEndpoint, ns.IPFIXDomainID, ns.IPFIXProtocol
 	t.IPFIXIntervalSec = d.IPFIXIntervalSec
 	if ns.IPFIXIntervalSec > 0 {
 		t.IPFIXIntervalSec = ns.IPFIXIntervalSec
@@ -91,7 +91,7 @@ func toModel(t config.Thresholds) *model.NodeSettings {
 		JitterMs: f(t.JitterMs, d.JitterMs), RTTMs: f(t.RTTMs, d.RTTMs),
 		RetransmissionsPct: f(t.RetransmissionsPct, d.RetransmissionsPct), FlowRetransPct: f(t.FlowRetransPct, d.FlowRetransPct),
 		ExpectedDownMbps: t.ExpectedDownMbps, ExpectedUpMbps: t.ExpectedUpMbps,
-		IPFIXEnabled: t.IPFIXEnabled, IPFIXEndpoint: t.IPFIXEndpoint, IPFIXDomainID: t.IPFIXDomainID,
+		IPFIXEnabled: t.IPFIXEnabled, IPFIXEndpoint: t.IPFIXEndpoint, IPFIXDomainID: t.IPFIXDomainID, IPFIXProtocol: t.IPFIXProtocol,
 		EBPFEnabled: t.EBPFEnabled, SentryDSN: t.SentryDSN,
 		GuacamoleURL: t.GuacamoleURL, GuacamoleConnID: t.GuacamoleConnID, GuacamoleTemplate: t.GuacamoleTemplate,
 		GuacamoleAPIUser: t.GuacamoleAPIUser, GuacamoleAPIPassword: t.GuacamoleAPIPassword,

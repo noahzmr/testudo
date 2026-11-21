@@ -5549,6 +5549,15 @@
             "title": "IPFIX interval (s)",
             "type": "integer"
           },
+          "ipfix_protocol": {
+            "description": "Empty is IPFIX; netflow9 for collectors that only speak NetFlow v9",
+            "enum": [
+              "ipfix",
+              "netflow9"
+            ],
+            "title": "Flow export protocol",
+            "type": "string"
+          },
           "jitter_ms": {
             "minimum": 0,
             "title": "Jitter threshold (ms)",

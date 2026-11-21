@@ -62,6 +62,9 @@ type Config struct {
 	// TemplateEvery re-sends the template every N data exports so a
 	// collector that misses the initial template can recover. Defaults to 10.
 	TemplateEvery int
+	// Protocol is "ipfix" (the default) or "netflow9" (RFC 3954) for
+	// collectors that only speak NetFlow version 9.
+	Protocol string
 }
 
 // FlowRec is the input shape - one bidirectional flow worth of data. The
@@ -88,6 +91,7 @@ type Exporter struct {
 	conn    net.Conn
 	seq     uint32
 	exports int // count of Export calls; used to throttle template re-emit
+	boot    time.Time
 }
 
 // NewExporter dials the collector and returns a ready exporter. Pass an
@@ -109,7 +113,7 @@ func NewExporter(cfg Config) (*Exporter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", cfg.Endpoint, err)
 	}
-	return &Exporter{cfg: cfg, conn: conn}, nil
+	return &Exporter{cfg: cfg, conn: conn, boot: time.Now()}, nil
 }
 
 // ErrDisabled is returned when the exporter is asked to run with no
@@ -145,6 +149,16 @@ func (e *Exporter) Export(flows []FlowRec) error {
 	sendTemplate := e.exports%e.cfg.TemplateEvery == 0
 
 	if !sendTemplate && len(v4) == 0 {
+		return nil
+	}
+
+	if e.cfg.Protocol == "netflow9" {
+		msg := e.netflow9(v4, sendTemplate, time.Now())
+		if _, err := e.conn.Write(msg); err != nil {
+			return fmt.Errorf("netflow write: %w", err)
+		}
+		e.seq++ // NetFlow v9 counts packets, IPFIX records
+		e.exports++
 		return nil
 	}
 
@@ -283,4 +297,91 @@ func defaultDomainID() uint32 {
 		v = 1
 	}
 	return v
+}
+
+// NetFlow version 9 (RFC 3954) uses the same fields with its own numbers
+// for the times (relative to the exporter's start) and the same numbers
+// for the rest, NAT included.
+const (
+	versionNetFlow9  uint16 = 9
+	nfTemplateSet    uint16 = 0
+	nfLastSwitched   uint16 = 21
+	nfFirstSwitched  uint16 = 22
+	netflowRecordLen        = 4 + 4 + 2 + 2 + 1 + 8 + 8 + 4 + 4 + 4 + 4 + 2 + 2 // 49
+)
+
+var netflowTemplate = []struct{ typ, length uint16 }{
+	{ieSourceIPv4Address, 4}, {ieDestinationIPv4Address, 4},
+	{ieSourceTransportPort, 2}, {ieDestinationTransportPort, 2},
+	{ieProtocolIdentifier, 1}, {iePacketDeltaCount, 8}, {ieOctetDeltaCount, 8},
+	{nfFirstSwitched, 4}, {nfLastSwitched, 4},
+	{iePostNATSourceIPv4Address, 4}, {iePostNATDestinationIPv4Address, 4},
+	{iePostNAPTSourceTransportPort, 2}, {iePostNAPTDestinationTransportPort, 2},
+}
+
+// netflow9 builds one NetFlow v9 export packet.
+func (e *Exporter) netflow9(flows []FlowRec, template bool, now time.Time) []byte {
+	be := binary.BigEndian
+	uptime := func(t time.Time) uint32 {
+		if t.Before(e.boot) {
+			return 0
+		}
+		return uint32(t.Sub(e.boot).Milliseconds())
+	}
+	var body bytes.Buffer
+	count := 0
+	if template {
+		set := make([]byte, 8, 8+4*len(netflowTemplate))
+		be.PutUint16(set[0:], nfTemplateSet)
+		be.PutUint16(set[2:], uint16(8+4*len(netflowTemplate)))
+		be.PutUint16(set[4:], templateID)
+		be.PutUint16(set[6:], uint16(len(netflowTemplate)))
+		for _, f := range netflowTemplate {
+			set = be.AppendUint16(set, f.typ)
+			set = be.AppendUint16(set, f.length)
+		}
+		body.Write(set)
+		count++
+	}
+	if len(flows) > 0 {
+		data := make([]byte, 4, 4+netflowRecordLen*len(flows)+3)
+		for _, f := range flows {
+			src, dst := f.SrcIP.To4(), f.DstIP.To4()
+			data = append(data, src...)
+			data = append(data, dst...)
+			data = be.AppendUint16(data, f.SrcPort)
+			data = be.AppendUint16(data, f.DstPort)
+			data = append(data, f.Proto)
+			data = be.AppendUint64(data, f.Packets)
+			data = be.AppendUint64(data, f.Bytes)
+			data = be.AppendUint32(data, uptime(f.Start))
+			data = be.AppendUint32(data, uptime(f.End))
+			psrc, pdst, psp, pdp := src, dst, f.SrcPort, f.DstPort
+			if p := f.PostSrcIP.To4(); p != nil {
+				psrc, psp = p, f.PostSrcPort
+			}
+			if p := f.PostDstIP.To4(); p != nil {
+				pdst, pdp = p, f.PostDstPort
+			}
+			data = append(data, psrc...)
+			data = append(data, pdst...)
+			data = be.AppendUint16(data, psp)
+			data = be.AppendUint16(data, pdp)
+			count++
+		}
+		for len(data)%4 != 0 {
+			data = append(data, 0) // a FlowSet ends on a four-byte boundary
+		}
+		be.PutUint16(data[0:], templateID)
+		be.PutUint16(data[2:], uint16(len(data)))
+		body.Write(data)
+	}
+	h := make([]byte, 20, 20+body.Len())
+	be.PutUint16(h[0:], versionNetFlow9)
+	be.PutUint16(h[2:], uint16(count))
+	be.PutUint32(h[4:], uptime(now))
+	be.PutUint32(h[8:], uint32(now.Unix()))
+	be.PutUint32(h[12:], e.seq)
+	be.PutUint32(h[16:], e.cfg.DomainID)
+	return append(h, body.Bytes()...)
 }

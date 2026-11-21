@@ -85,3 +85,55 @@ func TestMessageCarriesTranslation(t *testing.T) {
 		t.Errorf("untranslated record: post-NAT should equal pre-NAT")
 	}
 }
+
+// TestNetFlowV9: a NetFlow v9 packet with the template and two records,
+// decoded the way a collector does: header, template FlowSet, data
+// FlowSet padded to four bytes, times relative to the exporter's start.
+func TestNetFlowV9(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	exp, err := NewExporter(Config{Endpoint: pc.LocalAddr().String(), DomainID: 9, Protocol: "netflow9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Close()
+	now := time.Now()
+	recs := []FlowRec{
+		{SrcIP: net.ParseIP("192.0.2.1"), DstIP: net.ParseIP("192.0.2.2"), SrcPort: 1234, DstPort: 443, Proto: 6, Bytes: 5000, Packets: 9,
+			Start: now, End: now.Add(time.Second), PostSrcIP: net.ParseIP("198.51.100.1"), PostSrcPort: 40000},
+		{SrcIP: net.ParseIP("10.0.0.1"), DstIP: net.ParseIP("10.0.0.2"), SrcPort: 53, DstPort: 5353, Proto: 17, Start: now, End: now},
+	}
+	if err := exp.Export(recs); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 65535)
+	pc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _, err := pc.ReadFrom(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := buf[:n]
+	be := binary.BigEndian
+	if be.Uint16(p) != 9 || be.Uint16(p[2:]) != 3 || be.Uint32(p[16:]) != 9 {
+		t.Fatalf("header: version %d count %d source %d", be.Uint16(p), be.Uint16(p[2:]), be.Uint32(p[16:]))
+	}
+	set := p[20:]
+	if be.Uint16(set) != 0 || be.Uint16(set[4:]) != 256 || int(be.Uint16(set[6:])) != len(netflowTemplate) {
+		t.Fatalf("template flowset: % x", set[:8])
+	}
+	data := set[be.Uint16(set[2:]):]
+	if be.Uint16(data) != 256 || int(be.Uint16(data[2:]))%4 != 0 || int(be.Uint16(data[2:])) != len(data) {
+		t.Fatalf("data flowset: id %d length %d of %d", be.Uint16(data), be.Uint16(data[2:]), len(data))
+	}
+	r := data[4:]
+	if net.IP(r[0:4]).String() != "192.0.2.1" || be.Uint16(r[10:]) != 443 || r[12] != 6 || be.Uint64(r[21:]) != 5000 ||
+		net.IP(r[37:41]).String() != "198.51.100.1" || be.Uint16(r[45:]) != 40000 {
+		t.Errorf("first record: % x", r[:netflowRecordLen])
+	}
+	if first, last := be.Uint32(r[29:]), be.Uint32(r[33:]); last-first < 900 || last-first > 1100 {
+		t.Errorf("times: first %d last %d", first, last)
+	}
+}

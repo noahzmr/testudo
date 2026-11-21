@@ -38,6 +38,7 @@ type state struct {
 	Endpoint string
 	Interval time.Duration
 	Domain   uint32
+	Protocol string
 }
 
 func NewManager(settings *config.SettingsStore, flowAgg *flows.Aggregator) *Manager {
@@ -100,6 +101,7 @@ func (m *Manager) reconcile() {
 		Endpoint: strings.TrimSpace(th.IPFIXEndpoint),
 		Interval: time.Duration(th.IPFIXIntervalSec) * time.Second,
 		Domain:   th.IPFIXDomainID,
+		Protocol: th.IPFIXProtocol,
 	}
 	if target.Interval <= 0 {
 		target.Interval = 30 * time.Second
@@ -123,6 +125,7 @@ func (m *Manager) reconcile() {
 		Endpoint: target.Endpoint,
 		Interval: target.Interval,
 		DomainID: target.Domain,
+		Protocol: target.Protocol,
 	})
 	if err != nil {
 		m.lastErr = err.Error()

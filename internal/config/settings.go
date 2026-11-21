@@ -96,6 +96,7 @@ type persistedThresholds struct {
 	IPFIXEndpoint           string  `json:"ipfix_endpoint"`
 	IPFIXIntervalSec        int     `json:"ipfix_interval_sec"`
 	IPFIXDomainID           uint32  `json:"ipfix_domain_id"`
+	IPFIXProtocol           string  `json:"ipfix_protocol,omitempty"`
 	EBPFEnabled             bool    `json:"ebpf_enabled"`
 	FlowRetransPct          float64 `json:"flow_retrans_pct"`
 	ExpectedDownMbps        float64 `json:"expected_down_mbps"`
@@ -130,6 +131,7 @@ func (p persistedThresholds) toThresholds() Thresholds {
 		IPFIXEndpoint:           p.IPFIXEndpoint,
 		IPFIXIntervalSec:        p.IPFIXIntervalSec,
 		IPFIXDomainID:           p.IPFIXDomainID,
+		IPFIXProtocol:           p.IPFIXProtocol,
 		EBPFEnabled:             p.EBPFEnabled,
 		FlowRetransPct:          p.FlowRetransPct,
 		ExpectedDownMbps:        p.ExpectedDownMbps,
@@ -165,6 +167,7 @@ func persistedFromThresholds(t Thresholds) persistedThresholds {
 		IPFIXEndpoint:           t.IPFIXEndpoint,
 		IPFIXIntervalSec:        t.IPFIXIntervalSec,
 		IPFIXDomainID:           t.IPFIXDomainID,
+		IPFIXProtocol:           t.IPFIXProtocol,
 		EBPFEnabled:             t.EBPFEnabled,
 		FlowRetransPct:          t.FlowRetransPct,
 		ExpectedDownMbps:        t.ExpectedDownMbps,

@@ -56,6 +56,7 @@ type Thresholds struct {
 	IPFIXEndpoint    string // "host:port" of the collector (UDP)
 	IPFIXIntervalSec int    // export cadence in seconds; default 30
 	IPFIXDomainID    uint32 // observation domain id; 0 = derive from hostname
+	IPFIXProtocol    string // "ipfix" (default) or "netflow9"
 
 	// Per-flow TCP telemetry (internal/telemetry, internal/collectors/tcpinfo.go).
 	// EBPFEnabled opts into the eBPF backend when the binary is built with

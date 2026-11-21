@@ -748,6 +748,7 @@ type NodeSettings struct {
 	IPFIXEndpoint    string `json:"ipfix_endpoint,omitempty" yaml:"ipfix_endpoint,omitempty" validate:"omitempty,hostport" ui:"label=IPFIX collector,group=Flow export,order=120"`
 	IPFIXIntervalSec int    `json:"ipfix_interval_sec,omitempty" yaml:"ipfix_interval_sec,omitempty" validate:"min=0,max=3600" ui:"label=IPFIX interval (s),group=Flow export,order=130"`
 	IPFIXDomainID    uint32 `json:"ipfix_domain_id,omitempty" yaml:"ipfix_domain_id,omitempty" validate:"-" ui:"label=IPFIX observation domain,group=Flow export,order=140"`
+	IPFIXProtocol    string `json:"ipfix_protocol,omitempty" yaml:"ipfix_protocol,omitempty" validate:"omitempty,oneof=ipfix netflow9" ui:"label=Flow export protocol,widget=select,group=Flow export,order=145,help=Empty is IPFIX; netflow9 for collectors that only speak NetFlow v9"`
 	EBPFEnabled      bool   `json:"ebpf_enabled,omitempty" yaml:"ebpf_enabled,omitempty" validate:"-" ui:"label=eBPF telemetry,group=Flow export,order=150"`
 
 	SentryDSN string `json:"sentry_dsn,omitempty" yaml:"sentry_dsn,omitempty" validate:"omitempty,url,max=512" ui:"label=Sentry DSN,widget=password,group=Integrations,order=210" secret:"true"`

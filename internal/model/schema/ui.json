@@ -8977,6 +8977,19 @@
           "order": 140
         },
         {
+          "name": "ipfix_protocol",
+          "label": "Flow export protocol",
+          "type": "string",
+          "widget": "select",
+          "group": "Flow export",
+          "order": 145,
+          "help": "Empty is IPFIX; netflow9 for collectors that only speak NetFlow v9",
+          "enum": [
+            "ipfix",
+            "netflow9"
+          ]
+        },
+        {
           "name": "ebpf_enabled",
           "label": "eBPF telemetry",
           "type": "boolean",
