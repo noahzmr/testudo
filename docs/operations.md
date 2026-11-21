@@ -127,8 +127,8 @@ site's vote to the partner and the audit log says
 
 An interface of the model configures the device it names, on its node,
 as the first stage of every apply: addresses, a DHCP client (IPv4;
-dhclient, else dhcpcd, supervised by Testudo), the MTU and whether the
-link is down. Only what is set is configured, and only what Testudo did
+dhclient, else dhcpcd, as the unit `testudo-dhcp@<device>` or
+`testudo-dhcpcd@<device>`), the MTU and whether the link is down. Only what is set is configured, and only what Testudo did
 is undone: an interface that only names a zone changes nothing, and
 addresses from a DHCP lease, the HA pair, WireGuard and router
 advertisements stay. Switching an interface off (enabled unchecked)
@@ -136,9 +136,10 @@ undoes what Testudo did to the device. What it did is recorded in
 `/var/lib/testudo/interfaces/managed.json`. Like every change this
 rolls back after 60 seconds unless confirmed, which covers an address
 change that cuts the console off. A device the node does not have is
-skipped. Name servers a DHCP lease brings are not written to
-`/etc/resolv.conf` under the packaged unit; use the DNS resolver
-service or a resolver of the distribution.
+skipped. The DHCP client's script sets the routes and name servers the
+lease brings, as the distribution's would; `systemctl status
+testudo-dhcp@eth0` and `journalctl -u testudo-dhcp@eth0` show it. The
+lease is kept while Testudo restarts.
 
 If the distribution's own network configuration (ifupdown, netplan,
 NetworkManager) also manages a device, let only one of them set its

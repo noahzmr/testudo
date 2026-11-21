@@ -21,7 +21,7 @@ request ──► pending ──approve──► active ──ttl / revoke──
 | session kill | `netops.ListConntrack` / `FlushConntrack` | connections from the peers to the resource are flushed when the grant ends |
 | recording | `capture.TCPDumpManager` | one rolling pcap per grant: `(host <peer> …) and net <resource>` |
 | identity | `internal/identity` | users, roles, MFA; a WireGuard peer belongs to the user named on it in the model |
-| proof | `access_events` (`internal/storage/pam.go`) | SHA-256 hash chain per member; `VerifyAccessEvents` detects edits and deletions; the view merges all members' logs and names the member of each event |
+| proof | `access_events` (`internal/storage/pam.go`) | SHA-256 hash chain per member; `VerifyAccessEvents` detects edits and deletions; the view merges all members' logs, names the member of each event and shows every member's chain check; the leader alerts when a chain breaks |
 
 ## Objects
 
