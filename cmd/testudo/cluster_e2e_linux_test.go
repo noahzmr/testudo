@@ -355,7 +355,8 @@ func TestClusterEndToEnd(t *testing.T) {
 	}
 
 	// An access request made on one member is decided on another, and each
-	// sees the request and both members' access logs.
+	// sees the request, both members' access logs and the check of every
+	// member's chain.
 	{
 		var users, roles []map[string]any
 		_, d, _ := n1.call("GET", "/api/v1/users", nil)
@@ -416,6 +417,7 @@ func TestClusterEndToEnd(t *testing.T) {
 				Overview struct {
 					Grants []map[string]any `json:"grants"`
 					Events []map[string]any `json:"events"`
+					Chains []map[string]any `json:"chains"`
 				} `json:"overview"`
 			}
 			json.Unmarshal(d, &view)
@@ -426,7 +428,12 @@ func TestClusterEndToEnd(t *testing.T) {
 			for _, e := range view.Overview.Events {
 				logged = logged || (e["member"] == n3.name && e["action"] == "denied" && e["grant_id"] == asked["id"])
 			}
-			return decided && logged
+			// Every member's chain is checked, each by its member.
+			intact := len(view.Overview.Chains) == len(nodes)
+			for _, c := range view.Overview.Chains {
+				intact = intact && c["broken_at"] == nil && c["error"] == nil
+			}
+			return decided && logged && intact
 		})
 	}
 
