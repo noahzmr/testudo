@@ -392,6 +392,17 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		}
 		return rc.Flush() == nil
 	}
+	sendChange := func(ev confstore.Event) bool {
+		// Only name the objects the caller may read.
+		visible := ev.Changes[:0:0]
+		for _, c := range ev.Changes {
+			if info, ok := model.Lookup(string(c.Kind)); ok && id.Can(Area(info), "read") {
+				visible = append(visible, c)
+			}
+		}
+		ev.Changes = visible
+		return send("change", ev)
+	}
 	if !send("hello", map[string]any{"index": s.Store.Current().Index()}) {
 		return
 	}
@@ -404,18 +415,22 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-s.Done:
 			return
 		case ev := <-changes:
-			// Only name the objects the caller may read.
-			visible := ev.Changes[:0:0]
-			for _, c := range ev.Changes {
-				if info, ok := model.Lookup(string(c.Kind)); ok && id.Can(Area(info), "read") {
-					visible = append(visible, c)
-				}
-			}
-			ev.Changes = visible
-			if !send("change", ev) {
+			if !sendChange(ev) {
 				return
 			}
 		case n := <-notices:
+			// A change comes before the outcome of applying it: send the
+			// changes that are already waiting first.
+			for drained := false; !drained; {
+				select {
+				case ev := <-changes:
+					if !sendChange(ev) {
+						return
+					}
+				default:
+					drained = true
+				}
+			}
 			out := map[string]any{"event": n.Event, "index": n.Index, "actor": n.Actor, "reason": n.Reason}
 			if n.Err != nil {
 				out["error"] = n.Err.Error()
