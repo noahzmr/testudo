@@ -72,7 +72,9 @@ func (e *Engine) openCluster() {
 		},
 		MeshKey: func() string { return e.meshPublicKey(false) },
 		Flows:   func() ([]byte, error) { return json.Marshal(e.localNodeFlows()) },
-		Partner: e.haPartner,
+		// Each member's access log, for the cluster-wide view.
+		AccessEvents: e.localAccessEvents,
+		Partner:      e.haPartner,
 		// The fabric key is this member's own; everything else the node
 		// kept before goes to the cluster when it starts one.
 		LocalOnly: func(name string) bool { return name == mesh.KeyRef },

@@ -337,6 +337,7 @@ func (e *Engine) grantLoop(ctx context.Context) {
 		target string
 	}
 	known := map[string]seen{}
+	var pruned time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -345,6 +346,12 @@ func (e *Engine) grantLoop(ctx context.Context) {
 		}
 		if e.conf.store == nil {
 			continue
+		}
+		if time.Since(pruned) > time.Hour && e.LeadsCluster() && e.conf.secrets.Dir != "" {
+			if n := pruneRequests(e.conf.secrets, time.Now()); n > 0 {
+				log.Printf("access: %d ended request(s) left the shared store", n)
+			}
+			pruned = time.Now()
 		}
 		st := e.conf.store.Current()
 		cat := accessCatalog{e}

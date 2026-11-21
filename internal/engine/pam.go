@@ -50,10 +50,13 @@ func (e *Engine) startPAM(ctx context.Context) {
 		capturer = pamCapturer{m: td}
 	}
 	th := e.settings.Snapshot()
-	e.pam = pam.New(e.store, accessCatalog{e}, modelGrants{e}, e.netops, capturer, pam.Options{
+	store := e.accessStore()
+	e.shareOpenRequests(ctx, store)
+	e.pam = pam.New(store, accessCatalog{e}, modelGrants{e}, e.netops, capturer, pam.Options{
 		Device:  firstNonEmpty(th.WireGuardDevice, "wg0"),
 		Broker:  e.guacBroker(),
 		OnEvent: e.publishAccessEvent,
+		Leads:   e.LeadsCluster,
 	})
 	e.wg.Add(1)
 	go func() {

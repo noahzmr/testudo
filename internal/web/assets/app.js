@@ -1774,14 +1774,15 @@
       caEl.textContent = d.ssh_ca_key ? d.ssh_ca_key + '   # ' + d.ssh_ca_fp : 'SSH CA unavailable';
     }
     const brokerEl = document.getElementById('pam-broker');
-    if (brokerEl) brokerEl.textContent = d.broker_ready ? 'Guacamole brokering on' : 'Guacamole brokering off (set the API credentials in Settings)';
+    if (brokerEl) brokerEl.textContent = d.broker_ready ? 'Guacamole brokering on' : 'Guacamole brokering off (set the API credentials in Settings → Node settings)';
     document.getElementById('pam-events-body').innerHTML = (ov.events || []).map(e => '<tr>'
       + '<td>' + escape(new Date(e.ts).toLocaleString()) + '</td>'
+      + '<td>' + escape(e.member || '-') + '</td>'
       + '<td>' + escape(e.actor) + '</td>'
       + '<td>' + escape(e.action) + '</td>'
       + '<td><code>' + escape((e.grant_id || '').replace('grant-', '')) + '</code></td>'
       + '<td class="muted">' + escape(e.detail || '') + '</td>'
-      + '</tr>').join('') || '<tr><td colspan="5" class="muted">no access events yet</td></tr>';
+      + '</tr>').join('') || '<tr><td colspan="6" class="muted">no access events yet</td></tr>';
   }
 
   // ---- identity ----
