@@ -11,6 +11,7 @@
 package confapply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -121,6 +122,9 @@ type Engine struct {
 	mu      sync.Mutex
 	pending *Pending
 	prev    map[string][]byte // artifacts in force before the pending change
+	// touched lists the stages the pending change gave other artifacts;
+	// nil after a restart, when it is not known.
+	touched map[string]bool
 	timer   *time.Timer
 
 	// Cluster membership (see cluster.go). applied is the model index this
@@ -343,18 +347,31 @@ func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.
 		_, rerr := e.store.Revert(ctx, SystemActor, rec.Index, "could not record the pending confirmation")
 		return Pending{}, errors.Join(fmt.Errorf("confapply: write marker: %w", err), rerr)
 	}
-	e.pending, e.prev = &p, prev
+	// A stage the change does not touch is left alone: its artifacts are
+	// what it runs already, and a stage that cannot be applied here (no
+	// privileges, a daemon missing) does not block unrelated changes.
+	touched := map[string]bool{}
+	for _, st := range e.stages {
+		touched[st.Name()] = !bytes.Equal(prev[st.Name()], arts[st.Name()])
+	}
+	e.pending, e.prev, e.touched = &p, prev, touched
 
 	fail := func(stage, phase string, cause error) (Pending, error) {
 		rbErr := e.rollbackLocked(ctx, SystemActor, fmt.Sprintf("%s failed in stage %s: %v", phase, stage, cause))
 		return Pending{}, errors.Join(&StageError{Stage: stage, Phase: phase, Err: cause, RolledBack: rbErr == nil}, rbErr)
 	}
 	for _, st := range e.stages {
+		if !touched[st.Name()] {
+			continue
+		}
 		if err := st.Apply(ctx, arts[st.Name()]); err != nil {
 			return fail(st.Name(), "apply", err)
 		}
 	}
 	for _, st := range e.stages {
+		if !touched[st.Name()] {
+			continue
+		}
 		if err := st.Healthy(ctx); err != nil {
 			return fail(st.Name(), "health", err)
 		}
@@ -399,7 +416,7 @@ func (e *Engine) Confirm(actor string) error {
 		if e.timer != nil {
 			e.timer.Stop()
 		}
-		e.pending, e.prev, e.timer = nil, nil, nil
+		e.pending, e.prev, e.timer, e.touched = nil, nil, nil, nil
 		e.notify(Notice{Event: "confirmed", Index: p.Index, Actor: actor})
 		return nil
 	}
@@ -413,7 +430,7 @@ func (e *Engine) Confirm(actor string) error {
 		return err
 	}
 	idx := e.pending.Index
-	e.pending, e.prev, e.timer = nil, nil, nil
+	e.pending, e.prev, e.timer, e.touched = nil, nil, nil, nil
 	e.notify(Notice{Event: "confirmed", Index: idx, Actor: actor})
 	return nil
 }
@@ -470,6 +487,9 @@ func (e *Engine) rollbackLocked(ctx context.Context, actor, reason string) error
 	}
 	for i := len(e.stages) - 1; i >= 0 && prev != nil; i-- {
 		st := e.stages[i]
+		if e.touched != nil && !e.touched[st.Name()] {
+			continue
+		}
 		if err := st.Apply(ctx, prev[st.Name()]); err != nil {
 			errs = append(errs, &StageError{Stage: st.Name(), Phase: "rollback", Err: err})
 		}
@@ -477,7 +497,7 @@ func (e *Engine) rollbackLocked(ctx context.Context, actor, reason string) error
 	if err := os.Remove(e.file); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = append(errs, err)
 	}
-	e.pending, e.prev, e.timer = nil, nil, nil
+	e.pending, e.prev, e.timer, e.touched = nil, nil, nil, nil
 	if err := errors.Join(errs...); err != nil {
 		e.notify(Notice{Event: "rollback_failed", Index: p.Index, Actor: actor, Reason: reason, Err: err})
 		return fmt.Errorf("confapply: rollback of record %d incomplete: %w", p.Index, err)

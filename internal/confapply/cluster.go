@@ -135,7 +135,7 @@ func (e *Engine) leadLocked(ctx context.Context, c Cluster, view ClusterView) {
 		if e.timer != nil {
 			e.timer.Stop()
 		}
-		e.pending, e.prev, e.timer = nil, nil, nil
+		e.pending, e.prev, e.timer, e.touched = nil, nil, nil, nil
 		return
 	}
 	switch {
@@ -144,7 +144,7 @@ func (e *Engine) leadLocked(ctx context.Context, c Cluster, view ClusterView) {
 		if e.timer != nil {
 			e.timer.Stop()
 		}
-		e.pending, e.prev, e.timer = nil, nil, nil
+		e.pending, e.prev, e.timer, e.touched = nil, nil, nil, nil
 		return
 	case e.pending == nil || e.pending.Index != view.Pending.Index:
 		// This member became leader while a change was pending, or the

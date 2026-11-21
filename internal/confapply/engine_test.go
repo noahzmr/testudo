@@ -341,3 +341,64 @@ func TestRollbackContinuesPastABrokenStage(t *testing.T) {
 		t.Errorf("notices: %s", r.events())
 	}
 }
+
+// brokenStage renders the zone names and can never be applied, like a
+// stage on a node without the privileges it needs.
+type brokenStage struct{ applied int }
+
+func (b *brokenStage) Name() string { return "broken" }
+func (b *brokenStage) Render(s *confstore.State) ([]byte, error) {
+	var names []string
+	for _, e := range s.List(model.KindZone) {
+		names = append(names, e.GetMeta().Name)
+	}
+	sort.Strings(names)
+	return []byte(strings.Join(names, ",")), nil
+}
+func (b *brokenStage) Check(context.Context, []byte) error { return nil }
+func (b *brokenStage) Apply(context.Context, []byte) error {
+	b.applied++
+	return errors.New("writes are disabled")
+}
+func (b *brokenStage) Healthy(context.Context) error { return errors.New("not running") }
+
+// TestUntouchedStagesAreLeftAlone: a change that does not alter a stage's
+// artifacts neither applies nor health-checks that stage, so a stage that
+// cannot work here does not block unrelated changes; a change that does
+// alter it still fails and rolls back.
+func TestUntouchedStagesAreLeftAlone(t *testing.T) {
+	dir := t.TempDir()
+	store, err := confstore.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var log []string
+	filter, broken := &fakeStage{name: "filter", log: &log}, &brokenStage{}
+	eng, err := New(store, Options{Dir: dir, Window: time.Hour}, filter, broken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.Apply(ctx, "alice", "alias", addAlias("web")); err != nil {
+		t.Fatalf("a change the broken stage does not see: %v", err)
+	}
+	if err := eng.Confirm("alice"); err != nil {
+		t.Fatal(err)
+	}
+	if broken.applied != 0 || filter.now() != "web" {
+		t.Errorf("broken applied %d times, filter runs %q", broken.applied, filter.now())
+	}
+	zone, _ := json.Marshal(&model.Zone{Meta: model.Meta{Name: "lan"}, DefaultAction: "drop"})
+	_, err = eng.Apply(ctx, "alice", "zone", []confstore.Op{{Type: confstore.OpCreate, Kind: model.KindZone, Object: zone}})
+	var se *StageError
+	if !errors.As(err, &se) || se.Stage != "broken" {
+		t.Fatalf("a change the broken stage must apply: %v", err)
+	}
+	if len(store.Current().List(model.KindZone)) != 0 {
+		t.Error("the failed change stayed in the model")
+	}
+	// The rollback leaves the untouched filter stage alone too.
+	if got := strings.Count(strings.Join(log, " "), "filter:apply"); got != 1 {
+		t.Errorf("filter applied %d times: %v", got, log)
+	}
+}
