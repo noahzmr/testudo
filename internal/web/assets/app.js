@@ -22,12 +22,12 @@
     if (viewTitle) viewTitle.textContent = btn.textContent.trim();
     // On the mobile drawer, picking a destination closes the nav.
     closeNav();
-    // History is opt-in: don't bake its query into the 2s snapshot loop.
+    // History is opt-in: its query is not part of the live stream.
     // Load it lazily when the tab is shown.
     if (target === 'history') loadHistory();
     if (target === 'access') loadAccess();
-    // Hidden panes are not rendered by the poll; paint this one now from
-    // the last snapshot instead of waiting up to 2 s.
+    // Hidden panes are not rendered on a push; paint this one now from
+    // the last snapshot instead of waiting for the next one.
     renderActive();
   }));
 
@@ -59,8 +59,8 @@
   }
 
   // ---- API helpers ----
-  // Every request times out: a hung connection must not wedge the refresh
-  // loop (it skips while a poll is in flight) and freeze the console.
+  // Every request times out: a hung connection must not wedge refresh()
+  // (it skips while a fetch is in flight) and freeze the console.
   const API_TIMEOUT_MS = 15000;
   async function api(path, method, body) {
     const init = { method: method || 'GET', signal: AbortSignal.timeout(API_TIMEOUT_MS) };
@@ -529,8 +529,9 @@
     return out + '</svg>';
   }
 
-  // setHTML skips the DOM write when the markup is unchanged, so a 2 s poll
-  // that brings no news keeps hover, focus and open tooltips intact.
+  // setHTML skips the DOM write when the markup is unchanged, so a push
+  // that brings no news for a view keeps hover, focus and open tooltips
+  // intact.
   function setHTML(el, html) {
     if (!el || el._html === html) return;
     el.innerHTML = html;
@@ -1750,9 +1751,8 @@
   }
 
   // ---- privileged access (Access tab) ----
-  // Loaded lazily when the tab is shown and every 5th snapshot poll while it
-  // stays active; grants change slowly compared to the 2 s snapshot loop.
-  let pamTick = 0;
+  // Loaded when the tab is shown and again while it stays open whenever the
+  // live stream reports a change of access (access_rev).
   let lastWG = [];
   function isPaneActive(name) {
     const p = document.querySelector('[data-pane="' + name + '"]');
@@ -2126,7 +2126,7 @@
       el.innerHTML = '<p class="muted">no WireGuard devices found (reading state needs CAP_NET_ADMIN; a tunnel may still be up)</p>';
       return;
     }
-    // Preserve each table's horizontal/vertical scroll across the 2s re-render:
+    // Preserve each table's horizontal/vertical scroll across re-renders:
     // capture by device name, rebuild, then restore.
     const scrollPos = {};
     el.querySelectorAll('.wg-table-wrap[data-dev]').forEach(w => {
@@ -2318,8 +2318,8 @@
 
   // ---- History tab ---------------------------------------------------
   // The history view is opt-in (loaded when the tab is clicked or the
-  // user hits Refresh). It does NOT join the 2s snapshot poll because
-  // past sessions don't change between page loads.
+  // user hits Refresh). It is not part of the live stream because past
+  // sessions don't change between page loads.
   function escapeHTML(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -2437,11 +2437,10 @@
   }
 
   // ---- Refresh loop ----
-  // The snapshot is fetched every 2 s, but only the visible pane renders:
+  // Every push updates the snapshot, but only the visible pane renders:
   // hidden panes (the d3 Sankey layout above all) cost nothing until they
   // are opened, and a tab switch renders from the last snapshot at once.
-  // Polling pauses while the browser tab is in the background, except while
-  // a default-deny commit-confirm is pending (the confirm rides on a poll).
+  // The stream closes while the browser tab is in the background.
   let refreshing = false;
   let lastThresholds = {};
   let lastSnap = null;
@@ -2484,6 +2483,38 @@
     try { fn(lastSnap); } catch (e) { console.error('render failed', e); }
   }
 
+  // The live views are pushed: /api/live sends the whole snapshot once and
+  // then only the parts that changed, as the engine has news. refresh()
+  // fetches it once, right after an action of this page.
+  function showSnap() {
+    const snap = lastSnap;
+    lastThresholds = snap.thresholds || {};
+    document.getElementById('session-id').textContent = snap.session || '-';
+    document.getElementById('uptime').textContent = snap.uptime || '-';
+    const upTop = document.getElementById('uptime-top');
+    if (upTop) upTop.textContent = snap.uptime || '-';
+    // Pulse the topbar live indicator on every push so the operator can
+    // see the stream is actually breathing.
+    const dot = document.getElementById('live-dot');
+    if (dot) {
+      dot.classList.remove('pulse', 'stale');
+      dot.textContent = 'live';
+      void dot.offsetWidth;
+      dot.classList.add('pulse');
+    }
+    // Always, whatever pane is open: the firewall policy renderer carries
+    // the commit-confirm, and the one-shot form prefills must land once.
+    renderFirewallPolicy(snap.firewall_policy);
+    renderSettings(snap.thresholds);
+    lastWG = snap.wireguard || [];
+    renderActive();
+  }
+  function markStale() {
+    // Say so instead of silently showing the last snapshot as if live.
+    const dot = document.getElementById('live-dot');
+    if (dot) { dot.classList.add('stale'); dot.textContent = 'offline'; }
+  }
+
   async function refresh() {
     if (refreshing) return;
     refreshing = true;
@@ -2491,41 +2522,57 @@
       const snap = await api('/api/snapshot');
       if (!snap) return;
       lastSnap = snap;
-      lastThresholds = snap.thresholds || {};
-      document.getElementById('session-id').textContent = snap.session || '-';
-      document.getElementById('uptime').textContent = snap.uptime || '-';
-      const upTop = document.getElementById('uptime-top');
-      if (upTop) upTop.textContent = snap.uptime || '-';
-      // Pulse the topbar live indicator on every successful poll so the
-      // operator can see the snapshot loop is actually breathing.
-      const dot = document.getElementById('live-dot');
-      if (dot) {
-        dot.classList.remove('pulse', 'stale');
-        dot.textContent = 'live';
-        void dot.offsetWidth;
-        dot.classList.add('pulse');
-      }
-      // Always, whatever pane is open: the firewall policy renderer carries
-      // the commit-confirm, and the one-shot form prefills must land once.
-      renderFirewallPolicy(snap.firewall_policy);
-      renderSettings(snap.thresholds);
-      lastWG = snap.wireguard || [];
-      renderActive();
-      if (isPaneActive('access') && (++pamTick % 5 === 0)) loadAccess();
+      showSnap();
     } catch (e) {
       console.error('refresh failed', e);
-      // Say so instead of silently showing the last snapshot as if live.
-      const dot = document.getElementById('live-dot');
-      if (dot) { dot.classList.add('stale'); dot.textContent = 'offline'; }
+      markStale();
     } finally {
       refreshing = false;
     }
   }
-  function poll() {
-    if (document.hidden) return;
-    refresh();
+
+  let live = null;
+  let liveRetry = null;
+  function connectLive() {
+    if (live || document.hidden) return;
+    const es = new EventSource('/api/live');
+    live = es;
+    es.addEventListener('snapshot', ev => {
+      lastSnap = JSON.parse(ev.data);
+      showSnap();
+      if (isPaneActive('access')) loadAccess();
+    });
+    es.addEventListener('patch', ev => {
+      if (!lastSnap) return;
+      const p = JSON.parse(ev.data);
+      for (const k of Object.keys(p)) {
+        if (p[k] === null) delete lastSnap[k]; else lastSnap[k] = p[k];
+      }
+      showSnap();
+      if ('access_rev' in p && isPaneActive('access')) loadAccess();
+    });
+    es.addEventListener('end', () => { disconnectLive(); window.location.href = '/login'; });
+    es.onerror = () => {
+      markStale();
+      // The browser retries a dropped connection by itself; a refused one
+      // (the session is gone, the server restarted) is closed for good.
+      if (es.readyState !== EventSource.CLOSED) return;
+      disconnectLive();
+      clearTimeout(liveRetry);
+      liveRetry = setTimeout(async () => {
+        const res = await fetch('/api/me').catch(() => null);
+        if (res && res.status === 401) { window.location.href = '/login'; return; }
+        connectLive();
+      }, 3000);
+    };
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  function disconnectLive() {
+    if (live) { live.close(); live = null; }
+  }
+  // A hidden tab needs no pushes; it gets the whole snapshot when it shows.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) disconnectLive(); else connectLive();
+  });
 
   // Live-update text filters without re-fetching.
   document.getElementById('flow-filter').addEventListener('input', renderActive);
@@ -2562,7 +2609,6 @@
     window.location.href = next;
   });
 
-  refresh();
-  setInterval(poll, 2000);
+  connectLive();
   loadMe();
 })();
