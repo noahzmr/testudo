@@ -75,6 +75,10 @@ type Config struct {
 	// MeshKey returns the public key of this member's fabric tunnels, or
 	// "" when it has none.
 	MeshKey func() string
+	// Flows returns this member's recent flows, as JSON, for another
+	// member that correlates what the sites saw. Flow data travels this
+	// way, member to member, and never through the consensus log.
+	Flows func() ([]byte, error)
 	// Timing overrides for tests and unusual links (zero: the defaults).
 	Heartbeat, Election, LeaderLease time.Duration
 	LogOutput                        io.Writer
@@ -704,6 +708,19 @@ func (m *Manager) routes() http.Handler {
 	mux.HandleFunc("POST /cluster/v1/join", m.handleJoin)
 	mux.HandleFunc("POST /cluster/v1/propose", member(m.handlePropose))
 	mux.HandleFunc("POST /cluster/v1/renew", member(m.handleRenew))
+	mux.HandleFunc("GET /cluster/v1/flows", member(func(w http.ResponseWriter, r *http.Request, _ string) {
+		if m.cfg.Flows == nil {
+			http.Error(w, "this member has no flows to give", http.StatusNotFound)
+			return
+		}
+		data, err := m.cfg.Flows()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}))
 	mux.HandleFunc("/cluster/v1/forward/", member(func(w http.ResponseWriter, r *http.Request, _ string) {
 		if _, ok := m.leaderOnly(w); !ok {
 			return
@@ -1087,4 +1104,54 @@ func (m *Manager) RecoverAlone() error {
 	}
 	return Recover(Options{ID: m.cfg.ID, Dir: filepath.Join(m.cfg.Dir, "raft"), Bind: m.cfg.RaftBind, Advertise: m.cfg.RaftAdvertise,
 		Store: m.cfg.Store, Secrets: m.cfg.Secrets, Key: m.key})
+}
+
+// Gather asks every other member for path on its member API and returns
+// the answers by member id; a member that does not answer in time gets an
+// error instead. It does not go through the leader or the log.
+func (m *Manager) Gather(ctx context.Context, path string) map[string]GatherResult {
+	node := m.Node()
+	if node == nil {
+		return nil
+	}
+	hc := m.client()
+	hc.Timeout = 5 * time.Second
+	out := map[string]GatherResult{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for id, mem := range node.State().Members {
+		if id == m.cfg.ID || mem.API == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(id, api string) {
+			defer wg.Done()
+			var res GatherResult
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+api+path, nil)
+			if err == nil {
+				var r *http.Response
+				if r, err = hc.Do(req); err == nil {
+					res.Body, err = io.ReadAll(io.LimitReader(r.Body, 32<<20))
+					r.Body.Close()
+					if err == nil && r.StatusCode != http.StatusOK {
+						err = fmt.Errorf("%s: %s", path, r.Status)
+					}
+				}
+			}
+			if err != nil {
+				res.Err = err.Error()
+			}
+			mu.Lock()
+			out[id] = res
+			mu.Unlock()
+		}(id, mem.API)
+	}
+	wg.Wait()
+	return out
+}
+
+// GatherResult is one member's answer.
+type GatherResult struct {
+	Body []byte
+	Err  string
 }
