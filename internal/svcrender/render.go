@@ -25,6 +25,7 @@ const (
 	ChronyConf  = "chrony.conf"
 	RadvdConf   = "radvd.conf"
 	RelayConf   = "dnsmasq-relay.conf"
+	SNMPConf    = "snmpd.conf"
 	// LeaseNames is the include file with the names of DHCP clients; the
 	// engine keeps it current, the renderer only refers to it.
 	LeaseNames = "dns-leases.conf"
@@ -56,14 +57,19 @@ const (
 	DaemonKea6    = "kea-dhcp6"
 	DaemonRadvd   = "radvd"
 	DaemonRelay   = "dnsmasq"
+	DaemonSNMP    = "snmpd"
 )
 
 // AllDaemons lists every daemon the services may run, in start order.
-var AllDaemons = []string{DaemonUnbound, DaemonChrony, DaemonKea4, DaemonKea6, DaemonRadvd, DaemonRelay}
+var AllDaemons = []string{DaemonUnbound, DaemonChrony, DaemonKea4, DaemonKea6, DaemonRadvd, DaemonRelay, DaemonSNMP}
+
+// Private are the files with secrets in them (the SNMP users' passwords);
+// only root may read them.
+var Private = map[string]bool{SNMPConf: true}
 
 // ConfOf names each daemon's configuration file.
 var ConfOf = map[string]string{DaemonUnbound: UnboundConf, DaemonChrony: ChronyConf, DaemonKea4: Kea4Conf,
-	DaemonKea6: Kea6Conf, DaemonRadvd: RadvdConf, DaemonRelay: RelayConf}
+	DaemonKea6: Kea6Conf, DaemonRadvd: RadvdConf, DaemonRelay: RelayConf, DaemonSNMP: SNMPConf}
 
 // Options are the node-local facts.
 type Options struct {
@@ -85,6 +91,9 @@ type Openings struct {
 	// DNSFrom and NTPFrom are networks served through other interfaces.
 	DNSFrom []string `json:"dns_from,omitempty"`
 	NTPFrom []string `json:"ntp_from,omitempty"`
+	// SNMP are the interfaces the agent answers on, from SNMPFrom.
+	SNMP     []string `json:"snmp,omitempty"`
+	SNMPFrom []string `json:"snmp_from,omitempty"`
 	// RelayFrom are the DHCP servers whose answers reach the relay.
 	RelayFrom []string `json:"relay_from,omitempty"`
 	// HA is set on an HA pair whose Kea servers talk over the sync link.
@@ -145,6 +154,7 @@ type renderer struct {
 	scopes   []*model.DHCPScope
 	ras      []*model.RouterAdvert
 	relays   []*model.DHCPRelay
+	snmp     *model.SNMPAgent
 	// delegated are the interfaces that get a /64 of a delegated prefix.
 	delegated map[string]bool
 	records   []*model.DNSRecord
@@ -261,6 +271,12 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 			res.Daemons = append(res.Daemons, DaemonRelay)
 		}
 	}
+	if r.snmp != nil {
+		if conf := r.snmpd(&res); conf != "" {
+			res.Files[SNMPConf] = conf
+			res.Daemons = append(res.Daemons, DaemonSNMP)
+		}
+	}
 	res.StaticNames = r.staticNames()
 	if len(r.errs) > 0 {
 		return Result{}, errors.New("svcrender: " + strings.Join(r.errs, "; "))
@@ -322,6 +338,7 @@ func (r *renderer) gather() {
 		}
 	}
 	r.records = effective[*model.DNSRecord](r, model.KindDNSRecord)
+	r.snmp = mostSpecific(effective[*model.SNMPAgent](r, model.KindSNMPAgent), func(a *model.SNMPAgent) bool { return a.Enabled })
 	r.delegated = map[string]bool{}
 	for _, c := range effective[*model.DHCPv6Client](r, model.KindDHCPv6Client) {
 		if c.Enabled && c.PrefixLength > 0 {

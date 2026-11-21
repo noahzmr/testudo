@@ -123,6 +123,11 @@ var daemonSpecs = map[string]daemonSpec{
 		args: func(r DaemonRequest) []string {
 			return []string{"-n", "-m", "stderr", "-u", "radvd", "-p", filepath.Join(r.RunDir, "radvd.pid"), "-C", r.ConfigFile}
 		}},
+	// net-snmp's agent; its configuration holds the users' passwords.
+	"snmpd": {paths: []string{"/usr/sbin/snmpd"}, conf: "snmpd.conf",
+		args: func(r DaemonRequest) []string {
+			return []string{"-f", "-Lo", "-C", "-c", r.ConfigFile, "-p", filepath.Join(r.RunDir, "snmpd.pid")}
+		}},
 	// dnsmasq as a DHCP relay only; it reads its configuration only at a
 	// start.
 	"dnsmasq": {paths: []string{"/usr/sbin/dnsmasq"}, conf: "dnsmasq-relay.conf",

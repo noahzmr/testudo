@@ -80,7 +80,7 @@ const PANE = {
   user: 'settings', group: 'settings', role: 'settings', node_settings: 'settings', log_export: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
   site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes', ha_pair: 'cluster',
-  dhcp_scope: 'services', router_advert: 'services', dns_resolver: 'services', dns_record: 'services', ntp_service: 'services', dhcp_relay: 'services',
+  dhcp_scope: 'services', router_advert: 'services', dns_resolver: 'services', dns_record: 'services', ntp_service: 'services', dhcp_relay: 'services', snmp_agent: 'services', snmp_user: 'services',
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
@@ -89,7 +89,7 @@ const LABEL = {
   user: 'Users', group: 'Groups', role: 'Roles', node_settings: 'Node settings', log_export: 'Log export', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
   site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies', ha_pair: 'HA pairs',
-  dhcp_scope: 'DHCP', router_advert: 'Router advertisements', dns_resolver: 'DNS resolver', dns_record: 'DNS records', ntp_service: 'NTP', dhcp_relay: 'DHCP relay',
+  dhcp_scope: 'DHCP', router_advert: 'Router advertisements', dns_resolver: 'DNS resolver', dns_record: 'DNS records', ntp_service: 'NTP', dhcp_relay: 'DHCP relay', snmp_agent: 'SNMP', snmp_user: 'SNMP users',
 };
 // Friendlier names for some select values.
 const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 'Imported',

@@ -326,6 +326,26 @@ func serviceInput(o svcrender.Openings) []string {
 	}
 	on(o.DHCP4, "udp dport 67", "dhcp")
 	on(o.DHCP6, "udp dport 547", "dhcpv6")
+	// SNMP on the agent's interfaces, from the monitoring networks only.
+	if len(o.SNMP) > 0 {
+		var v4, v6 []string
+		for _, n := range o.SNMPFrom {
+			if isV6(n) {
+				v6 = append(v6, n)
+			} else {
+				v4 = append(v4, n)
+			}
+		}
+		for _, f := range []struct {
+			fam  string
+			list []string
+		}{{"ip", v4}, {"ip6", v6}} {
+			if len(f.list) > 0 {
+				out = append(out, fmt.Sprintf("iifname %s %s saddr { %s } udp dport 161 counter accept comment \"service: snmp\"",
+					set(o.SNMP), f.fam, strings.Join(f.list, ", ")))
+			}
+		}
+	}
 	// The answers of the servers a relay passes requests to.
 	var relay4, relay6 []string
 	for _, srv := range o.RelayFrom {

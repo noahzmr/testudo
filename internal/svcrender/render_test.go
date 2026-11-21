@@ -247,3 +247,24 @@ func TestAdvertiseADelegatedPrefix(t *testing.T) {
 		t.Errorf("without a delegation: %v", err)
 	}
 }
+
+// TestSNMPAgent: SNMPv3 users only, on the interface's address, opened to
+// the monitoring networks; a password the parser would misread is refused.
+func TestSNMPAgent(t *testing.T) {
+	user := &model.SNMPUser{Meta: meta(70, "nms"), Username: "nms", AuthPassword: "auth-secret-1", PrivPassword: "priv-secret-1"}
+	agent := &model.SNMPAgent{Meta: atSite(meta(71, "agent")), Enabled: true, Interfaces: []string{"lan"}, AllowFrom: []string{"192.168.1.0/24"},
+		Users: []model.Ref[model.SNMPUser]{{ID: id(70)}}}
+	res := render(t, lan(t, user, agent), fw1)
+	contains(t, "snmpd", res.Files[SNMPConf], "agentAddress udp:192.168.1.2:161,udp6:[2001:db8:1::2]:161",
+		`createUser nms SHA-256 "auth-secret-1" AES "priv-secret-1"`, "rouser nms priv -V all", "exactEngineID 0x80001f8804")
+	if strings.Contains(res.Files[SNMPConf], "community") || !Private[SNMPConf] {
+		t.Error("a community, or the file is not private")
+	}
+	if strings.Join(res.Open.SNMP, " ") != "lan" || strings.Join(res.Open.SNMPFrom, " ") != "192.168.1.0/24" {
+		t.Errorf("openings: %+v", res.Open)
+	}
+	bad := &model.SNMPUser{Meta: meta(70, "nms"), Username: "nms", AuthPassword: `auth"secret`, PrivPassword: "priv-secret-1"}
+	if _, err := Render(lan(t, bad, agent), Options{SiteID: id(site), NodeID: id(fw1)}); err == nil || !strings.Contains(err.Error(), "quotes") {
+		t.Errorf("a password with a quote: %v", err)
+	}
+}

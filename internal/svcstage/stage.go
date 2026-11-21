@@ -105,12 +105,16 @@ func (s *Stage) Check(ctx context.Context, raw []byte) error {
 		if state == "missing" {
 			return fmt.Errorf("%s is not installed on this node", d)
 		}
+		check, ok := checkers[d]
+		if !ok {
+			continue // snmpd has no dry run; a refused file shows when it starts
+		}
 		file := filepath.Join(tmp, svcrender.ConfOf[d])
-		if err := os.WriteFile(file, []byte(res.Files[svcrender.ConfOf[d]]), 0o644); err != nil {
+		if err := os.WriteFile(file, []byte(res.Files[svcrender.ConfOf[d]]), fileMode(svcrender.ConfOf[d])); err != nil {
 			return err
 		}
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		cmd := checkers[d](file)
+		cmd := check(file)
 		cmd = exec.CommandContext(cctx, cmd.Path, cmd.Args[1:]...)
 		out, err := cmd.CombinedOutput()
 		cancel()
@@ -243,7 +247,7 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 			continue
 		}
 		changed[name] = true
-		if err := os.WriteFile(path+".tmp", []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(path+".tmp", []byte(body), fileMode(name)); err != nil {
 			return err
 		}
 		if err := os.Rename(path+".tmp", path); err != nil {
@@ -305,4 +309,13 @@ func (s *Stage) Applied() *svcrender.Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.applied
+}
+
+// fileMode is the mode of a rendered file: readable by the daemons that
+// drop privileges, except a file with secrets, which only root reads.
+func fileMode(name string) os.FileMode {
+	if svcrender.Private[name] {
+		return 0o600
+	}
+	return 0o644
 }

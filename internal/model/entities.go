@@ -51,6 +51,8 @@ const (
 	KindDHCPRelay      Kind = "dhcp_relay"
 	KindDHCPv6Client   Kind = "dhcpv6_client"
 	KindLogExport      Kind = "log_export"
+	KindSNMPUser       Kind = "snmp_user"
+	KindSNMPAgent      Kind = "snmp_agent"
 )
 
 func init() {
@@ -96,6 +98,8 @@ func init() {
 	register("dns-records", "DNS record", "services/dns-records", allLevels, func() Entity { return &DNSRecord{} })
 	register("ntp-services", "NTP service", "services/ntp", allLevels, func() Entity { return &NTPService{} })
 	register("dhcp-relays", "DHCP relay", "services/dhcp-relay", allLevels, func() Entity { return &DHCPRelay{} })
+	register("snmp-users", "SNMP user", "services/snmp-users", allLevels, func() Entity { return &SNMPUser{} })
+	register("snmp-agents", "SNMP agent", "services/snmp", allLevels, func() Entity { return &SNMPAgent{} })
 	register("access-grants", "Access grant", "access/grants", allLevels, func() Entity { return &AccessGrant{} })
 	register("node-settings", "Node settings", "system/settings", allLevels, func() Entity { return &NodeSettings{} })
 	register("log-exports", "Log export", "system/log-export", allLevels, func() Entity { return &LogExport{} })
@@ -875,3 +879,30 @@ type LogExport struct {
 }
 
 func (LogExport) Kind() Kind { return KindLogExport }
+
+// SNMPUser is an SNMPv3 user of the node's SNMP agent: authenticated with
+// SHA-256 and encrypted with AES, read-only. Community strings (SNMPv1 and
+// v2c) are not offered.
+type SNMPUser struct {
+	Meta         `yaml:",inline"`
+	Username     string `json:"username" yaml:"username" validate:"required,objname,max=32" ui:"label=User name,order=10"`
+	AuthPassword string `json:"auth_password" yaml:"auth_password" validate:"required,min=8,max=128" ui:"label=Authentication password,widget=password,order=20,help=At least eight characters" secret:"true"`
+	PrivPassword string `json:"priv_password" yaml:"priv_password" validate:"required,min=8,max=128" ui:"label=Privacy password,widget=password,order=30,help=At least eight characters" secret:"true"`
+}
+
+func (SNMPUser) Kind() Kind { return KindSNMPUser }
+
+// SNMPAgent answers SNMPv3 requests on the listed interfaces, from the
+// listed networks only: the interface counters, addresses and routes of
+// the node (IF-MIB, IP-MIB and the like), read-only.
+type SNMPAgent struct {
+	Meta       `yaml:",inline"`
+	Enabled    bool            `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Interfaces []string        `json:"interfaces" yaml:"interfaces" validate:"required,min=1,max=16,dive,ifname" ui:"label=Interfaces,widget=list,order=10"`
+	AllowFrom  []string        `json:"allow_from" yaml:"allow_from" validate:"required,min=1,max=32,dive,cidr" ui:"label=Allowed networks,widget=list,order=20,help=The monitoring systems"`
+	Users      []Ref[SNMPUser] `json:"users" yaml:"users" validate:"required,min=1,max=16" ui:"label=Users,widget=ref-picker,ref=snmp_user,order=30"`
+	Location   string          `json:"location,omitempty" yaml:"location,omitempty" validate:"max=255" ui:"label=Location,order=40"`
+	Contact    string          `json:"contact,omitempty" yaml:"contact,omitempty" validate:"max=255" ui:"label=Contact,order=50"`
+}
+
+func (SNMPAgent) Kind() Kind { return KindSNMPAgent }
