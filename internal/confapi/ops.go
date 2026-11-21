@@ -51,8 +51,11 @@ func (s *Server) listChangeSets(w http.ResponseWriter, r *http.Request) {
 		Ops       int       `json:"ops"`
 	}
 	out := []item{}
+	id := who(r)
 	for _, cs := range s.Store.Current().ChangeSets() {
-		out = append(out, item{cs.ID, cs.Name, cs.Owner, cs.Version, cs.UpdatedAt, len(cs.Ops)})
+		if cs.Owner == id.Name || unlimitedReader(id) {
+			out = append(out, item{cs.ID, cs.Name, cs.Owner, cs.Version, cs.UpdatedAt, len(cs.Ops)})
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -82,7 +85,7 @@ func (s *Server) createChangeSet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getChangeSet(w http.ResponseWriter, r *http.Request) {
 	cs, ok := s.Store.Current().ChangeSet(r.PathValue("id"))
-	if !ok {
+	if !ok || (cs.Owner != who(r).Name && !unlimitedReader(who(r))) {
 		fail(w, http.StatusNotFound, "not_found", "no such change set")
 		return
 	}
@@ -126,7 +129,7 @@ func (s *Server) applyInput(w http.ResponseWriter, r *http.Request) (applyReques
 		ops, err = s.Store.Combine(in.ChangeSets...)
 	}
 	if err == nil {
-		err = authorize(who(r), ops)
+		err = authorize(who(r), s.Store.Current(), ops)
 	}
 	return in, ops, !s.deny(w, err)
 }
@@ -174,6 +177,28 @@ func (s *Server) applyStatus(w http.ResponseWriter, r *http.Request) {
 // of the configuration may settle a pending change.
 func canWriteAnything(id Identity) bool {
 	for _, info := range model.Kinds() {
+		if id.CanAnywhere(Area(info), "write") {
+			return true
+		}
+	}
+	return false
+}
+
+// unlimitedReader reports whether the identity may read some area
+// everywhere.
+func unlimitedReader(id Identity) bool {
+	for _, info := range model.Kinds() {
+		if id.Can(Area(info), "read") {
+			return true
+		}
+	}
+	return false
+}
+
+// unlimitedWriter reports whether the identity may write some area
+// everywhere.
+func unlimitedWriter(id Identity) bool {
+	for _, info := range model.Kinds() {
 		if id.Can(Area(info), "write") {
 			return true
 		}
@@ -181,9 +206,16 @@ func canWriteAnything(id Identity) bool {
 	return false
 }
 
+// confirm keeps the pending change. Someone whose permissions are limited
+// to a site or node confirms only their own change.
 func (s *Server) confirm(w http.ResponseWriter, r *http.Request) {
-	if !canWriteAnything(who(r)) {
+	id := who(r)
+	if !canWriteAnything(id) {
 		fail(w, http.StatusForbidden, "forbidden", "needs write permission")
+		return
+	}
+	if p, pending := s.Engine.Pending(); pending && p.Actor != id.Name && !unlimitedWriter(id) {
+		fail(w, http.StatusForbidden, "forbidden", "this change is "+p.Actor+"'s; it needs a permission that is not limited to a site or node")
 		return
 	}
 	if err := s.Engine.Confirm(who(r).Name); err != nil {
@@ -215,6 +247,12 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) history(w http.ResponseWriter, r *http.Request) {
+	// The history shows every object's values before and after: it is for
+	// those who may read without a limit to a site or node.
+	if !unlimitedReader(who(r)) {
+		fail(w, http.StatusForbidden, "forbidden", "needs a read permission that is not limited to a site or node")
+		return
+	}
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 || limit > 200 {
@@ -251,7 +289,7 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request) {
 	}
 	ops, err := s.Store.InverseOps(index)
 	if err == nil {
-		err = authorize(who(r), ops)
+		err = authorize(who(r), s.Store.Current(), ops)
 	}
 	if err == nil && len(ops) == 0 {
 		err = bad("record %d changed no objects", index)
@@ -301,7 +339,7 @@ func (s *Server) importSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err == nil {
-		err = authorize(id, ops)
+		err = authorize(id, s.Store.Current(), ops)
 	}
 	if s.deny(w, err) {
 		return

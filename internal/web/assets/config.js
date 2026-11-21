@@ -51,8 +51,12 @@ async function api(method, path, body, headers = {}) {
   if (text) { try { data = JSON.parse(text); } catch { data = { message: text }; } }
   return { status: res.status, ok: res.ok, headers: res.headers, data };
 }
+// can reports whether the user may read or write some objects of a kind; a
+// permission limited to a site or node ("firewall:write@site:…") counts,
+// and the server decides object by object.
 const can = (form, verb) => (S.who?.permissions || []).some(p => {
-  const [area, v] = p.split(':');
+  const [area, rest = ''] = p.split(':');
+  const v = rest.split('@')[0];
   return (area === '*' || area === form.menu.split('/')[0]) && (v === verb || v === 'write');
 });
 

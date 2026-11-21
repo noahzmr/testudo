@@ -13,6 +13,7 @@ import (
 	"github.com/noahzmr/testudo/internal/auth"
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/perm"
 )
 
 // Where a login was proven.
@@ -72,15 +73,7 @@ type Principal struct {
 
 // Can reports whether the caller may read or write an area. Write implies
 // read; the area "*" covers every area.
-func (p Principal) Can(area, verb string) bool {
-	for _, perm := range p.Permissions {
-		a, v, _ := strings.Cut(perm, ":")
-		if (a == "*" || a == area) && (v == verb || v == "write") {
-			return true
-		}
-	}
-	return false
-}
+func (p Principal) Can(area, verb string) bool { return perm.Has(p.Permissions, area, verb) }
 
 // LegacyRole maps the permissions onto the four ranks the endpoints from
 // before the model check: admin for everything, approver for someone who
@@ -217,13 +210,12 @@ func Resolve(st *confstore.State, in Login) (Principal, error) {
 
 // Cap returns the permissions of want that the holder of have also has, so
 // nobody can hand out more than they hold.
-func Cap(have Principal, want []string) (granted []string, refused []string) {
-	for _, perm := range want {
-		area, verb, _ := strings.Cut(perm, ":")
-		if have.Can(area, verb) {
-			granted = append(granted, perm)
+func Cap(have Principal, want []string, siteOf perm.SiteOf) (granted []string, refused []string) {
+	for _, w := range want {
+		if perm.Within(have.Permissions, w, siteOf) {
+			granted = append(granted, w)
 		} else {
-			refused = append(refused, perm)
+			refused = append(refused, w)
 		}
 	}
 	return granted, refused

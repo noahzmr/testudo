@@ -14,6 +14,7 @@ import (
 
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/perm"
 )
 
 // SecretKeeper puts a value into the node's secret store under a new name
@@ -85,10 +86,9 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "bad_request", "ttl_hours must be between 0 (no expiry) and one year")
 		return
 	}
-	for _, perm := range in.Permissions {
-		area, verb, _ := strings.Cut(perm, ":")
-		if !id.Can(area, verb) {
-			fail(w, http.StatusForbidden, "forbidden", "you do not hold "+perm+" yourself")
+	for _, p := range in.Permissions {
+		if !perm.Within(id.Permissions, p, SiteOf(s.Store.Current())) {
+			fail(w, http.StatusForbidden, "forbidden", "you do not hold "+p+" yourself")
 			return
 		}
 	}

@@ -136,7 +136,7 @@ func TestBreakGlassNeedsNoModel(t *testing.T) {
 
 func TestCapAndLegacyRoles(t *testing.T) {
 	op := Principal{Name: "o", Source: SourceLocal, Permissions: BuiltinRoles[RoleOperator]}
-	granted, refused := Cap(op, []string{"firewall:write", "routing:read", "system:write", "*:write"})
+	granted, refused := Cap(op, []string{"firewall:write", "routing:read", "system:write", "*:write"}, nil)
 	if !reflect.DeepEqual(granted, []string{"firewall:write", "routing:read"}) || !reflect.DeepEqual(refused, []string{"system:write", "*:write"}) {
 		t.Errorf("cap: granted %v refused %v", granted, refused)
 	}

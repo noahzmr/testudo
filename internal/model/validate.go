@@ -45,7 +45,7 @@ var (
 	labelRe     = regexp.MustCompile(`^[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?$`)
 	rateRe      = regexp.MustCompile(`^[1-9][0-9]{0,8}/(second|minute|hour|day)$`)
 	communityRe = regexp.MustCompile(`^([0-9]{1,5}:[0-9]{1,5}|[0-9]{1,10}:[0-9]{1,10}:[0-9]{1,10}|no-export|no-advertise|local-as)$`)
-	permRe      = regexp.MustCompile(`^(\*|[a-z][a-z_]{0,30}):(read|write)$`)
+	permRe      = regexp.MustCompile(`^(\*|[a-z][a-z_]{0,30}):(read|write)(@(site|node):[0-9a-f-]{36})?$`)
 	uuidRe      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 )
 
@@ -68,7 +68,7 @@ var CustomRules = map[string]struct {
 	"hostport":         {"host:port; an IPv6 address goes in brackets", "", validHostPort},
 	"community":        {"BGP community (standard, large or well-known)", communityRe.String(), communityRe.MatchString},
 	"ospfarea":         {"OSPF area as dotted quad or number", "", validOSPFArea},
-	"permission":       {"<area>:read or <area>:write; area may be *", permRe.String(), permRe.MatchString},
+	"permission":       {"<area>:read or <area>:write; area may be *; @site:<id> or @node:<id> limits it to that site or node", permRe.String(), permRe.MatchString},
 	"mac":              {"hardware address such as 52:54:00:12:34:56", `^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`, validMAC},
 	"duid":             {"DHCPv6 DUID as colon-separated hex bytes", `^([0-9A-Fa-f]{2}:){1,129}[0-9A-Fa-f]{2}$`, duidRe.MatchString},
 	"iprange":          {"address range such as 192.168.1.100-192.168.1.199, or a network", "", validIPRange},

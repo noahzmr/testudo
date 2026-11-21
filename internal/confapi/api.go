@@ -26,6 +26,7 @@ import (
 	"github.com/noahzmr/testudo/internal/localauth"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/model/schema"
+	"github.com/noahzmr/testudo/internal/perm"
 )
 
 // Identity is the authenticated caller. Permissions have the form
@@ -42,15 +43,36 @@ type Identity struct {
 	BreakGlass bool `json:"break_glass,omitempty"`
 }
 
-// Can reports whether the identity may read or write the area.
-func (i Identity) Can(area, verb string) bool {
-	for _, p := range i.Permissions {
-		a, v, _ := strings.Cut(p, ":")
-		if (a == "*" || a == area) && (v == verb || v == "write") {
-			return true
-		}
+// Can reports whether the identity may read or write the area everywhere,
+// which is what anything that is not an object of the model needs.
+func (i Identity) Can(area, verb string) bool { return perm.Has(i.Permissions, area, verb) }
+
+// CanAnywhere reports whether the identity may read or write some objects
+// of the area, perhaps only those of one site or node.
+func (i Identity) CanAnywhere(area, verb string) bool {
+	return perm.HasAnywhere(i.Permissions, area, verb)
+}
+
+// CanObject reports whether the identity may read or write an object of
+// the area with that scope.
+func (i Identity) CanObject(st *confstore.State, area, verb string, scope model.Scope) bool {
+	if scope == "" {
+		scope = model.ScopeGlobal
 	}
-	return false
+	return perm.HasAt(i.Permissions, area, verb, scope, SiteOf(st))
+}
+
+// SiteOf finds a node's site in the model.
+func SiteOf(st *confstore.State) perm.SiteOf {
+	return func(node string) string {
+		if st == nil {
+			return ""
+		}
+		if e, ok := st.Get(model.KindClusterNode, node); ok {
+			return e.(*model.ClusterNode).Site.ID
+		}
+		return ""
+	}
 }
 
 // Area returns the permission area of a kind.
@@ -344,7 +366,7 @@ func (s *Server) kind(h func(http.ResponseWriter, *http.Request, model.KindInfo)
 			fail(w, http.StatusNotFound, "not_found", "unknown resource")
 			return
 		}
-		if !who(r).Can(Area(info), verb) {
+		if !who(r).CanAnywhere(Area(info), verb) {
 			fail(w, http.StatusForbidden, "forbidden", fmt.Sprintf("needs %s:%s", Area(info), verb))
 			return
 		}
@@ -352,15 +374,36 @@ func (s *Server) kind(h func(http.ResponseWriter, *http.Request, model.KindInfo)
 	}
 }
 
-// authorize checks write permission for every kind a set of ops touches.
-func authorize(id Identity, ops []confstore.Op) error {
+// authorize checks write permission for every object a set of ops
+// touches: where it is now, and where it will be.
+func authorize(id Identity, st *confstore.State, ops []confstore.Op) error {
 	for _, op := range ops {
 		info, ok := model.Lookup(string(op.Kind))
 		if !ok {
 			return bad("unknown kind %q", op.Kind)
 		}
-		if !id.Can(Area(info), "write") {
-			return &forbidden{fmt.Sprintf("needs %s:write", Area(info))}
+		area := Area(info)
+		var scopes []model.Scope
+		if op.Type != confstore.OpCreate {
+			if cur, ok := st.Get(op.Kind, op.ID); ok {
+				scopes = append(scopes, cur.GetMeta().Scope)
+			}
+		}
+		if op.Type != confstore.OpDelete && len(op.Object) > 0 {
+			if e, err := model.Decode(op.Kind, op.Object); err == nil {
+				scopes = append(scopes, e.GetMeta().Scope)
+			}
+		}
+		if len(scopes) == 0 {
+			scopes = []model.Scope{model.ScopeGlobal}
+		}
+		for _, sc := range scopes {
+			if !id.CanObject(st, area, "write", sc) {
+				if sc == "" {
+					sc = model.ScopeGlobal
+				}
+				return &forbidden{fmt.Sprintf("needs %s:write for %s", area, sc)}
+			}
 		}
 	}
 	return nil
@@ -409,24 +452,43 @@ func (s *Server) writeObject(w http.ResponseWriter, status int, e model.Entity) 
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request, info model.KindInfo) {
-	objs := s.Store.Current().List(info.Kind)
-	out := make([]model.Entity, len(objs))
-	for i, e := range objs {
-		out[i] = model.Mask(e)
+	st := s.Store.Current()
+	id := who(r)
+	objs := st.List(info.Kind)
+	out := make([]model.Entity, 0, len(objs))
+	for _, e := range objs {
+		if id.CanObject(st, Area(info), "read", e.GetMeta().Scope) {
+			out = append(out, model.Mask(e))
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) get(w http.ResponseWriter, r *http.Request, info model.KindInfo) {
-	e, ok := s.Store.Current().Get(info.Kind, r.PathValue("id"))
-	if !ok {
+// readable returns the object the path names when the caller may read it,
+// answering for the caller when not.
+func (s *Server) readable(w http.ResponseWriter, r *http.Request, info model.KindInfo) (model.Entity, bool) {
+	st := s.Store.Current()
+	e, ok := st.Get(info.Kind, r.PathValue("id"))
+	if !ok || !who(r).CanObject(st, Area(info), "read", e.GetMeta().Scope) {
+		// Not found either way: an object one may not read is not there.
 		fail(w, http.StatusNotFound, "not_found", "no such object")
+		return nil, false
+	}
+	return e, true
+}
+
+func (s *Server) get(w http.ResponseWriter, r *http.Request, info model.KindInfo) {
+	e, ok := s.readable(w, r, info)
+	if !ok {
 		return
 	}
 	s.writeObject(w, http.StatusOK, e)
 }
 
 func (s *Server) usedBy(w http.ResponseWriter, r *http.Request, info model.KindInfo) {
+	if _, ok := s.readable(w, r, info); !ok {
+		return
+	}
 	uses := s.Store.Current().UsedBy(info.Kind, r.PathValue("id"))
 	if uses == nil {
 		uses = []confstore.Use{}
@@ -437,9 +499,8 @@ func (s *Server) usedBy(w http.ResponseWriter, r *http.Request, info model.KindI
 // effective returns the object as one node sees it and where each
 // overridden field comes from.
 func (s *Server) effective(w http.ResponseWriter, r *http.Request, info model.KindInfo) {
-	e, ok := s.Store.Current().Get(info.Kind, r.PathValue("id"))
+	e, ok := s.readable(w, r, info)
 	if !ok {
-		fail(w, http.StatusNotFound, "not_found", "no such object")
 		return
 	}
 	site, node := r.URL.Query().Get("site"), r.URL.Query().Get("node")
@@ -521,6 +582,9 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request, info model.KindI
 // right away, which opens the confirmation window.
 func (s *Server) write(w http.ResponseWriter, r *http.Request, op confstore.Op, okStatus int) {
 	id := who(r)
+	if err := authorize(id, s.Store.Current(), []confstore.Op{op}); s.deny(w, err) {
+		return
+	}
 	if csID := r.URL.Query().Get("changeset"); csID != "" {
 		cs, err := s.addToChangeSet(r.Context(), id, csID, op)
 		if s.deny(w, err) {
@@ -576,7 +640,7 @@ func mergeOp(ops []confstore.Op, op confstore.Op) ([]confstore.Op, error) {
 }
 
 func (s *Server) addToChangeSet(ctx context.Context, id Identity, csID string, op confstore.Op) (confstore.ChangeSet, error) {
-	if err := authorize(id, []confstore.Op{op}); err != nil {
+	if err := authorize(id, s.Store.Current(), []confstore.Op{op}); err != nil {
 		return confstore.ChangeSet{}, err
 	}
 	for attempt := 0; ; attempt++ {

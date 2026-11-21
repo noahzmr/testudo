@@ -318,8 +318,8 @@
           },
           "permissions": {
             "items": {
-              "description": "<area>:read or <area>:write; area may be *",
-              "pattern": "^(\\*|[a-z][a-z_]{0,30}):(read|write)$",
+              "description": "<area>:read or <area>:write; area may be *; @site:<id> or @node:<id> limits it to that site or node",
+              "pattern": "^(\\*|[a-z][a-z_]{0,30}):(read|write)(@(site|node):[0-9a-f-]{36})?$",
               "type": "string",
               "x-rule": "permission"
             },
@@ -5177,8 +5177,8 @@
           },
           "permissions": {
             "items": {
-              "description": "<area>:read or <area>:write; area may be *",
-              "pattern": "^(\\*|[a-z][a-z_]{0,30}):(read|write)$",
+              "description": "<area>:read or <area>:write; area may be *; @site:<id> or @node:<id> limits it to that site or node",
+              "pattern": "^(\\*|[a-z][a-z_]{0,30}):(read|write)(@(site|node):[0-9a-f-]{36})?$",
               "type": "string",
               "x-rule": "permission"
             },
