@@ -1215,6 +1215,334 @@
           "node"
         ]
       },
+      "Bond": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "device": {
+            "description": "Name of the bond such as bond0",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Device",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "hash_policy": {
+            "enum": [
+              "layer2",
+              "layer2+3",
+              "layer3+4",
+              "encap2+3",
+              "encap3+4"
+            ],
+            "title": "Transmit hash",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "lacp_rate": {
+            "enum": [
+              "slow",
+              "fast"
+            ],
+            "title": "LACP rate",
+            "type": "string"
+          },
+          "members": {
+            "description": "Devices joined into the bond",
+            "items": {
+              "description": "kernel interface name, at most 15 characters",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+              "type": "string",
+              "x-rule": "ifname"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Members",
+            "type": "array"
+          },
+          "miimon": {
+            "description": "Empty is 100",
+            "maximum": 10000,
+            "minimum": 0,
+            "title": "Link check interval (ms)",
+            "type": "integer"
+          },
+          "mode": {
+            "description": "802.3ad is LACP with a switch",
+            "enum": [
+              "802.3ad",
+              "active-backup",
+              "balance-rr",
+              "balance-xor",
+              "broadcast",
+              "balance-tlb",
+              "balance-alb"
+            ],
+            "minLength": 1,
+            "title": "Mode",
+            "type": "string"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "primary": {
+            "description": "For active-backup and the balance-tlb and balance-alb modes",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Primary member",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device",
+          "id",
+          "members",
+          "mode",
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "bond",
+        "x-menu": "interfaces/bonds",
+        "x-scopes": [
+          "node"
+        ]
+      },
+      "Bridge": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "device": {
+            "description": "Name of the bridge such as br0",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Device",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "ports": {
+            "items": {
+              "description": "kernel interface name, at most 15 characters",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+              "type": "string",
+              "x-rule": "ifname"
+            },
+            "maxItems": 64,
+            "title": "Ports",
+            "type": "array"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "stp": {
+            "title": "Spanning tree",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          },
+          "vlan_filtering": {
+            "title": "VLAN-aware",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "device",
+          "id",
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "bridge",
+        "x-menu": "interfaces/bridges",
+        "x-scopes": [
+          "node"
+        ]
+      },
       "Certificate": {
         "additionalProperties": false,
         "properties": {
@@ -6325,6 +6653,154 @@
           "global"
         ]
       },
+      "VLAN": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "device": {
+            "description": "Name such as eth0.100",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Device",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "parent": {
+            "description": "kernel interface name, at most 15 characters",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Parent device",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "protocol": {
+            "description": "802.1ad for an outer tag (QinQ)",
+            "enum": [
+              "802.1q",
+              "802.1ad"
+            ],
+            "title": "Protocol",
+            "type": "string"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          },
+          "vid": {
+            "maximum": 4094,
+            "minimum": 1,
+            "title": "VLAN ID",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device",
+          "id",
+          "name",
+          "parent",
+          "scope",
+          "vid"
+        ],
+        "type": "object",
+        "x-kind": "vlan",
+        "x-menu": "interfaces/vlans",
+        "x-scopes": [
+          "node"
+        ]
+      },
       "VRF": {
         "additionalProperties": false,
         "properties": {
@@ -8843,6 +9319,550 @@
         "summary": "List the objects that reference this BGP neighbor",
         "tags": [
           "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/bonds": {
+      "get": {
+        "operationId": "list_bond",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Bond"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Bond objects",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "post": {
+        "operationId": "create_bond",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Bond"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bond"
+                }
+              }
+            },
+            "description": "Bond",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Bond",
+        "tags": [
+          "interfaces"
+        ]
+      }
+    },
+    "/api/v1/bonds/{id}": {
+      "delete": {
+        "operationId": "delete_bond",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Bond",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "get": {
+        "operationId": "get_bond",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bond"
+                }
+              }
+            },
+            "description": "Bond",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Bond",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_bond",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Bond"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bond"
+                }
+              }
+            },
+            "description": "Bond",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Bond",
+        "tags": [
+          "interfaces"
+        ]
+      }
+    },
+    "/api/v1/bonds/{id}/effective": {
+      "get": {
+        "operationId": "effective_bond",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Bond"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Bond as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/bonds/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_bond",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Bond",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/bridges": {
+      "get": {
+        "operationId": "list_bridge",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Bridge"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Bridge objects",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "post": {
+        "operationId": "create_bridge",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Bridge"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bridge"
+                }
+              }
+            },
+            "description": "Bridge",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Bridge",
+        "tags": [
+          "interfaces"
+        ]
+      }
+    },
+    "/api/v1/bridges/{id}": {
+      "delete": {
+        "operationId": "delete_bridge",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Bridge",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "get": {
+        "operationId": "get_bridge",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bridge"
+                }
+              }
+            },
+            "description": "Bridge",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Bridge",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_bridge",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Bridge"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bridge"
+                }
+              }
+            },
+            "description": "Bridge",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Bridge",
+        "tags": [
+          "interfaces"
+        ]
+      }
+    },
+    "/api/v1/bridges/{id}/effective": {
+      "get": {
+        "operationId": "effective_bridge",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Bridge"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Bridge as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/bridges/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_bridge",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Bridge",
+        "tags": [
+          "interfaces"
         ]
       },
       "parameters": [
@@ -17760,6 +18780,278 @@
         "summary": "List the objects that reference this User",
         "tags": [
           "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/vlans": {
+      "get": {
+        "operationId": "list_vlan",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VLAN"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List VLAN objects",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "post": {
+        "operationId": "create_vlan",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VLAN"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VLAN"
+                }
+              }
+            },
+            "description": "VLAN",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a VLAN",
+        "tags": [
+          "interfaces"
+        ]
+      }
+    },
+    "/api/v1/vlans/{id}": {
+      "delete": {
+        "operationId": "delete_vlan",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a VLAN",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "get": {
+        "operationId": "get_vlan",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VLAN"
+                }
+              }
+            },
+            "description": "VLAN",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a VLAN",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_vlan",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VLAN"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VLAN"
+                }
+              }
+            },
+            "description": "VLAN",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a VLAN",
+        "tags": [
+          "interfaces"
+        ]
+      }
+    },
+    "/api/v1/vlans/{id}/effective": {
+      "get": {
+        "operationId": "effective_vlan",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/VLAN"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The VLAN as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "interfaces"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/vlans/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_vlan",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this VLAN",
+        "tags": [
+          "interfaces"
         ]
       },
       "parameters": [

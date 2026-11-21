@@ -44,10 +44,16 @@ const (
 	KindNTPService     Kind = "ntp_service"
 	KindAccessGrant    Kind = "access_grant"
 	KindNodeSettings   Kind = "node_settings"
+	KindBond           Kind = "bond"
+	KindBridge         Kind = "bridge"
+	KindVLAN           Kind = "vlan"
 )
 
 func init() {
 	register("interfaces", "Interface", "interfaces/assignments", nodeOnly, func() Entity { return &Interface{} })
+	register("bonds", "Bond", "interfaces/bonds", nodeOnly, func() Entity { return &Bond{} })
+	register("bridges", "Bridge", "interfaces/bridges", nodeOnly, func() Entity { return &Bridge{} })
+	register("vlans", "VLAN", "interfaces/vlans", nodeOnly, func() Entity { return &VLAN{} })
 	register("zones", "Zone", "firewall/zones", allLevels, func() Entity { return &Zone{} })
 	register("aliases", "Alias", "firewall/aliases", allLevels, func() Entity { return &Alias{} })
 	register("filter-rules", "Filter rule", "firewall/rules", allLevels, func() Entity { return &FilterRule{} })
@@ -752,3 +758,44 @@ type NodeSettings struct {
 }
 
 func (NodeSettings) Kind() Kind { return KindNodeSettings }
+
+// Bond joins network devices of a node into one link: LACP (802.3ad) with
+// a switch, or active-backup without one. Testudo creates the device and
+// enslaves the members; an interface of the model gives it addresses.
+type Bond struct {
+	Meta       `yaml:",inline"`
+	Enabled    bool     `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Device     string   `json:"device" yaml:"device" validate:"required,ifname" ui:"label=Device,order=10,help=Name of the bond such as bond0"`
+	Members    []string `json:"members" yaml:"members" validate:"required,min=1,max=16,dive,ifname" ui:"label=Members,widget=list,order=20,help=Devices joined into the bond"`
+	Mode       string   `json:"mode" yaml:"mode" validate:"required,oneof=802.3ad active-backup balance-rr balance-xor broadcast balance-tlb balance-alb" ui:"label=Mode,widget=select,order=30,help=802.3ad is LACP with a switch"`
+	LACPRate   string   `json:"lacp_rate,omitempty" yaml:"lacp_rate,omitempty" validate:"omitempty,oneof=slow fast" ui:"label=LACP rate,widget=select,order=40"`
+	HashPolicy string   `json:"hash_policy,omitempty" yaml:"hash_policy,omitempty" validate:"omitempty,oneof=layer2 layer2+3 layer3+4 encap2+3 encap3+4" ui:"label=Transmit hash,widget=select,order=50"`
+	MIIMon     int      `json:"miimon,omitempty" yaml:"miimon,omitempty" validate:"min=0,max=10000" ui:"label=Link check interval (ms),order=60,help=Empty is 100"`
+	Primary    string   `json:"primary,omitempty" yaml:"primary,omitempty" validate:"omitempty,ifname" ui:"label=Primary member,order=70,help=For active-backup and the balance-tlb and balance-alb modes"`
+}
+
+func (Bond) Kind() Kind { return KindBond }
+
+// Bridge switches between network devices of a node.
+type Bridge struct {
+	Meta          `yaml:",inline"`
+	Enabled       bool     `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Device        string   `json:"device" yaml:"device" validate:"required,ifname" ui:"label=Device,order=10,help=Name of the bridge such as br0"`
+	Ports         []string `json:"ports,omitempty" yaml:"ports,omitempty" validate:"max=64,dive,ifname" ui:"label=Ports,widget=list,order=20"`
+	STP           bool     `json:"stp,omitempty" yaml:"stp,omitempty" validate:"-" ui:"label=Spanning tree,order=30"`
+	VLANFiltering bool     `json:"vlan_filtering,omitempty" yaml:"vlan_filtering,omitempty" validate:"-" ui:"label=VLAN-aware,order=40"`
+}
+
+func (Bridge) Kind() Kind { return KindBridge }
+
+// VLAN is a tagged sub-interface of a node's device.
+type VLAN struct {
+	Meta     `yaml:",inline"`
+	Enabled  bool   `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Device   string `json:"device" yaml:"device" validate:"required,ifname" ui:"label=Device,order=10,help=Name such as eth0.100"`
+	Parent   string `json:"parent" yaml:"parent" validate:"required,ifname" ui:"label=Parent device,order=20"`
+	VID      int    `json:"vid" yaml:"vid" validate:"required,min=1,max=4094" ui:"label=VLAN ID,order=30"`
+	Protocol string `json:"protocol,omitempty" yaml:"protocol,omitempty" validate:"omitempty,oneof=802.1q 802.1ad" ui:"label=Protocol,widget=select,order=40,help=802.1ad for an outer tag (QinQ)"`
+}
+
+func (VLAN) Kind() Kind { return KindVLAN }

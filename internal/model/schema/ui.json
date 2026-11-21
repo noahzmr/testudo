@@ -192,6 +192,569 @@
       ]
     },
     {
+      "kind": "bond",
+      "plural": "bonds",
+      "title": "Bond",
+      "menu": "interfaces/bonds",
+      "scopes": [
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "device",
+          "label": "Device",
+          "type": "string",
+          "order": 10,
+          "help": "Name of the bond such as bond0",
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "members",
+          "label": "Members",
+          "type": "string",
+          "widget": "list",
+          "order": 20,
+          "help": "Devices joined into the bond",
+          "required": true,
+          "list": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "mode",
+          "label": "Mode",
+          "type": "string",
+          "widget": "select",
+          "order": 30,
+          "help": "802.3ad is LACP with a switch",
+          "required": true,
+          "enum": [
+            "802.3ad",
+            "active-backup",
+            "balance-rr",
+            "balance-xor",
+            "broadcast",
+            "balance-tlb",
+            "balance-alb"
+          ]
+        },
+        {
+          "name": "lacp_rate",
+          "label": "LACP rate",
+          "type": "string",
+          "widget": "select",
+          "order": 40,
+          "enum": [
+            "slow",
+            "fast"
+          ]
+        },
+        {
+          "name": "hash_policy",
+          "label": "Transmit hash",
+          "type": "string",
+          "widget": "select",
+          "order": 50,
+          "enum": [
+            "layer2",
+            "layer2+3",
+            "layer3+4",
+            "encap2+3",
+            "encap3+4"
+          ]
+        },
+        {
+          "name": "miimon",
+          "label": "Link check interval (ms)",
+          "type": "integer",
+          "order": 60,
+          "help": "Empty is 100"
+        },
+        {
+          "name": "primary",
+          "label": "Primary member",
+          "type": "string",
+          "order": 70,
+          "help": "For active-backup and the balance-tlb and balance-alb modes",
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "bridge",
+      "plural": "bridges",
+      "title": "Bridge",
+      "menu": "interfaces/bridges",
+      "scopes": [
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "device",
+          "label": "Device",
+          "type": "string",
+          "order": 10,
+          "help": "Name of the bridge such as br0",
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "ports",
+          "label": "Ports",
+          "type": "string",
+          "widget": "list",
+          "order": 20,
+          "list": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "stp",
+          "label": "Spanning tree",
+          "type": "boolean",
+          "order": 30
+        },
+        {
+          "name": "vlan_filtering",
+          "label": "VLAN-aware",
+          "type": "boolean",
+          "order": 40
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "vlan",
+      "plural": "vlans",
+      "title": "VLAN",
+      "menu": "interfaces/vlans",
+      "scopes": [
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "device",
+          "label": "Device",
+          "type": "string",
+          "order": 10,
+          "help": "Name such as eth0.100",
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "parent",
+          "label": "Parent device",
+          "type": "string",
+          "order": 20,
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "vid",
+          "label": "VLAN ID",
+          "type": "integer",
+          "order": 30,
+          "required": true
+        },
+        {
+          "name": "protocol",
+          "label": "Protocol",
+          "type": "string",
+          "widget": "select",
+          "order": 40,
+          "help": "802.1ad for an outer tag (QinQ)",
+          "enum": [
+            "802.1q",
+            "802.1ad"
+          ]
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
       "kind": "zone",
       "plural": "zones",
       "title": "Zone",
