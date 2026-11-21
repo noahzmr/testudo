@@ -22,6 +22,20 @@ type fabricCore struct {
 	paths *pathmon.Monitor
 	// pub is the public key of the node's fabric tunnels, once there is one.
 	pub atomic.Pointer[string]
+	// problem is why the key could not be published, as last seen.
+	problem atomic.Pointer[string]
+}
+
+// report keeps the last problem with publishing keys, and logs it when it
+// is new rather than every round.
+func (f *fabricCore) report(err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	if old := f.problem.Swap(&msg); err != nil && (old == nil || *old != msg) {
+		log.Printf("fabric: publish tunnel keys: %v", err)
+	}
 }
 
 // meshPublicKey returns the public key of this node's fabric tunnels. With
@@ -152,12 +166,10 @@ func (e *Engine) publishMeshKeys(ctx context.Context, st *confstore.State, own s
 		return
 	}
 	if _, err := e.conf.apply.Apply(ctx, "system", "fabric keys", ops); err != nil {
-		log.Printf("fabric: publish tunnel keys: %v", err)
+		e.fabric.report(err)
 		return
 	}
-	if err := e.conf.apply.Confirm("system"); err != nil {
-		log.Printf("fabric: confirm tunnel keys: %v", err)
-	}
+	e.fabric.report(e.conf.apply.Confirm("system"))
 }
 
 // fabricRuntime describes this node's tunnels and their measurements.
@@ -172,6 +184,8 @@ func (e *Engine) fabricRuntime() map[string]any {
 	out := map[string]any{"enabled": plan.Enabled, "public_key": e.meshPublicKey(false), "paths": e.fabric.paths.Status()}
 	if err != nil {
 		out["error"] = err.Error()
+	} else if p := e.fabric.problem.Load(); p != nil && *p != "" {
+		out["error"] = "the node's key could not be put into the configuration: " + *p
 	}
 	if plan.Enabled {
 		type tunnel struct {
