@@ -3,7 +3,7 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 9 complete. Packet filter, NAT, routing, WireGuard
+**Status: Phases 0 to 10 complete. Packet filter, NAT, routing, WireGuard
 with identity-aware access, and load balancing with SNI routing and
 certificates are driven by the model and verified against a real kernel
 ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
@@ -14,8 +14,12 @@ replicates the model and applies changes canary first
 ([phase-7](phase-7-cluster.md)), the network between their sites is
 derived from it ([phase-8](phase-8-fabric.md)), and flows are attributed
 to zones, tunnels, people, translations and the load balancer, and joined
-across sites ([phase-9](phase-9-flows.md)). Intra-site HA and hardening
-(Phase 10) are next.**
+across sites ([phase-9](phase-9-flows.md)). A site can run an
+active/standby pair whose connections survive a failover, the cluster
+hands a dead voter's vote to its partner, and a node has metrics, health
+endpoints, encrypted backups and a Debian package with a sandboxed unit
+([phase-10](phase-10-ha.md), runbook in [operations.md](operations.md)).
+What is open is listed per area below.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -34,10 +38,10 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 7 | Raft cluster core | done | - | - |
 | 8 | Multi-site SDN fabric | done | - | - |
 | 9 | Flow analysis extensions | done | - | - |
-| 10 | Intra-site HA, hardening, operations | about 10 % | 5–6 weeks | medium |
+| 10 | Intra-site HA, hardening, operations | done | - | - |
 
-Roughly 15 to 18 months of single-engineer work. The target is a second
-product built around the first; it is not an increment.
+The Phase 0 estimate was 15 to 18 months of single-engineer work. Every
+area now exists; the open items per area are below.
 
 ## What the existing code gives the target for free
 
@@ -139,9 +143,9 @@ The direct editing of firewall rules outside the model (Web UI, TUI,
 ## 7. Multi-site clustering
 
 Done; see [phase-7-cluster.md](phase-7-cluster.md). Open: a rolling
-upgrade with two real builds has not been run, there is no backup of the
-whole cluster state including secrets, the canary is always the leader,
-and sessions are per member.
+upgrade with two real builds has not been run, a backup holds one node's
+model and secrets but not the consensus state, the canary is always the
+leader, and sessions are per member.
 
 ## 8. SDN fabric
 
@@ -170,10 +174,21 @@ Done; see [phase-9-flows.md](phase-9-flows.md).
 
 ## 10. Operations and hardening
 
-Present: privilege separation, capability drop, seccomp on the helper,
-structured-enough audit rows, optional crash reporting. Absent: OpenAPI,
-Prometheus metrics, health endpoints, systemd units and sandboxing, packaging,
-backup/restore, upgrade migrations, keepalived and conntrackd integration, CI.
+Done; see [phase-10-ha.md](phase-10-ha.md) and
+[operations.md](operations.md).
+
+| Target | Today |
+| --- | --- |
+| Intra-site HA (keepalived, conntrackd) | present; connections survive a failover on a real kernel; no fencing |
+| Voter failover (ADR 0004) | present; "caught up" left to Raft, fixed 30 s |
+| Prometheus metrics, health and readiness | present (`/metrics` with login, `/healthz`, `/readyz`) |
+| Structured logs | `--log-json` |
+| Backup and restore | present, encrypted and authenticated; consensus state not included |
+| systemd unit with sandboxing | present; verified and scored, not run under systemd with every daemon |
+| Debian package | present for amd64, install-tested; unsigned, no repository |
+| OpenAPI | generated from the model since Phase 1 |
+| Upgrade migrations | the schema version gate from Phase 7; no data migrations were needed |
+| CI | absent: the checks run from the commit hooks and `scripts/` |
 
 ## Phase 0 deliverables
 
