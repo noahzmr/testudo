@@ -243,6 +243,7 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 		}
 		if chain == "input" {
 			c.Rules = append(serviceInput(svc.Open), c.Rules...)
+			c.Rules = append(r.dhcpv6ClientInput(), c.Rules...)
 		}
 		if chain != "output" {
 			for _, id := range zoneIDs {
@@ -1124,4 +1125,23 @@ func (r *renderer) access() []string {
 		emit(res, func(p *model.WGPeer, _ map[string]bool) bool { return p.User.ID == g.User.ID }, g.ID)
 	}
 	return out
+}
+
+// dhcpv6ClientInput lets the answers of a provider's DHCPv6 server in on
+// the upstream interfaces of the node's DHCPv6 clients: they come from the
+// server's link-local address to the client's, which connection tracking
+// cannot match to the multicast request.
+func (r *renderer) dhcpv6ClientInput() []string {
+	var devs []string
+	for _, c := range effective[*model.DHCPv6Client](r, model.KindDHCPv6Client) {
+		if c.Enabled {
+			devs = append(devs, quote(c.Interface))
+		}
+	}
+	if len(devs) == 0 {
+		return nil
+	}
+	sort.Strings(devs)
+	return []string{fmt.Sprintf("iifname { %s } ip6 saddr fe80::/10 udp sport 547 udp dport 546 counter accept comment \"dhcpv6 client\"",
+		strings.Join(devs, ", "))}
 }

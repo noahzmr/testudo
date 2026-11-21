@@ -959,6 +959,190 @@
       ]
     },
     {
+      "kind": "dhcpv6_client",
+      "plural": "dhcpv6-clients",
+      "title": "DHCPv6 client",
+      "menu": "interfaces/dhcpv6",
+      "scopes": [
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "interface",
+          "label": "Upstream interface",
+          "type": "string",
+          "order": 10,
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "address",
+          "label": "Ask for an address",
+          "type": "boolean",
+          "order": 20
+        },
+        {
+          "name": "prefix_length",
+          "label": "Delegated prefix length",
+          "type": "integer",
+          "order": 30,
+          "help": "Empty asks for no prefix; 56 is common"
+        },
+        {
+          "name": "delegate",
+          "label": "LAN interfaces",
+          "type": "object",
+          "order": 40,
+          "list": true,
+          "fields": [
+            {
+              "name": "interface",
+              "label": "Interface",
+              "type": "string",
+              "order": 10,
+              "required": true,
+              "rules": [
+                "ifname"
+              ]
+            },
+            {
+              "name": "subnet_id",
+              "label": "Subnet number",
+              "type": "integer",
+              "order": 20,
+              "help": "Which /64 of the prefix"
+            }
+          ]
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
       "kind": "zone",
       "plural": "zones",
       "title": "Zone",

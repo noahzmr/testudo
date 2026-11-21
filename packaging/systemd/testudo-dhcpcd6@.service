@@ -1,0 +1,22 @@
+# The DHCPv6 client of an upstream interface for Testudo (instance: the
+# device): an address and a delegated prefix whose /64s go to the LAN
+# interfaces the model names. It reads the configuration Testudo wrote and
+# runs next to an IPv4 client on the same interface.
+[Unit]
+Description=DHCPv6 client of %i for Testudo
+Documentation=file:///usr/share/doc/testudo/operations.md
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dhcpcd -B -6 -f /var/lib/testudo/interfaces/dhcpcd/%i.dhcpcd6.conf %i
+Restart=on-failure
+RestartSec=5s
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL CAP_SETUID CAP_SETGID CAP_SYS_CHROOT
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes

@@ -139,6 +139,10 @@ var daemonSpecs = map[string]daemonSpec{
 		}},
 	"dhcpcd": {paths: []string{"/usr/sbin/dhcpcd", "/sbin/dhcpcd"}, perIface: true, unit: "testudo-dhcpcd@",
 		args: func(r DaemonRequest) []string { return []string{"-B", "-4", r.Interface} }},
+	// The DHCPv6 client of an upstream interface: addresses and delegated
+	// prefixes, from its own configuration, next to an IPv4 client there.
+	"dhcpcd6": {paths: []string{"/usr/sbin/dhcpcd", "/sbin/dhcpcd"}, perIface: true, ifaceConf: ".dhcpcd6.conf", unit: "testudo-dhcpcd6@",
+		args: func(r DaemonRequest) []string { return []string{"-B", "-6", "-f", r.ConfigFile, r.Interface} }},
 	// A PPPoE session, one per PPP device; the options file holds the
 	// credentials and is never passed on the command line.
 	"pppd": {paths: []string{"/usr/sbin/pppd", "/sbin/pppd"}, perIface: true, ifaceConf: ".options", unit: "testudo-pppoe@",

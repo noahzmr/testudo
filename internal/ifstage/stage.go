@@ -73,6 +73,8 @@ type Stage struct {
 	applied      []Device
 	appliedLinks []netops.LinkSpec
 	appliedPPPoE []PPPoE
+	v6clients    []string // the DHCPv6 clients the stage runs, by upstream device
+	appliedV6    []DHCPv6
 	cmu          sync.Mutex
 	client       string // the DHCP client installed here, once known (cmu)
 	missing      []string
@@ -155,6 +157,8 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 		}
 	}
 	links, sessions, lerrs := renderLinks(st, site, node)
+	clients, cerrs := renderDHCPv6(st, site, node)
+	lerrs = append(lerrs, cerrs...)
 	errs = append(errs, lerrs...)
 	member := map[string]string{}
 	for _, l := range links {
@@ -171,7 +175,7 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 		return nil, err
 	}
 	sort.Slice(devs, func(a, b int) bool { return devs[a].Name < devs[b].Name })
-	return json.MarshalIndent(artifact{Devices: devs, Links: links, PPPoE: sessions}, "", " ")
+	return json.MarshalIndent(artifact{Devices: devs, Links: links, PPPoE: sessions, DHCPv6: clients}, "", " ")
 }
 
 // artifact is what the stage applies: the links to create and how each
@@ -180,6 +184,37 @@ type artifact struct {
 	Devices []Device          `json:"devices"`
 	Links   []netops.LinkSpec `json:"links,omitempty"`
 	PPPoE   []PPPoE           `json:"pppoe,omitempty"`
+	DHCPv6  []DHCPv6          `json:"dhcpv6,omitempty"`
+}
+
+// DHCPv6 is the DHCPv6 client of one upstream interface.
+type DHCPv6 struct {
+	Interface    string                   `json:"interface"`
+	Address      bool                     `json:"address,omitempty"`
+	PrefixLength int                      `json:"prefix_length,omitempty"`
+	Delegate     []model.PrefixAssignment `json:"delegate,omitempty"`
+}
+
+// conf is the dhcpcd configuration of the client: IPv6 only, so an IPv4
+// client may run on the same interface.
+func (c DHCPv6) conf() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Written by Testudo for %s; changes are overwritten.\n", c.Interface)
+	// Not persistent: a client that stops takes its addresses and the
+	// delegated /64s with it.
+	b.WriteString("duid\nnoipv4\nnoipv4ll\noption rapid_commit\n")
+	fmt.Fprintf(&b, "interface %s\n  ipv6rs\n", c.Interface)
+	if c.Address {
+		b.WriteString("  ia_na 1\n")
+	}
+	if c.PrefixLength > 0 {
+		fmt.Fprintf(&b, "  ia_pd 2/::/%d", c.PrefixLength)
+		for _, d := range c.Delegate {
+			fmt.Fprintf(&b, " %s/%d/64", d.Interface, d.SubnetID)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // PPPoE is one PPPoE session the stage runs.
@@ -329,8 +364,13 @@ func renderLinks(st *confstore.State, site, node string) ([]netops.LinkSpec, []P
 // changed.
 func (s *Stage) Check(_ context.Context, raw []byte) error {
 	a, err := decode(raw)
-	if err != nil || (len(a.Devices) == 0 && len(a.Links) == 0 && len(a.PPPoE) == 0) {
+	if err != nil || (len(a.Devices) == 0 && len(a.Links) == 0 && len(a.PPPoE) == 0 && len(a.DHCPv6) == 0) {
 		return err
+	}
+	if len(a.DHCPv6) > 0 && s.Runner != nil {
+		if st, err := s.Runner.DaemonStateOf(netops.DaemonRequest{Name: "dhcpcd6", RunDir: s.RunDir, Interface: "lo"}); err != nil || st == "missing" {
+			return fmt.Errorf("DHCPv6 clients need dhcpcd, which is not installed (%v)", err)
+		}
 	}
 	if len(a.PPPoE) > 0 && s.Runner != nil {
 		if st, err := s.Runner.DaemonStateOf(netops.DaemonRequest{Name: "pppd", RunDir: s.RunDir, Interface: "lo"}); err != nil || st == "missing" {
@@ -402,6 +442,7 @@ func (s *Stage) loadLocked() error {
 		}
 		s.owned = f.Links
 		s.sessions = f.PPPoE
+		s.v6clients = f.DHCPv6
 		return nil
 	}
 	// The first form: the devices alone.
@@ -416,6 +457,7 @@ type recordFile struct {
 	Devices map[string]*record `json:"devices"`
 	Links   bool               `json:"links,omitempty"`
 	PPPoE   []string           `json:"pppoe,omitempty"`
+	DHCPv6  []string           `json:"dhcpv6,omitempty"`
 }
 
 func (s *Stage) saveLocked() error {
@@ -427,7 +469,7 @@ func (s *Stage) saveLocked() error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(recordFile{Version: recordVersion, Devices: s.done, Links: s.owned, PPPoE: s.sessions}, "", " ")
+	b, err := json.MarshalIndent(recordFile{Version: recordVersion, Devices: s.done, Links: s.owned, PPPoE: s.sessions, DHCPv6: s.v6clients}, "", " ")
 	if err != nil {
 		return err
 	}
@@ -451,7 +493,8 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 	if err := s.loadLocked(); err != nil {
 		return fmt.Errorf("record of configured interfaces: %w", err)
 	}
-	if len(devs) == 0 && len(s.done) == 0 && len(a.Links) == 0 && !s.owned && len(a.PPPoE) == 0 && len(s.sessions) == 0 {
+	if len(devs) == 0 && len(s.done) == 0 && len(a.Links) == 0 && !s.owned && len(a.PPPoE) == 0 && len(s.sessions) == 0 &&
+		len(a.DHCPv6) == 0 && len(s.v6clients) == 0 {
 		s.applied, s.appliedLinks, s.missing = nil, nil, nil
 		return nil
 	}
@@ -470,11 +513,29 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 	}
 	s.appliedLinks = a.Links
 	if len(a.PPPoE) > 0 || len(s.sessions) > 0 {
-		if err := s.syncPPPoE(a.PPPoE); err != nil {
+		want := map[string]string{}
+		for _, p := range a.PPPoE {
+			want[p.Device] = p.options()
+		}
+		var err error
+		s.sessions, err = s.syncFiled(pppd, want, s.sessions)
+		if err := errors.Join(err, s.saveLocked()); err != nil {
 			return err
 		}
 	}
 	s.appliedPPPoE = a.PPPoE
+	if len(a.DHCPv6) > 0 || len(s.v6clients) > 0 {
+		want := map[string]string{}
+		for _, c := range a.DHCPv6 {
+			want[c.Interface] = c.conf()
+		}
+		var err error
+		s.v6clients, err = s.syncFiled(dhcpcd6, want, s.v6clients)
+		if err := errors.Join(err, s.saveLocked()); err != nil {
+			return err
+		}
+	}
+	s.appliedV6 = a.DHCPv6
 	want := map[string]Device{}
 	names := map[string]bool{}
 	for _, d := range devs {
@@ -634,12 +695,18 @@ func (s *Stage) Healthy(context.Context) error {
 	s.mu.Unlock()
 	var errs []error
 	s.mu.Lock()
-	sessions := s.appliedPPPoE
+	sessions, v6 := s.appliedPPPoE, s.appliedV6
 	s.mu.Unlock()
 	for _, p := range sessions {
 		st, err := s.Runner.DaemonStateOf(s.pppRequest(p.Device, netops.DaemonStatus))
 		if err != nil || st != "running" {
 			errs = append(errs, fmt.Errorf("the PPPoE session %s is not running (%s%v)", p.Device, st, err))
+		}
+	}
+	for _, c := range v6 {
+		st, err := s.Runner.DaemonStateOf(s.request(dhcpcd6, c.Interface, netops.DaemonStatus))
+		if err != nil || st != "running" {
+			errs = append(errs, fmt.Errorf("the DHCPv6 client of %s is not running (%s%v)", c.Interface, st, err))
 		}
 	}
 	for _, l := range links {
@@ -704,27 +771,45 @@ func (s *Stage) Missing() []string {
 	return append([]string(nil), s.missing...)
 }
 
-func (s *Stage) pppDir() string { return filepath.Join(s.Dir, "ppp") }
-
-func (s *Stage) pppRequest(device string, mode netops.DaemonMode) netops.DaemonRequest {
-	return netops.DaemonRequest{Name: "pppd", Mode: mode, RunDir: s.RunDir, Interface: device,
-		ConfigFile: filepath.Join(s.pppDir(), device+".options")}
+// A filed daemon runs per device from a configuration file the stage
+// writes: pppd for a PPPoE session, dhcpcd for a DHCPv6 client.
+type filed struct {
+	daemon, dir, ext, what string
 }
 
-// syncPPPoE runs the wanted sessions, with their options file written
-// first and pppd restarted when it changed, and stops the others. Caller
-// holds mu.
-func (s *Stage) syncPPPoE(want []PPPoE) error {
-	if err := os.MkdirAll(s.pppDir(), 0o700); err != nil {
-		return err
+var (
+	pppd    = filed{daemon: "pppd", dir: "ppp", ext: ".options", what: "pppoe"}
+	dhcpcd6 = filed{daemon: "dhcpcd6", dir: "dhcpcd", ext: ".dhcpcd6.conf", what: "dhcpv6 client"}
+)
+
+func (s *Stage) request(k filed, device string, mode netops.DaemonMode) netops.DaemonRequest {
+	return netops.DaemonRequest{Name: k.daemon, Mode: mode, RunDir: s.RunDir, Interface: device,
+		ConfigFile: filepath.Join(s.Dir, k.dir, device+k.ext)}
+}
+
+func (s *Stage) pppRequest(device string, mode netops.DaemonMode) netops.DaemonRequest {
+	return s.request(pppd, device, mode)
+}
+
+// syncFiled runs a daemon for every device of want (device: file text),
+// with its file written first and the daemon restarted when the file
+// changed, and stops it for the devices of have that left. It returns
+// the devices it now runs for. Caller holds mu.
+func (s *Stage) syncFiled(k filed, want map[string]string, have []string) ([]string, error) {
+	dir := filepath.Join(s.Dir, k.dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return have, err
 	}
 	var errs []error
-	keep := map[string]bool{}
 	var running []string
-	for _, p := range want {
-		keep[p.Device] = true
-		path := filepath.Join(s.pppDir(), p.Device+".options")
-		text := p.options()
+	devices := make([]string, 0, len(want))
+	for d := range want {
+		devices = append(devices, d)
+	}
+	sort.Strings(devices)
+	for _, d := range devices {
+		path := filepath.Join(dir, d+k.ext)
+		text := want[d]
 		mode := netops.DaemonEnsure
 		if old, err := os.ReadFile(path); err != nil || string(old) != text {
 			if err := os.WriteFile(path+".tmp", []byte(text), 0o600); err != nil {
@@ -736,29 +821,73 @@ func (s *Stage) syncPPPoE(want []PPPoE) error {
 				continue
 			}
 			if err == nil {
-				// A running session reads its options again only at a start.
+				// A running daemon reads its file again only at a start.
 				mode = netops.DaemonRestart
 			}
 		}
-		if err := s.Runner.DaemonControl(s.pppRequest(p.Device, mode)); err != nil {
-			errs = append(errs, fmt.Errorf("pppoe %s: %w", p.Device, err))
+		if err := s.Runner.DaemonControl(s.request(k, d, mode)); err != nil {
+			errs = append(errs, fmt.Errorf("%s %s: %w", k.what, d, err))
 			continue
 		}
-		running = append(running, p.Device)
+		running = append(running, d)
 	}
-	for _, d := range s.sessions {
-		if keep[d] {
+	for _, d := range have {
+		if _, ok := want[d]; ok {
 			continue
 		}
-		if err := s.Runner.DaemonControl(s.pppRequest(d, netops.DaemonStop)); err != nil {
-			errs = append(errs, fmt.Errorf("pppoe %s: %w", d, err))
+		if err := s.Runner.DaemonControl(s.request(k, d, netops.DaemonStop)); err != nil {
+			errs = append(errs, fmt.Errorf("%s %s: %w", k.what, d, err))
 			running = append(running, d)
 			continue
 		}
-		_ = os.Remove(filepath.Join(s.pppDir(), d+".options"))
+		_ = os.Remove(filepath.Join(dir, d+k.ext))
 	}
 	sort.Strings(running)
-	s.sessions = running
-	errs = append(errs, s.saveLocked())
-	return errors.Join(errs...)
+	return running, errors.Join(errs...)
+}
+
+// renderDHCPv6 lists the node's DHCPv6 clients.
+func renderDHCPv6(st *confstore.State, site, node string) ([]DHCPv6, []error) {
+	var out []DHCPv6
+	var errs []error
+	seen := map[string]bool{}
+	for _, e := range st.List(model.KindDHCPv6Client) {
+		if !model.AppliesTo(e, site, node) {
+			continue
+		}
+		eff, _, err := model.Effective(e, site, node)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("dhcpv6 client %q: %w", e.GetMeta().Name, err))
+			continue
+		}
+		c := eff.(*model.DHCPv6Client)
+		if !c.Enabled {
+			continue
+		}
+		switch {
+		case seen[c.Interface]:
+			errs = append(errs, fmt.Errorf("two DHCPv6 clients on %s", c.Interface))
+			continue
+		case !c.Address && c.PrefixLength == 0:
+			errs = append(errs, fmt.Errorf("dhcpv6 client %q asks for neither an address nor a prefix", c.Name))
+			continue
+		case len(c.Delegate) > 0 && c.PrefixLength == 0:
+			errs = append(errs, fmt.Errorf("dhcpv6 client %q gives out a prefix it does not ask for", c.Name))
+			continue
+		}
+		seen[c.Interface] = true
+		sub := map[int]bool{}
+		for _, d := range c.Delegate {
+			if d.SubnetID >= 1<<(64-c.PrefixLength) {
+				errs = append(errs, fmt.Errorf("dhcpv6 client %q: a /%d has no subnet %d", c.Name, c.PrefixLength, d.SubnetID))
+			}
+			if sub[d.SubnetID] {
+				errs = append(errs, fmt.Errorf("dhcpv6 client %q: subnet %d twice", c.Name, d.SubnetID))
+			}
+			sub[d.SubnetID] = true
+		}
+		out = append(out, DHCPv6{Interface: c.Interface, Address: c.Address, PrefixLength: c.PrefixLength, Delegate: c.Delegate})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Interface < out[j].Interface })
+	return out, errs
 }

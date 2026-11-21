@@ -254,6 +254,11 @@ func (r *renderer) radvd() string {
 			}
 		}
 		prefixes = sortedUnique(prefixes)
+		if len(prefixes) == 0 && r.delegated[a.Interface] {
+			// The prefix comes from the provider and can change: radvd
+			// announces whatever /64 the interface has.
+			prefixes = []string{"::/64"}
+		}
 		if len(prefixes) == 0 && a.Mode != "managed" {
 			r.fail("router advertisement %q: no /64 prefix on %s; give the interface an IPv6 address or name the prefixes", a.Name, a.Interface)
 		}

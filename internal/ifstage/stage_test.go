@@ -85,7 +85,10 @@ func (k *fakeKernel) DaemonControl(r netops.DaemonRequest) error {
 	if err := k.do(fmt.Sprintf("%s %s %s", r.Mode, r.Name, r.Interface)); err != nil {
 		return err
 	}
-	if r.Name == "pppd" {
+	if r.Name == "pppd" || r.Name == "dhcpcd6" {
+		if r.Name == "dhcpcd6" {
+			r.Interface = "dhcpcd6/" + r.Interface
+		}
 		if k.ppp == nil {
 			k.ppp = map[string]int{}
 		}
@@ -117,7 +120,10 @@ func (k *fakeKernel) DaemonControl(r netops.DaemonRequest) error {
 }
 
 func (k *fakeKernel) DaemonStateOf(r netops.DaemonRequest) (string, error) {
-	if r.Name == "pppd" {
+	if r.Name == "pppd" || r.Name == "dhcpcd6" {
+		if r.Name == "dhcpcd6" {
+			r.Interface = "dhcpcd6/" + r.Interface
+		}
 		if _, ok := k.ppp[r.Interface]; ok {
 			return "running", nil
 		}
@@ -515,5 +521,57 @@ func TestAPPPoESession(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err == nil {
 		t.Error("the options file stayed")
+	}
+}
+
+// TestADHCPv6Client: the client's dhcpcd configuration asks for what the
+// model says and hands out the /64s; it runs, and stops with its file
+// gone when it leaves the model. Contradictions are refused.
+func TestADHCPv6Client(t *testing.T) {
+	f := newFixture(t)
+	c := &model.DHCPv6Client{Meta: model.Meta{Name: "isp"}, Enabled: true, Interface: "eth0", Address: true, PrefixLength: 56,
+		Delegate: []model.PrefixAssignment{{Interface: "eth1", SubnetID: 1}}}
+	f.create(c)
+	if err := f.apply(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(f.dir, "dhcpcd", "eth0.dhcpcd6.conf")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"noipv4", "interface eth0", "ia_na 1", "ia_pd 2/::/56 eth1/1/64"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("configuration lacks %q:\n%s", want, b)
+		}
+	}
+	if f.k.ppp["dhcpcd6/eth0"] != 1 {
+		t.Errorf("dhcpcd: %v", f.k.ppp)
+	}
+	o, _ := f.store.Current().Get(model.KindDHCPv6Client, c.ID)
+	if err := f.store.Delete(context.Background(), "t", model.KindDHCPv6Client, c.ID, o.GetMeta().Version); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.apply(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.k.ppp["dhcpcd6/eth0"]; ok {
+		t.Error("dhcpcd still runs")
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("the configuration stayed")
+	}
+
+	for want, bad := range map[string]*model.DHCPv6Client{
+		"neither an address nor a prefix": {Interface: "eth0"},
+		"does not ask for":                {Interface: "eth0", Address: true, Delegate: []model.PrefixAssignment{{Interface: "eth1", SubnetID: 1}}},
+		"has no subnet 1":                 {Interface: "eth0", PrefixLength: 64, Delegate: []model.PrefixAssignment{{Interface: "eth1", SubnetID: 1}}},
+	} {
+		g := newFixture(t)
+		bad.Name, bad.Enabled = "bad", true
+		g.create(bad)
+		if _, err := g.s.Render(g.store.Current()); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v", want, err)
+		}
 	}
 }

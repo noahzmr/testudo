@@ -49,6 +49,7 @@ const (
 	KindVLAN           Kind = "vlan"
 	KindPPPoE          Kind = "pppoe"
 	KindDHCPRelay      Kind = "dhcp_relay"
+	KindDHCPv6Client   Kind = "dhcpv6_client"
 )
 
 func init() {
@@ -57,6 +58,7 @@ func init() {
 	register("bridges", "Bridge", "interfaces/bridges", nodeOnly, func() Entity { return &Bridge{} })
 	register("vlans", "VLAN", "interfaces/vlans", nodeOnly, func() Entity { return &VLAN{} })
 	register("pppoe", "PPPoE link", "interfaces/pppoe", nodeOnly, func() Entity { return &PPPoE{} })
+	register("dhcpv6-clients", "DHCPv6 client", "interfaces/dhcpv6", nodeOnly, func() Entity { return &DHCPv6Client{} })
 	register("zones", "Zone", "firewall/zones", allLevels, func() Entity { return &Zone{} })
 	register("aliases", "Alias", "firewall/aliases", allLevels, func() Entity { return &Alias{} })
 	register("filter-rules", "Filter rule", "firewall/rules", allLevels, func() Entity { return &FilterRule{} })
@@ -834,3 +836,24 @@ type DHCPRelay struct {
 }
 
 func (DHCPRelay) Kind() Kind { return KindDHCPRelay }
+
+// DHCPv6Client asks a provider's DHCPv6 server on an upstream interface
+// for an address, a delegated prefix, or both. Each delegation gives one
+// /64 of the prefix to a LAN interface, by subnet number; a router
+// advertisement for that interface announces whatever prefix it has.
+type DHCPv6Client struct {
+	Meta         `yaml:",inline"`
+	Enabled      bool               `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Interface    string             `json:"interface" yaml:"interface" validate:"required,ifname" ui:"label=Upstream interface,order=10"`
+	Address      bool               `json:"address,omitempty" yaml:"address,omitempty" validate:"-" ui:"label=Ask for an address,order=20"`
+	PrefixLength int                `json:"prefix_length,omitempty" yaml:"prefix_length,omitempty" validate:"omitempty,min=40,max=64" ui:"label=Delegated prefix length,order=30,help=Empty asks for no prefix; 56 is common"`
+	Delegate     []PrefixAssignment `json:"delegate,omitempty" yaml:"delegate,omitempty" validate:"max=64,dive" ui:"label=LAN interfaces,order=40"`
+}
+
+// PrefixAssignment gives one /64 of a delegated prefix to an interface.
+type PrefixAssignment struct {
+	Interface string `json:"interface" yaml:"interface" validate:"required,ifname" ui:"label=Interface,order=10"`
+	SubnetID  int    `json:"subnet_id" yaml:"subnet_id" validate:"min=0,max=65535" ui:"label=Subnet number,order=20,help=Which /64 of the prefix"`
+}
+
+func (DHCPv6Client) Kind() Kind { return KindDHCPv6Client }

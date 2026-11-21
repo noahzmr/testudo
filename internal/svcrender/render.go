@@ -145,7 +145,9 @@ type renderer struct {
 	scopes   []*model.DHCPScope
 	ras      []*model.RouterAdvert
 	relays   []*model.DHCPRelay
-	records  []*model.DNSRecord
+	// delegated are the interfaces that get a /64 of a delegated prefix.
+	delegated map[string]bool
+	records   []*model.DNSRecord
 }
 
 type pair struct {
@@ -320,6 +322,14 @@ func (r *renderer) gather() {
 		}
 	}
 	r.records = effective[*model.DNSRecord](r, model.KindDNSRecord)
+	r.delegated = map[string]bool{}
+	for _, c := range effective[*model.DHCPv6Client](r, model.KindDHCPv6Client) {
+		if c.Enabled && c.PrefixLength > 0 {
+			for _, d := range c.Delegate {
+				r.delegated[d.Interface] = true
+			}
+		}
+	}
 	for _, rl := range effective[*model.DHCPRelay](r, model.KindDHCPRelay) {
 		if rl.Enabled {
 			r.relays = append(r.relays, rl)

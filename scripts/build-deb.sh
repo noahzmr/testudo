@@ -35,7 +35,7 @@ docker run --rm --network none \
 		root=/tmp/pkg
 		install -d $root/DEBIAN $root/usr/bin $root/lib/systemd/system $root/etc/pam.d $root/etc/default $root/usr/share/doc/testudo
 		go build -buildvcs=false -trimpath -tags pam -ldflags "-s -w" -o $root/usr/bin/testudo ./cmd/testudo
-		install -m 0644 packaging/systemd/testudo.service packaging/systemd/testudo-dhcp@.service packaging/systemd/testudo-dhcpcd@.service packaging/systemd/testudo-pppoe@.service $root/lib/systemd/system/
+		install -m 0644 packaging/systemd/testudo.service packaging/systemd/testudo-dhcp@.service packaging/systemd/testudo-dhcpcd@.service packaging/systemd/testudo-pppoe@.service packaging/systemd/testudo-dhcpcd6@.service $root/lib/systemd/system/
 		install -m 0644 packaging/pam.d/testudo $root/etc/pam.d/testudo
 		install -m 0644 packaging/default/testudo $root/etc/default/testudo
 		install -m 0644 LICENSE $root/usr/share/doc/testudo/copyright

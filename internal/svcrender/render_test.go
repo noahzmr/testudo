@@ -231,3 +231,19 @@ func TestRelayToAnotherServer(t *testing.T) {
 		}
 	}
 }
+
+// TestAdvertiseADelegatedPrefix: an interface that gets its prefix from
+// the provider has no fixed /64; the router advertisement announces the
+// one it has at the time.
+func TestAdvertiseADelegatedPrefix(t *testing.T) {
+	guest := &model.Interface{Meta: atNode(meta(12, "fw1-guest"), fw1), Device: "guest", Enabled: true, Addresses: []string{"10.50.0.1/24"}}
+	pd := &model.DHCPv6Client{Meta: atNode(meta(60, "isp"), fw1), Enabled: true, Interface: "wan", PrefixLength: 56,
+		Delegate: []model.PrefixAssignment{{Interface: "guest", SubnetID: 3}}}
+	ra := &model.RouterAdvert{Meta: atSite(meta(61, "guest-ra")), Enabled: true, Interface: "guest", Mode: "slaac"}
+	res := render(t, lan(t, guest, pd, ra), fw1)
+	contains(t, "radvd", res.Files[RadvdConf], "interface guest {", "prefix ::/64 {")
+	// Without the delegation the same advertisement has nothing to announce.
+	if _, err := Render(lan(t, guest, ra), Options{SiteID: id(site), NodeID: id(fw1)}); err == nil || !strings.Contains(err.Error(), "no /64 prefix on guest") {
+		t.Errorf("without a delegation: %v", err)
+	}
+}

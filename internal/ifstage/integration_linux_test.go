@@ -383,3 +383,130 @@ func TestPPPoEOnARealKernel(t *testing.T) {
 	}
 	t.Error("ppp0 stayed after the link left the model")
 }
+
+// TestPrefixDelegationOnARealKernel: the provider (Kea and radvd in
+// another namespace) delegates a /56; the node's DHCPv6 client gets an
+// address on the upstream interface and gives the LAN devices the /64s
+// the model names, and takes them back when the client leaves the model.
+//
+//	[node] wan ── eth0 isp (Kea DHCPv6, radvd)
+//	[node] lan0, lan1
+func TestPrefixDelegationOnARealKernel(t *testing.T) {
+	for _, bin := range []string{"dhcpcd", "kea-dhcp6", "radvd"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skip(bin + " is not installed")
+		}
+	}
+	if testnet.Isolate(t) {
+		return
+	}
+	run := func(script string) {
+		t.Helper()
+		if out, err := exec.Command("sh", "-ec", script).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", script, err, out)
+		}
+	}
+	isp := testnet.NewNS(t, "isp")
+	run("ip link set lo up && sysctl -qw net.ipv6.conf.default.accept_dad=0 net.ipv6.conf.all.accept_dad=0")
+	testnet.Veth(t, "wan", isp, "eth0")
+	run("ip link add lan0 type dummy && ip link add lan1 type dummy && ip link set lan0 up && ip link set lan1 up")
+	dir := t.TempDir()
+	keaConf := filepath.Join(dir, "kea-dhcp6.conf")
+	// The link-local address of eth0 is still tentative when Kea starts;
+	// Kea waits for it, as the one Testudo renders does.
+	testnet.Must(t, os.WriteFile(keaConf, []byte(`{"Dhcp6": {
+		"interfaces-config": {"interfaces": ["eth0"], "service-sockets-max-retries": 30, "service-sockets-retry-wait-time": 500},
+		"lease-database": {"type": "memfile", "persist": false},
+		"server-id": {"type": "LL", "persist": false},
+		"subnet6": [{"id": 1, "subnet": "2001:db8:1::/64", "interface": "eth0",
+			"pools": [{"pool": "2001:db8:1::100-2001:db8:1::1ff"}],
+			"pd-pools": [{"prefix": "2001:db8:100::", "prefix-len": 48, "delegated-len": 56}]}]}}`), 0o600))
+	radvdConf := filepath.Join(dir, "radvd.conf")
+	testnet.Must(t, os.WriteFile(radvdConf, []byte("interface eth0 {\n AdvSendAdvert on;\n MinRtrAdvInterval 3;\n MaxRtrAdvInterval 5;\n AdvManagedFlag on;\n AdvOtherConfigFlag on;\n prefix 2001:db8:1::/64 { AdvAutonomous off; };\n};\n"), 0o644))
+	var procs []*exec.Cmd
+	testnet.Must(t, isp.Do(func() error {
+		if out, err := exec.Command("sh", "-ec", "sysctl -qw net.ipv6.conf.all.forwarding=1 net.ipv6.conf.eth0.accept_dad=0; ip addr add 2001:db8:1::1/64 dev eth0 nodad").CombinedOutput(); err != nil {
+			return fmt.Errorf("%v: %s", err, out)
+		}
+		kea := exec.Command("kea-dhcp6", "-c", keaConf)
+		kea.Env = append(os.Environ(), "KEA_PIDFILE_DIR="+dir, "KEA_LOCKFILE_DIR="+dir)
+		klog, err := os.Create(filepath.Join(dir, "kea6.log"))
+		if err != nil {
+			return err
+		}
+		kea.Stdout, kea.Stderr = klog, klog
+		radvd := exec.Command("radvd", "-n", "-m", "stderr", "-u", "root", "-p", filepath.Join(dir, "radvd.pid"), "-C", radvdConf)
+		for _, c := range []*exec.Cmd{kea, radvd} {
+			if err := c.Start(); err != nil {
+				return err
+			}
+			procs = append(procs, c)
+		}
+		return nil
+	}))
+	t.Cleanup(func() {
+		for _, c := range procs {
+			_ = c.Process.Kill()
+			_ = c.Wait()
+		}
+	})
+
+	store, err := confstore.Open(filepath.Join(dir, "config"))
+	testnet.Must(t, err)
+	defer store.Close()
+	ctx := context.Background()
+	site, err := store.Create(ctx, "t", &model.Site{Meta: model.Meta{Name: "hq"}})
+	testnet.Must(t, err)
+	node, err := store.Create(ctx, "t", &model.ClusterNode{Meta: model.Meta{Name: "fw1"},
+		Site: model.Ref[model.Site]{ID: site.GetMeta().ID}, Hostname: "fw1", Address: "10.255.0.1"})
+	testnet.Must(t, err)
+	client, err := store.Create(ctx, "t", &model.DHCPv6Client{Meta: model.Meta{Name: "isp", Scope: model.NodeScope(node.GetMeta().ID)},
+		Enabled: true, Interface: "wan", Address: true, PrefixLength: 56,
+		Delegate: []model.PrefixAssignment{{Interface: "lan0", SubnetID: 1}, {Interface: "lan1", SubnetID: 2}}})
+	testnet.Must(t, err)
+	nw := &netops.Writer{AllowWrites: true}
+	s := &Stage{Runner: nw, Dir: filepath.Join(dir, "interfaces"), RunDir: filepath.Join(dir, "run"),
+		Locate: func(*confstore.State) (string, string) { return site.GetMeta().ID, node.GetMeta().ID }}
+	t.Cleanup(func() { _ = nw.DaemonControl(s.request(dhcpcd6, "wan", netops.DaemonStop)) })
+	apply := func() {
+		t.Helper()
+		raw, err := s.Render(store.Current())
+		testnet.Must(t, err)
+		testnet.Must(t, s.Check(ctx, raw))
+		testnet.Must(t, s.Apply(ctx, raw))
+		testnet.Must(t, s.Healthy(ctx))
+	}
+	global := func(dev, within string) string {
+		l, _, _ := netlinkLinks(dev)
+		for _, a := range l.Addresses {
+			if strings.HasPrefix(a, within) {
+				return a
+			}
+		}
+		return ""
+	}
+	apply()
+	var lan0, lan1, wan string
+	for deadline := time.Now().Add(45 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		lan0, lan1, wan = global("lan0", "2001:db8:100:"), global("lan1", "2001:db8:100:"), global("wan", "2001:db8:1::")
+		if lan0 != "" && lan1 != "" && wan != "" {
+			break
+		}
+	}
+	if lan0 == "" || lan1 == "" || wan == "" {
+		klog, _ := os.ReadFile(filepath.Join(dir, "kea6.log"))
+		t.Fatalf("after the delegation: wan %q, lan0 %q, lan1 %q\nkea:\n%s", wan, lan0, lan1, klog)
+	}
+	if !strings.HasSuffix(lan0, "/64") || !strings.HasSuffix(lan1, "/64") || lan0[:17] == lan1[:17] {
+		t.Errorf("lan0 %s and lan1 %s should be two /64s of the prefix", lan0, lan1)
+	}
+
+	testnet.Must(t, store.Delete(ctx, "t", model.KindDHCPv6Client, client.GetMeta().ID, client.GetMeta().Version))
+	apply()
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(250 * time.Millisecond) {
+		if global("lan0", "2001:db8:100:") == "" {
+			return
+		}
+	}
+	t.Errorf("lan0 kept %s after the client left the model", global("lan0", "2001:db8:100:"))
+}
