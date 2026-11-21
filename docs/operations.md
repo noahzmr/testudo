@@ -157,6 +157,20 @@ LAN interfaces; a router advertisement there announces it. DHCP relay
 (Services → DHCP relay) passes requests on a LAN to a central DHCP
 server.
 
+## Logs, SIEM and monitoring
+
+* Logged packets (rules with "log" on, the policy's drop logging) show on
+  the Firewall page and go to the log exports; they no longer go to the
+  kernel log.
+* Settings → Log export sends firewall, alerts, access, audit and
+  configuration records to a collector as syslog (RFC 5424), CEF or JSON,
+  over UDP, TCP or TLS. The Settings page shows each export's state.
+* `testudo config verify` checks the hash chain of the configuration log;
+  every node also checks it hourly and alerts when it breaks.
+* Services → SNMP: an SNMPv3 agent (SHA-256/AES users, read-only) for the
+  monitoring networks; Services → SNMP users holds the users.
+* Node settings → Flow export protocol: IPFIX or NetFlow v9.
+
 ## Node settings
 
 Thresholds, flow export and the integrations (Sentry, Guacamole,
