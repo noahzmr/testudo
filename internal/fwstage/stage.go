@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/noahzmr/testudo/internal/confstore"
@@ -91,7 +93,23 @@ func (s *Stage) Check(_ context.Context, raw []byte) error {
 	if err != nil {
 		return err
 	}
-	return s.Runner.NftCheck(assemble(a.Fragments))
+	err = s.Runner.NftCheck(assemble(a.Fragments))
+	if err != nil && !a.Fragments.HasPolicy && s.outOfReach(err) {
+		return nil // nothing to enforce, and nothing to enforce it with
+	}
+	return err
+}
+
+// outOfReach reports whether err means this process cannot change the packet
+// filter at all: no privileged side, or writes turned off. A model without
+// a firewall policy asks nothing of the kernel, so such a node still takes
+// the rest of the model.
+func (s *Stage) outOfReach(err error) bool {
+	if !s.Runner.WritesAllowed() || errors.Is(err, os.ErrPermission) {
+		return true
+	}
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "operation not permitted") || strings.Contains(m, "permission denied")
 }
 
 // Apply loads the ruleset the artifact describes.
@@ -105,6 +123,9 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 	prev, prevLoaded := s.frags, s.loaded
 	s.frags, s.loaded = a.Fragments, true
 	if err := s.loadLocked(); err != nil {
+		if !a.Fragments.HasPolicy && s.outOfReach(err) {
+			return nil
+		}
 		s.frags, s.loaded = prev, prevLoaded
 		return err
 	}
@@ -139,7 +160,13 @@ func (s *Stage) Refresh(st *confstore.State) error {
 func (s *Stage) Healthy(context.Context) error {
 	st, err := s.read()
 	if err != nil {
+		if !s.hasPolicy() && s.outOfReach(err) {
+			return nil
+		}
 		return err
+	}
+	if !s.hasPolicy() && !s.Runner.WritesAllowed() {
+		return nil // a table left behind is reported by the reconciler
 	}
 	if !s.hasPolicy() {
 		// Without a firewall policy the model filters nothing and loads no
