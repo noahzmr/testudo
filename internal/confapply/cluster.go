@@ -119,6 +119,7 @@ func (e *Engine) convergeLocked(ctx context.Context, st stateT) error {
 		if err := s.Apply(ctx, arts[s.Name()]); err != nil {
 			return &StageError{Stage: s.Name(), Phase: "apply", Err: err}
 		}
+		e.recordApplied(s.Name(), arts[s.Name()])
 	}
 	for _, s := range e.stages {
 		if err := s.Healthy(ctx); err != nil {

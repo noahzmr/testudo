@@ -402,3 +402,45 @@ func TestUntouchedStagesAreLeftAlone(t *testing.T) {
 		t.Errorf("filter applied %d times: %v", got, log)
 	}
 }
+
+// liveStage renders the alias names plus something outside the model, like
+// the packet filter with the contents of a run-time alias.
+type liveStage struct {
+	fakeStage
+	extra string
+}
+
+func (l *liveStage) Render(s *confstore.State) ([]byte, error) {
+	a, _ := l.fakeStage.Render(s)
+	return append(a, []byte("|"+l.extra)...), nil
+}
+
+// TestOutsideInputCountsAsAChange: what a stage last applied, not a render
+// of the current model, decides whether a change touches it.
+func TestOutsideInputCountsAsAChange(t *testing.T) {
+	dir := t.TempDir()
+	store, err := confstore.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var log []string
+	live := &liveStage{fakeStage: fakeStage{name: "filter", log: &log}, extra: "v1"}
+	eng, err := New(store, Options{Dir: dir, Window: time.Hour}, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	live.extra = "v2" // the outside input changed; the model did not
+	if _, err := eng.Apply(ctx, "alice", "zone", func() []confstore.Op {
+		zone, _ := json.Marshal(&model.Zone{Meta: model.Meta{Name: "lan"}, DefaultAction: "drop"})
+		return []confstore.Op{{Type: confstore.OpCreate, Kind: model.KindZone, Object: zone}}
+	}()); err != nil {
+		t.Fatal(err)
+	}
+	if got := live.now(); got != "|v2" {
+		t.Errorf("the stage runs %q, want the new outside input", got)
+	}
+}

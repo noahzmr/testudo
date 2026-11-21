@@ -125,6 +125,11 @@ type Engine struct {
 	// touched lists the stages the pending change gave other artifacts;
 	// nil after a restart, when it is not known.
 	touched map[string]bool
+	// applied holds, per stage, the artifact it last applied successfully.
+	// A stage's rendering may depend on more than the model (run-time
+	// alias contents, backend health), so this, not a fresh render of the
+	// current model, is what a change is compared with.
+	appliedArt map[string][]byte
 	timer   *time.Timer
 
 	// Cluster membership (see cluster.go). applied is the model index this
@@ -264,8 +269,27 @@ func (e *Engine) Start(ctx context.Context) error {
 		if err := st.Apply(ctx, arts[st.Name()]); err != nil {
 			return &StageError{Stage: st.Name(), Phase: "apply", Err: err}
 		}
+		e.recordApplied(st.Name(), arts[st.Name()])
 	}
 	return nil
+}
+
+// recordApplied remembers what a stage runs now.
+func (e *Engine) recordApplied(stage string, art []byte) {
+	if e.appliedArt == nil {
+		e.appliedArt = map[string][]byte{}
+	}
+	e.appliedArt[stage] = art
+}
+
+// changes reports whether a stage has to apply art: it differs from what
+// the stage last applied, or, for a stage that never applied anything
+// successfully, from what the current model renders to.
+func (e *Engine) changes(stage string, prev, art []byte) bool {
+	if last, ok := e.appliedArt[stage]; ok {
+		return !bytes.Equal(last, art)
+	}
+	return !bytes.Equal(prev, art)
 }
 
 func (e *Engine) render(s *confstore.State) (map[string][]byte, error) {
@@ -352,7 +376,7 @@ func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.
 	// privileges, a daemon missing) does not block unrelated changes.
 	touched := map[string]bool{}
 	for _, st := range e.stages {
-		touched[st.Name()] = !bytes.Equal(prev[st.Name()], arts[st.Name()])
+		touched[st.Name()] = e.changes(st.Name(), prev[st.Name()], arts[st.Name()])
 	}
 	e.pending, e.prev, e.touched = &p, prev, touched
 
@@ -367,6 +391,7 @@ func (e *Engine) Apply(ctx context.Context, actor, note string, ops []confstore.
 		if err := st.Apply(ctx, arts[st.Name()]); err != nil {
 			return fail(st.Name(), "apply", err)
 		}
+		e.recordApplied(st.Name(), arts[st.Name()])
 	}
 	for _, st := range e.stages {
 		if !touched[st.Name()] {
@@ -492,6 +517,8 @@ func (e *Engine) rollbackLocked(ctx context.Context, actor, reason string) error
 		}
 		if err := st.Apply(ctx, prev[st.Name()]); err != nil {
 			errs = append(errs, &StageError{Stage: st.Name(), Phase: "rollback", Err: err})
+		} else {
+			e.recordApplied(st.Name(), prev[st.Name()])
 		}
 	}
 	if err := os.Remove(e.file); err != nil && !errors.Is(err, os.ErrNotExist) {
