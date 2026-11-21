@@ -8,7 +8,7 @@
 FROM debian:12-slim
 ARG TRAEFIK_VERSION=v3.3.4
 RUN apt-get update \
- && apt-get install -y --no-install-recommends nftables iproute2 frr frr-pythontools procps ca-certificates curl \
+ && apt-get install -y --no-install-recommends nftables iproute2 frr frr-pythontools procps ca-certificates curl keepalived conntrackd conntrack \
  && curl -fsSL "https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz" \
     | tar -xz -C /usr/local/bin traefik \
  && apt-get purge -y curl && apt-get autoremove -y \
