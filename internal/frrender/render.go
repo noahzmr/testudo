@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
 )
 
@@ -26,6 +27,18 @@ type Options struct {
 	// Now decides which WireGuard peers have expired; the zero time treats
 	// none as expired.
 	Now time.Time
+	// Paths says which fabric path is best to a peer node; nil when no
+	// measurements exist yet.
+	Paths PathChooser
+}
+
+// PathChooser picks fabric paths from what was measured.
+type PathChooser interface {
+	// Preferred returns the color traffic to peerNode in slot should take
+	// by criterion ("lowest_latency" or "lowest_loss"), or "" when nothing
+	// is known. Down reports whether a tunnel carries nothing at all.
+	Preferred(peerNode string, slot int, criterion string) string
+	Down(device string) bool
 }
 
 // PolicyRule is one `ip rule`: traffic carrying Mark looks up Table.
@@ -80,6 +93,13 @@ type renderer struct {
 	vrfs     map[string]*model.VRF
 	gateways map[string]*model.Gateway
 	degraded map[string]bool
+
+	// The fabric's sessions are neighbors like any other, with a few more
+	// lines: a preference set on what they bring in, and settings for the
+	// address families.
+	inSet    map[string]string
+	extraAF  map[string][]string
+	fabricNb []*model.BGPNeighbor
 }
 
 func each[T model.Entity](r *renderer, kind model.Kind, fn func(T)) {
@@ -179,7 +199,11 @@ func sortedKeys[V any](m map[string]V) []string {
 // Render builds the routing setup for the node.
 func Render(st *confstore.State, opt Options) (Result, error) {
 	r := &renderer{st: st, opt: opt, ifaces: map[string]*model.Interface{}, vrfs: map[string]*model.VRF{},
-		gateways: map[string]*model.Gateway{}, degraded: map[string]bool{}}
+		gateways: map[string]*model.Gateway{}, degraded: map[string]bool{}, inSet: map[string]string{}, extraAF: map[string][]string{}}
+	plan, perr := mesh.Build(st, opt.SiteID, opt.NodeID)
+	if perr != nil {
+		r.errs = append(r.errs, perr.Error())
+	}
 	var res Result
 	var node *model.ClusterNode
 	for _, e := range st.List(model.KindClusterNode) {
@@ -204,6 +228,12 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 				dev.Members = append(dev.Members, i.Device)
 			}
 		}
+		// A stretched VRF's fabric tunnels belong to it.
+		for _, t := range plan.Tunnels {
+			if t.VRFID == id {
+				dev.Members = append(dev.Members, t.Device)
+			}
+		}
 		res.VRFs = append(res.VRFs, dev)
 	}
 
@@ -214,6 +244,10 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 	}
 	fmt.Fprintf(&b, "frr defaults traditional\nhostname %s\nlog syslog informational\nservice integrated-vtysh-config\n!\n", host)
 	body := b.Len()
+	if plan.Enabled {
+		// The node's own fabric address, which every other node reaches.
+		fmt.Fprintf(&b, "interface lo\n ip address %s/32\nexit\n!\n", plan.Loopback)
+	}
 
 	// Static routes.
 	var statics []string
@@ -373,20 +407,25 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 			static(g, g.Monitor+bits, []*model.Gateway{g}, r.vrfName(g.VRF), 0, 0)
 		}
 	}
-	sort.Strings(statics)
-	for _, l := range statics {
-		b.WriteString(l + "\n")
-	}
-	if len(statics) > 0 {
-		b.WriteString("!\n")
-	}
-
 	routerID := ""
 	if node != nil {
 		routerID = node.RouterID
 		if routerID == "" && !isV6(node.Address) {
 			routerID = node.Address
 		}
+	}
+
+	if routerID == "" && plan.Enabled {
+		routerID = plan.Loopback
+	}
+	r.fabric(plan)
+	r.pathPolicies(plan, marks, &statics, &res)
+	sort.Strings(statics)
+	for _, l := range statics {
+		b.WriteString(l + "\n")
+	}
+	if len(statics) > 0 {
+		b.WriteString("!\n")
 	}
 
 	daemons := map[string]bool{}
@@ -419,6 +458,10 @@ func (r *renderer) bgp(b *strings.Builder, routerID string, daemons map[string]b
 			routers[k] = append(routers[k], n)
 		}
 	})
+	for _, n := range r.fabricNb {
+		k := key{n.LocalAS, r.vrfName(n.VRF)}
+		routers[k] = append(routers[k], n)
+	}
 	keys := make([]key, 0, len(routers))
 	for k := range routers {
 		keys = append(keys, k)
@@ -502,7 +545,7 @@ func (r *renderer) bgp(b *strings.Builder, routerID string, daemons map[string]b
 				}
 				set += "set large-community " + strings.Join(large, " ") + " additive"
 			}
-			rmap("in", n.PrefixListIn, "")
+			rmap("in", n.PrefixListIn, r.inSet[n.Name])
 			rmap("out", out, set)
 		}
 		b.WriteString("!\n")
@@ -565,6 +608,9 @@ func (r *renderer) bgp(b *strings.Builder, routerID string, daemons map[string]b
 					fmt.Sprintf(" neighbor %s route-map %s-out out", n.Address, name))
 				if n.RRClient {
 					lines = append(lines, fmt.Sprintf(" neighbor %s route-reflector-client", n.Address))
+				}
+				for _, l := range r.extraAF[n.Name] {
+					lines = append(lines, " "+l)
 				}
 			}
 			if len(lines) == 0 {
@@ -647,4 +693,127 @@ func Gateways(st *confstore.State, opt Options) []*model.Gateway {
 	var out []*model.Gateway
 	each(r, model.KindGateway, func(g *model.Gateway) { out = append(out, g) })
 	return out
+}
+
+// fabric turns the node's tunnels into BGP neighbors: one session per
+// tunnel, over the tunnel's own link addresses.
+func (r *renderer) fabric(plan mesh.Plan) {
+	if !plan.Enabled {
+		return
+	}
+	// Colors per peer node and slot: a preference only matters where there
+	// is a choice.
+	choices := map[string]int{}
+	for _, t := range plan.Tunnels {
+		choices[fmt.Sprint(t.PeerNode, t.Slot)]++
+	}
+	for _, t := range plan.Tunnels {
+		if t.VRFID != "" && r.vrfs[t.VRFID] == nil {
+			continue
+		}
+		out := plan.Announce[t.Slot]
+		if plan.Reflect {
+			// A hub passes on what it learns from the other sites.
+			out = append(append([]string(nil), out...), plan.Accept[t.Slot]...)
+		}
+		n := &model.BGPNeighbor{Meta: model.Meta{ID: "fabric-" + t.Device, Name: "fabric-" + t.Device}, Enabled: true,
+			LocalAS: t.LocalAS, RemoteAS: t.PeerAS, Address: t.Peer, BFD: plan.Fabric.BFD, RRClient: t.ReflectorClient,
+			PrefixListIn: plan.Accept[t.Slot], PrefixListOut: out, Announce: plan.Announce[t.Slot], HoldTimeSecond: 30}
+		n.VRF.ID = t.VRFID
+		if t.ReflectorClient {
+			// What a hub reflects has to come back through the hub: the
+			// spokes have no tunnels to each other.
+			r.extraAF[n.Name] = append(r.extraAF[n.Name], fmt.Sprintf("neighbor %s next-hop-self force", t.Peer))
+		}
+		if r.opt.Paths != nil && choices[fmt.Sprint(t.PeerNode, t.Slot)] > 1 {
+			pref := 100
+			if r.opt.Paths.Preferred(t.PeerNode, t.Slot, "lowest_latency") == t.Color {
+				pref = 200
+			}
+			r.inSet[n.Name] = fmt.Sprintf("set local-preference %d", pref)
+		}
+		r.fabricNb = append(r.fabricNb, n)
+	}
+}
+
+// pathPolicies sends marked traffic to the other sites over the path the
+// policy prefers: a routing table per policy with the remote networks
+// through the chosen tunnels, and the rule that leads marked packets there.
+// Traffic to anywhere else finds no route in that table and goes on to the
+// main one.
+func (r *renderer) pathPolicies(plan mesh.Plan, marks map[uint32]string, statics *[]string, res *Result) {
+	var policies []*model.PathPolicy
+	each(r, model.KindPathPolicy, func(p *model.PathPolicy) {
+		if p.Enabled {
+			policies = append(policies, p)
+		}
+	})
+	if len(policies) == 0 {
+		return
+	}
+	if !plan.Enabled {
+		for _, p := range policies {
+			r.fail(p, "this node is not part of the fabric")
+		}
+		return
+	}
+	sort.Slice(policies, func(i, j int) bool { return policies[i].Mark < policies[j].Mark })
+	byPeer := map[string][]mesh.Tunnel{}
+	for _, t := range plan.Tunnels {
+		if t.Slot == 0 {
+			byPeer[t.PeerNode] = append(byPeer[t.PeerNode], t)
+		}
+	}
+	for i, p := range policies {
+		if other, dup := marks[p.Mark]; dup {
+			r.fail(p, "mark 0x%x is already routed by %q", p.Mark, other)
+			continue
+		}
+		marks[p.Mark] = p.Name
+		table := p.Table
+		if table == 0 {
+			table = autoTableBase + p.Mark%10000
+		}
+		for _, peer := range sortedKeys(byPeer) {
+			tunnels := byPeer[peer]
+			down := func(t mesh.Tunnel) bool { return r.opt.Paths != nil && r.opt.Paths.Down(t.Device) }
+			var pick *mesh.Tunnel
+			for k := range tunnels {
+				if tunnels[k].Color == p.Prefer && !down(tunnels[k]) {
+					pick = &tunnels[k]
+				}
+			}
+			if pick == nil && r.opt.Paths != nil {
+				criterion := p.Prefer
+				if criterion != "lowest_loss" {
+					criterion = "lowest_latency"
+				}
+				best := r.opt.Paths.Preferred(peer, 0, criterion)
+				for k := range tunnels {
+					if tunnels[k].Color == best {
+						pick = &tunnels[k]
+					}
+				}
+			}
+			if pick == nil {
+				for k := range tunnels {
+					if !down(tunnels[k]) {
+						pick = &tunnels[k]
+						break
+					}
+				}
+			}
+			if pick == nil {
+				continue // every path to that node is down
+			}
+			for _, n := range plan.Remote[0][peer] {
+				cmd := "ip route"
+				if isV6(n) {
+					cmd = "ipv6 route"
+				}
+				*statics = append(*statics, fmt.Sprintf("%s %s %s table %d", cmd, n, pick.Device, table))
+			}
+		}
+		res.Rules = append(res.Rules, PolicyRule{Priority: RulePriorityBase + 500 + i, Mark: p.Mark, Table: table})
+	}
 }
