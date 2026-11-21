@@ -127,12 +127,13 @@ type Op struct {
 	Nft string `json:"nft,omitempty"`
 	// Frr is an FRRouting configuration for the frr_* operations. It can
 	// contain session passwords; audit rows record size and hash only.
-	Frr     string        `json:"frr,omitempty"`
-	Routing *RoutingSpec  `json:"routing,omitempty"`
-	WG      *WGSpec       `json:"wg,omitempty"`
-	Proxy   *ProxyRequest `json:"proxy,omitempty"`
-	PAM     *PAMRequest   `json:"pam,omitempty"`
-	TxQLen  int           `json:"txqlen,omitempty"` // interface transmit queue length
+	Frr     string         `json:"frr,omitempty"`
+	Routing *RoutingSpec   `json:"routing,omitempty"`
+	WG      *WGSpec        `json:"wg,omitempty"`
+	Proxy   *ProxyRequest  `json:"proxy,omitempty"`
+	PAM     *PAMRequest    `json:"pam,omitempty"`
+	Daemon  *DaemonRequest `json:"daemon,omitempty"`
+	TxQLen  int            `json:"txqlen,omitempty"` // interface transmit queue length
 
 	// Sysctl write (performance tuning; key allowlisted).
 	SysctlKey string `json:"sysctl_key,omitempty"`
@@ -273,6 +274,11 @@ func (w *Writer) queryDirect(op Op) ([]byte, error) {
 		return frrQueryDirect(op)
 	case OpQueryProxyStatus:
 		return marshalResult(runProxy(ProxyRequest{Mode: ProxyStatus}))
+	case OpQueryDaemonStatus:
+		if op.Daemon == nil {
+			return nil, fmt.Errorf("daemon status missing request")
+		}
+		return marshalResult(runDaemon(DaemonRequest{Name: op.Daemon.Name, Mode: DaemonStatus, RunDir: op.Daemon.RunDir}))
 	case OpQueryPAMAuth:
 		if op.PAM == nil {
 			return nil, fmt.Errorf("pam login missing request")
@@ -350,6 +356,12 @@ func (w *Writer) applyDirect(op Op) error {
 		return w.resetRuleCounterDirect(op.Family, op.Table, op.Chain, op.Handle)
 	case OpFrrReload:
 		_, err := runFrr(FrrRequest{Mode: FrrReload, Conf: op.Frr})
+		return err
+	case OpDaemonControl:
+		if op.Daemon == nil || op.Daemon.Mode == DaemonStatus {
+			return fmt.Errorf("daemon control missing request")
+		}
+		_, err := runDaemon(*op.Daemon)
 		return err
 	case OpProxyControl:
 		if op.Proxy == nil || op.Proxy.Mode == ProxyStatus {
