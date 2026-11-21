@@ -207,3 +207,56 @@ func TestKernelModeServiceBalancesConnectionsOnly(t *testing.T) {
 		t.Errorf("router on a kernel-mode service: %v", err)
 	}
 }
+
+func TestFabricChecks(t *testing.T) {
+	s := open(t)
+	zone := mustCreate(t, s, "a", &model.Zone{Meta: model.Meta{Name: "fabric"}, DefaultAction: "drop"})
+	fab := func(name, pool string) *model.Fabric {
+		return &model.Fabric{Meta: model.Meta{Name: name}, Enabled: true, Topology: "full_mesh", Pool: pool, PortBase: 52000, ASN: 65000,
+			Colors: []string{"inet", "mpls"}, Zone: model.Ref[model.Zone]{ID: zone.ID}}
+	}
+	if _, err := s.Create(ctx, "a", fab("f", "10.255.0.0/24")); err == nil || !strings.Contains(err.Error(), "/16") {
+		t.Errorf("a /24 pool: %v", err)
+	}
+	if _, err := s.Create(ctx, "a", fab("f", "2001:db8::/16")); err == nil || !strings.Contains(err.Error(), "IPv4") {
+		t.Errorf("an IPv6 pool: %v", err)
+	}
+	mustCreate(t, s, "a", fab("f", "10.255.0.0/16"))
+	if _, err := s.Create(ctx, "a", fab("g", "10.254.0.0/16")); err == nil || !strings.Contains(err.Error(), "one fabric") {
+		t.Errorf("second fabric: %v", err)
+	}
+	site := mustCreate(t, s, "a", &model.Site{Meta: model.Meta{Name: "hq"}})
+	node := func(name string, index int, colors ...string) *model.ClusterNode {
+		n := &model.ClusterNode{Meta: model.Meta{Name: name}, Site: model.Ref[model.Site]{ID: site.ID}, Hostname: name, Address: "192.0.2.1", MeshIndex: index}
+		for _, c := range colors {
+			n.Uplinks = append(n.Uplinks, model.Uplink{Color: c, Endpoint: "198.51.100.1"})
+		}
+		return n
+	}
+	mustCreate(t, s, "a", node("fw1", 1, "inet"))
+	for want, n := range map[string]*model.ClusterNode{
+		"fabric index 1 already":  node("fw2", 1),
+		"not one of the fabric's": node("fw3", 3, "lte"),
+		"two uplinks of color":    node("fw4", 4, "inet", "inet"),
+	} {
+		if _, err := s.Create(ctx, "a", n); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v", want, err)
+		}
+	}
+	if _, err := s.Create(ctx, "a", &model.WGTunnel{Meta: model.Meta{Name: "wg", Scope: model.SiteScope(site.ID)}, Enabled: true, Device: "wg9", Mode: "road_warrior",
+		ListenPort: 52100, Addresses: []string{"10.8.0.1/24"}, PublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		Zone: model.Ref[model.Zone]{ID: zone.ID}}); err == nil || !strings.Contains(err.Error(), "range the fabric uses") {
+		t.Errorf("a tunnel in the fabric's ports: %v", err)
+	}
+	mustCreate(t, s, "a", &model.VRF{Meta: model.Meta{Name: "red"}, Table: 100, MeshSlot: 1})
+	if _, err := s.Create(ctx, "a", &model.VRF{Meta: model.Meta{Name: "blue"}, Table: 101, MeshSlot: 1}); err == nil || !strings.Contains(err.Error(), "slot 1 already") {
+		t.Errorf("two VRFs in one slot: %v", err)
+	}
+	if _, err := s.Create(ctx, "a", &model.PathPolicy{Meta: model.Meta{Name: "voice"}, Enabled: true, Mark: 9, Prefer: "carrier-pigeon"}); err == nil || !strings.Contains(err.Error(), "neither") {
+		t.Errorf("unknown preference: %v", err)
+	}
+	mustCreate(t, s, "a", &model.PathPolicy{Meta: model.Meta{Name: "voice"}, Enabled: true, Mark: 9, Prefer: "mpls"})
+	if _, err := s.Create(ctx, "a", &model.PathPolicy{Meta: model.Meta{Name: "bulk"}, Enabled: true, Mark: 9, Prefer: "lowest_loss"}); err == nil || !strings.Contains(err.Error(), "already routed") {
+		t.Errorf("two policies on one mark: %v", err)
+	}
+}

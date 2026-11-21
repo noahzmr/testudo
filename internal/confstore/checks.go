@@ -2,6 +2,7 @@ package confstore
 
 import (
 	"fmt"
+	"net"
 	"sort"
 
 	"github.com/noahzmr/testudo/internal/model"
@@ -156,6 +157,8 @@ func runChecks(s *State) []Problem {
 		policies[e.GetMeta().Scope] = e.GetMeta().Name
 	}
 
+	out = append(out, fabricChecks(s, add)...)
+
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		return string(a.Kind)+a.Name+a.Field < string(b.Kind)+b.Name+b.Field
@@ -184,4 +187,84 @@ func sortedByName(m map[string]model.Entity) []model.Entity {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].GetMeta().Name < out[j].GetMeta().Name })
 	return out
+}
+
+// fabricChecks keep the fabric's derived numbers unique and its names
+// meaningful.
+func fabricChecks(s *State, add func(model.Entity, string, string, ...any)) []Problem {
+	var fabric *model.Fabric
+	for _, e := range sortedByName(s.objects[model.KindFabric]) {
+		if fabric != nil {
+			add(e, "name", "there is one fabric; %q exists", fabric.Name)
+			continue
+		}
+		fabric = e.(*model.Fabric)
+	}
+	colors := map[string]bool{}
+	if fabric != nil {
+		if ip, n, err := net.ParseCIDR(fabric.Pool); err != nil || ip.To4() == nil {
+			add(fabric, "pool", "the pool has to be an IPv4 network")
+		} else if ones, _ := n.Mask.Size(); ones != 16 {
+			add(fabric, "pool", "the pool has to be a /16")
+		}
+		for _, c := range fabric.Colors {
+			if colors[c] {
+				add(fabric, "colors", "color %q is listed twice", c)
+			}
+			colors[c] = true
+		}
+		if fabric.PortBase+511 > 65535 {
+			add(fabric, "port_base", "the 512 ports from %d do not fit below 65536", fabric.PortBase)
+		}
+		// User tunnels must not listen where the fabric's do.
+		for _, e := range s.objects[model.KindWGTunnel] {
+			if t := e.(*model.WGTunnel); t.ListenPort >= fabric.PortBase && t.ListenPort <= fabric.PortBase+511 {
+				add(t, "listen_port", "port %d is in the range the fabric uses (%d to %d)", t.ListenPort, fabric.PortBase, fabric.PortBase+511)
+			}
+		}
+	}
+	indexes := map[int]string{}
+	for _, e := range sortedByName(s.objects[model.KindClusterNode]) {
+		n := e.(*model.ClusterNode)
+		if n.MeshIndex > 0 {
+			if other, dup := indexes[n.MeshIndex]; dup {
+				add(n, "mesh_index", "node %q has fabric index %d already", other, n.MeshIndex)
+			}
+			indexes[n.MeshIndex] = n.Name
+		}
+		seen := map[string]bool{}
+		for _, u := range n.Uplinks {
+			if seen[u.Color] {
+				add(n, "uplinks", "two uplinks of color %q", u.Color)
+			}
+			seen[u.Color] = true
+			if fabric != nil && !colors[u.Color] {
+				add(n, "uplinks", "color %q is not one of the fabric's", u.Color)
+			}
+		}
+	}
+	slots := map[int]string{}
+	for _, e := range sortedByName(s.objects[model.KindVRF]) {
+		if v := e.(*model.VRF); v.MeshSlot > 0 {
+			if other, dup := slots[v.MeshSlot]; dup && other != v.Name {
+				add(v, "mesh_slot", "VRF %q has fabric slot %d already", other, v.MeshSlot)
+			}
+			slots[v.MeshSlot] = v.Name
+		}
+	}
+	marks := map[uint32]string{}
+	for _, e := range sortedByName(s.objects[model.KindPolicyRoute]) {
+		marks[e.(*model.PolicyRoute).Mark] = e.GetMeta().Name
+	}
+	for _, e := range sortedByName(s.objects[model.KindPathPolicy]) {
+		p := e.(*model.PathPolicy)
+		if other, dup := marks[p.Mark]; dup {
+			add(p, "mark", "mark 0x%x is already routed by %q", p.Mark, other)
+		}
+		marks[p.Mark] = p.Name
+		if p.Prefer != "lowest_latency" && p.Prefer != "lowest_loss" && !colors[p.Prefer] {
+			add(p, "prefer", "%q is neither lowest_latency, lowest_loss nor one of the fabric's colors", p.Prefer)
+		}
+	}
+	return nil
 }
