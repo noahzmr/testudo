@@ -76,6 +76,7 @@ const PANE = {
   user: 'settings', group: 'settings', role: 'settings', certificate: 'settings', oidc_provider: 'settings', api_token: 'settings',
   lb_service: 'lb', lb_router: 'lb', lb_backend_pool: 'lb', middleware: 'lb',
   site: 'cluster', cluster_node: 'cluster', fabric: 'cluster', path_policy: 'routes', ha_pair: 'cluster',
+  dhcp_scope: 'services', router_advert: 'services', dns_resolver: 'services', dns_record: 'services', ntp_service: 'services',
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
@@ -84,6 +85,7 @@ const LABEL = {
   user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',
   site: 'Sites', cluster_node: 'Nodes', fabric: 'Fabric', path_policy: 'Path policies', ha_pair: 'HA pairs',
+  dhcp_scope: 'DHCP', router_advert: 'Router advertisements', dns_resolver: 'DNS resolver', dns_record: 'DNS records', ntp_service: 'NTP',
 };
 // Friendlier names for some select values.
 const OPTION = { acme: "Let's Encrypt", internal_ca: 'Local authority', import: 'Imported',
@@ -95,10 +97,11 @@ const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'na
   'route', 'gateway', 'policy_route', 'bgp_neighbor', 'ospf_area', 'vrf',
   'wg_tunnel', 'wg_peer', 'access_resource', 'access_policy',
   'lb_service', 'lb_router', 'lb_backend_pool', 'middleware', 'certificate',
-  'user', 'group', 'role', 'oidc_provider', 'api_token', 'fabric', 'path_policy', 'site', 'cluster_node', 'ha_pair']);
+  'user', 'group', 'role', 'oidc_provider', 'api_token', 'fabric', 'path_policy', 'site', 'cluster_node', 'ha_pair',
+  'dhcp_scope', 'router_advert', 'dns_resolver', 'dns_record', 'ntp_service']);
 // Sections that open on the model instead of their live view.
-const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'cluster-overview', changes: 'changesets' };
-const paneOf = seg => seg === 'cluster-overview' || seg === 'site-flows' ? 'cluster' : seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
+const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'cluster-overview', changes: 'changesets', services: 'services-overview' };
+const paneOf = seg => seg === 'services-overview' || seg === 'dhcp-leases' ? 'services' : seg === 'cluster-overview' || seg === 'site-flows' ? 'cluster' : seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
 const paneEl = name => document.querySelector(`.pane[data-pane="${name}"]`);
 
 // buildBars gives every section its row of tabs.
@@ -109,6 +112,7 @@ function buildBars() {
     if (f && can(f, 'read')) (byPane[pane] ||= []).push(f);
   }
   byPane.changes = [{ plural: 'changesets', label: 'Change sets' }, { plural: 'history', label: 'History' }, { plural: 'audit', label: 'Audit log' }];
+  (byPane.services ||= []).unshift({ plural: 'services-overview', label: 'Overview' }, { plural: 'dhcp-leases', label: 'Leases' });
   (byPane.cluster ||= []).unshift({ plural: 'cluster-overview', label: 'Overview' }, { plural: 'site-flows', label: 'Flows across sites' });
   for (const [pane, forms] of Object.entries(byPane)) {
     const host = paneEl(pane);
@@ -166,6 +170,8 @@ async function route() {
   if (seg === 'audit') { S.form = null; return auditView(); }
   if (seg === 'cluster-overview') { S.form = null; return clusterView(); }
   if (seg === 'site-flows') { S.form = null; return siteFlowsView(); }
+  if (seg === 'services-overview') { S.form = null; return servicesView(); }
+  if (seg === 'dhcp-leases') { S.form = null; return leasesView(); }
   S.form = S.forms.find(f => f.plural === seg);
   if (!S.form || !can(S.form, 'read')) return fill($('#cfg-main'), el('p', { text: 'Nothing you may read here.' }));
   if (id === 'new') return S.form.kind === 'api_token' ? tokenView() : editView(S.form, null);
@@ -869,6 +875,60 @@ async function siteFlowsView() {
         el('td', { text: (c.paths || []).join(', ') }), el('td', { text: fmt(c.bytes || 0) }),
         el('td', {}, (c.sightings || []).map(s => el('div', { class: 'dim', text: `${s.node} ${s.iface || '(socket)'}${where(s) ? ' · ' + where(s) : ''}` }))))))) :
       el('p', { class: 'dim', text: 'No connection was seen at more than one member in the last minutes. Flow capture has to run on the members (Flows tab).' }));
+}
+
+// servicesView shows which network services run on this node, on which
+// interfaces, and how full the DHCP scopes are.
+async function servicesView() {
+  const g = gen;
+  const rt = await api('GET', '/runtime');
+  if (g !== gen) return;
+  const main = $('#cfg-main'), sv = rt.data?.services;
+  const head = el('header', {}, el('h2', { text: 'Network services' }), el('button', { type: 'button', text: 'Refresh', onclick: () => servicesView() }));
+  if (!rt.ok) return fill(main, head, el('p', { class: 'err', text: rt.data?.message || 'failed' }));
+  if (!sv) return fill(main, head, el('p', { class: 'dim', text: 'This node offers no DHCP, DNS or NTP yet. Add a DHCP scope, a DNS resolver or an NTP service in the tabs above; each one names the interfaces it serves, and the firewall opens its port on those interfaces only.' }));
+  const NAMES = { 'kea-dhcp4': 'DHCPv4 (Kea)', 'kea-dhcp6': 'DHCPv6 (Kea)', unbound: 'DNS (Unbound)', chronyd: 'NTP (chrony)', radvd: 'Router advertisements (radvd)' };
+  const o = sv.open || {};
+  const on = { 'kea-dhcp4': o.dhcp4, 'kea-dhcp6': o.dhcp6, unbound: o.dns, chronyd: o.ntp, radvd: o.ra };
+  fill(main, head,
+    el('table', { class: 'cfg-table' },
+      el('thead', {}, el('tr', {}, ['Service', 'State', 'Interfaces'].map(h => el('th', { text: h })))),
+      el('tbody', {}, Object.entries(sv.daemons || {}).map(([d, st]) => el('tr', {},
+        el('td', { text: NAMES[d] || d }), el('td', { class: st === 'running' ? '' : 'err', text: st }),
+        el('td', { text: (on[d] || []).join(', ') || (d === 'chronyd' ? 'this node only' : '') }))))),
+    o.ha ? el('p', { class: 'dim', text: `DHCP runs hot-standby with the HA partner ${o.ha.peer} over ${o.ha.interface}.` }) : null,
+    sv.leases_error ? el('p', { class: 'err', text: 'Leases: ' + sv.leases_error }) : null,
+    (sv.scopes || []).length ? el('table', { class: 'cfg-table' },
+      el('thead', {}, el('tr', {}, ['DHCP scope', 'Interface', 'Subnet', 'Active leases'].map(h => el('th', { text: h })))),
+      el('tbody', {}, sv.scopes.map(s => el('tr', {}, el('td', { text: s.name }), el('td', { text: s.interface }),
+        el('td', { text: s.subnet }), el('td', { text: String(s.leases) }))))) : null);
+}
+
+// leasesView lists the addresses this node's DHCP servers handed out.
+async function leasesView() {
+  const g = gen;
+  const r = await api('GET', '/dhcp/leases');
+  if (g !== gen) return;
+  const main = $('#cfg-main');
+  const head = el('header', {}, el('h2', { text: 'DHCP leases' }), el('button', { type: 'button', text: 'Refresh', onclick: () => leasesView() }));
+  if (!r.ok) return fill(main, head, el('p', { class: 'err', text: r.data?.message || 'failed' }));
+  const leases = r.data || [];
+  const filter = el('input', { type: 'search', placeholder: 'Filter by address, name or hardware address' });
+  const body = el('tbody');
+  const draw = () => {
+    const q = filter.value.trim().toLowerCase();
+    fill(body, leases.filter(l => !q || [l.address, l.hostname, l.hw_address, l.duid].some(v => (v || '').toLowerCase().includes(q))).slice(0, 1000)
+      .map(l => el('tr', { class: l.active ? '' : 'dim' },
+        el('td', { text: l.address }), el('td', { text: l.hostname || '' }), el('td', { text: l.hw_address || l.duid || '' }),
+        el('td', { text: `${l.scope || '?'} (${l.interface || '?'})` }),
+        el('td', { text: l.active ? 'until ' + new Date(l.expires).toLocaleString() : (l.state === 1 ? 'declined' : 'expired') }))));
+  };
+  filter.oninput = draw;
+  fill(main, head, filter,
+    leases.length ? el('table', { class: 'cfg-table' },
+      el('thead', {}, el('tr', {}, ['Address', 'Name', 'Client', 'Scope', 'Lease'].map(h => el('th', { text: h })))), body) :
+      el('p', { class: 'dim', text: 'No leases yet.' }));
+  draw();
 }
 
 // haSection shows this node's HA pair: whether it holds the virtual
