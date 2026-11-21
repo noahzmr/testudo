@@ -1,0 +1,22 @@
+# The DHCP client of one interface, started and stopped by Testudo when an
+# interface of the model asks for DHCP (instance: the device name). It runs
+# outside Testudo's own sandbox so dhclient-script can set the routes and
+# the resolver it is given, and it keeps the lease while Testudo restarts.
+[Unit]
+Description=DHCP client of %i for Testudo
+Documentation=file:///usr/share/doc/testudo/operations.md
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=simple
+ExecStart=/sbin/dhclient -d -4 -pf /run/dhclient-testudo-%i.pid -lf /var/lib/dhcp/dhclient-testudo-%i.leases %i
+Restart=on-failure
+RestartSec=5s
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes

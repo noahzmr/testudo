@@ -1,6 +1,7 @@
 package netops
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,52 @@ func TestDHCPClientRequestsAreChecked(t *testing.T) {
 	// Two interfaces are two instances.
 	if procKey(DaemonRequest{Name: "dhclient", Interface: "eth0", RunDir: dir}) == procKey(DaemonRequest{Name: "dhclient", Interface: "eth1", RunDir: dir}) {
 		t.Error("one process key for two interfaces")
+	}
+}
+
+// TestDHCPClientsRunAsUnitsUnderSystemd: where systemd runs the host and
+// knows the template, a DHCP client is its unit; an interface name that a
+// unit name cannot hold never reaches systemctl.
+func TestDHCPClientsRunAsUnitsUnderSystemd(t *testing.T) {
+	var calls []string
+	active := map[string]bool{}
+	oldHas, oldCtl := systemdHasUnit, systemctl
+	t.Cleanup(func() { systemdHasUnit, systemctl = oldHas, oldCtl })
+	systemdHasUnit = func(string) bool { return true }
+	systemctl = func(args ...string) (string, error) {
+		calls = append(calls, strings.Join(args, " "))
+		switch args[0] {
+		case "start":
+			active[args[1]] = true
+		case "stop":
+			delete(active, args[1])
+		case "is-active":
+			if active[args[1]] {
+				return "active", nil
+			}
+			return "inactive", errors.New("exit status 3")
+		}
+		return "", nil
+	}
+	spec := daemonSpecs["dhclient"]
+	run := func(mode DaemonMode, iface string) NftResult {
+		return runUnit(DaemonRequest{Name: "dhclient", Mode: mode, Interface: iface}, spec, nil)
+	}
+	if r := run(DaemonEnsure, "eth0"); r.Error != "" {
+		t.Fatal(r.Error)
+	}
+	if r := run(DaemonStatus, "eth0"); r.Output != "running" {
+		t.Errorf("status: %+v", r)
+	}
+	run(DaemonStop, "eth0")
+	if r := run(DaemonStatus, "eth0"); r.Output != "stopped" {
+		t.Errorf("status after stop: %+v", r)
+	}
+	n := len(calls)
+	if r := run(DaemonEnsure, "eth0;x"); r.Error == "" || len(calls) != n {
+		t.Errorf("a bad interface name reached systemctl: %v", calls[n:])
+	}
+	if want := "start testudo-dhcp@eth0.service"; calls[0] != want {
+		t.Errorf("first call %q, want %q", calls[0], want)
 	}
 }

@@ -78,6 +78,10 @@ type daemonSpec struct {
 	// perIface: one instance per interface, named by the request; such a
 	// daemon has no configuration file of Testudo's.
 	perIface bool
+	// unit is the systemd template that runs the daemon where systemd
+	// does (testudo-dhcp@): outside Testudo's own sandbox, so the client's
+	// script may set the resolver, and on when Testudo restarts.
+	unit string
 }
 
 // keaEnv keeps Kea's pid and lock files in the run directory instead of
@@ -120,12 +124,12 @@ var daemonSpecs = map[string]daemonSpec{
 	// The DHCP clients of interfaces. dhclient keeps its pid and lease files
 	// where the distribution's AppArmor profile lets it write, and its
 	// script sets the routes and resolvers it is given.
-	"dhclient": {paths: []string{"/usr/sbin/dhclient", "/sbin/dhclient"}, perIface: true,
+	"dhclient": {paths: []string{"/usr/sbin/dhclient", "/sbin/dhclient"}, perIface: true, unit: "testudo-dhcp@",
 		args: func(r DaemonRequest) []string {
 			return []string{"-d", "-4", "-pf", "/run/dhclient-testudo-" + r.Interface + ".pid",
 				"-lf", "/var/lib/dhcp/dhclient-testudo-" + r.Interface + ".leases", r.Interface}
 		}},
-	"dhcpcd": {paths: []string{"/usr/sbin/dhcpcd", "/sbin/dhcpcd"}, perIface: true,
+	"dhcpcd": {paths: []string{"/usr/sbin/dhcpcd", "/sbin/dhcpcd"}, perIface: true, unit: "testudo-dhcpcd@",
 		args: func(r DaemonRequest) []string { return []string{"-B", "-4", r.Interface} }},
 }
 
@@ -254,6 +258,9 @@ func RunDaemon(req DaemonRequest) NftResult {
 	daemons.mu.Lock()
 	defer daemons.mu.Unlock()
 	bin, berr := DaemonBinary(req.Name)
+	if spec.perIface && spec.unit != "" && systemdHasUnit(spec.unit) {
+		return runUnit(req, spec, berr)
+	}
 	key := procKey(req)
 	var err error
 	switch req.Mode {
@@ -345,4 +352,68 @@ func (w *Writer) DaemonStateOf(req DaemonRequest) (string, error) {
 	req.Mode = DaemonStatus
 	err := w.queryInto(Op{Kind: OpQueryDaemonStatus, Daemon: &req}, &out)
 	return out, err
+}
+
+// ---- daemons run as systemd units -------------------------------------
+
+// unitDirs are where the package installs its units.
+var unitDirs = []string{"/etc/systemd/system", "/lib/systemd/system", "/usr/lib/systemd/system"}
+
+// systemdHasUnit reports whether systemd runs this host and knows the
+// template.
+var systemdHasUnit = func(template string) bool {
+	if _, err := os.Stat("/run/systemd/system"); err != nil {
+		return false
+	}
+	for _, d := range unitDirs {
+		if _, err := os.Stat(filepath.Join(d, template+".service")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// systemctl runs systemctl; tests replace it.
+var systemctl = func(args ...string) (string, error) {
+	out, err := exec.Command("systemctl", args...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// runUnit does a request through the daemon's systemd unit. The instance
+// is the interface name, which the request check keeps to characters a
+// unit name allows.
+func runUnit(req DaemonRequest, spec daemonSpec, missing error) NftResult {
+	if !ifaceRe.MatchString(req.Interface) {
+		return NftResult{Error: req.Name + ": bad interface"}
+	}
+	unit := spec.unit + req.Interface + ".service"
+	var err error
+	switch req.Mode {
+	case DaemonStatus:
+		if missing != nil {
+			return NftResult{Output: "missing"}
+		}
+		if out, _ := systemctl("is-active", unit); out == "active" || out == "activating" {
+			return NftResult{Output: "running"}
+		}
+		return NftResult{Output: "stopped"}
+	case DaemonEnsure:
+		if missing != nil {
+			return NftResult{Error: req.Name + " is not installed"}
+		}
+		_, err = systemctl("start", unit)
+	case DaemonReload, DaemonRestart:
+		if missing != nil {
+			return NftResult{Error: req.Name + " is not installed"}
+		}
+		_, err = systemctl("restart", unit)
+	case DaemonStop:
+		_, err = systemctl("stop", unit)
+	default:
+		err = fmt.Errorf("unknown mode %q", req.Mode)
+	}
+	if err != nil {
+		return NftResult{Error: fmt.Sprintf("%s: %v", unit, err)}
+	}
+	return NftResult{Output: "ok"}
 }

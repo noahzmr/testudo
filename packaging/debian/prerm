@@ -3,5 +3,7 @@ set -e
 
 if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
 	systemctl disable --now testudo.service >/dev/null || true
+	# The interfaces' DHCP clients go with the package.
+	systemctl stop 'testudo-dhcp@*.service' 'testudo-dhcpcd@*.service' >/dev/null || true
 fi
 exit 0

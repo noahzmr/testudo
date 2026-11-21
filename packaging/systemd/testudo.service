@@ -23,8 +23,7 @@ UMask=0077
 StateDirectory=testudo
 StateDirectoryMode=0700
 # testudo-svc holds the configuration of Unbound and radvd, which read it
-# again as their own users; nothing in it is secret. testudo-if is where
-# the interfaces' DHCP clients are supervised from.
+# again as their own users; nothing in it is secret.
 RuntimeDirectory=testudo-ha testudo-svc testudo-if
 RuntimeDirectoryMode=0755
 
@@ -46,12 +45,11 @@ SystemCallFilter=@system-service @network-io @privileged @clock
 SystemCallErrorNumber=EPERM
 
 # What the process may see and change on disk. Its state, the FRR
-# configuration it renders, Kea's data directory (the DHCPv6
-# server identifier), the DHCP clients' leases and pid files (dhclient's
-# AppArmor profile allows pid files only directly in /run), and nothing
-# else.
+# configuration it renders, FRR's run directory, Kea's data directory (the
+# DHCPv6 server identifier), and nothing else. The interfaces' DHCP
+# clients run as units of their own (testudo-dhcp@.service).
 ProtectSystem=strict
-ReadWritePaths=-/etc/frr -/var/lib/kea -/var/lib/dhcp -/var/lib/dhcpcd -/run
+ReadWritePaths=-/etc/frr -/run/frr -/var/lib/kea
 ProtectHome=yes
 PrivateTmp=yes
 ProtectControlGroups=yes

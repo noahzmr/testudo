@@ -14,7 +14,7 @@ docker run --rm --privileged --network none -v "$PWD/dist:/dist:ro" -e DEB="/$de
 	fail() { echo "deb-install-test: $*" >&2; exit 1; }
 	dpkg -i "$DEB" >/tmp/dpkg.log 2>&1 || { cat /tmp/dpkg.log; fail "dpkg -i failed"; }
 	test -x /usr/bin/testudo || fail "no binary"
-	for f in /lib/systemd/system/testudo.service /etc/pam.d/testudo /etc/default/testudo /usr/share/doc/testudo/copyright; do
+	for f in /lib/systemd/system/testudo.service /lib/systemd/system/testudo-dhcp@.service /lib/systemd/system/testudo-dhcpcd@.service /etc/pam.d/testudo /etc/default/testudo /usr/share/doc/testudo/copyright; do
 		test -f "$f" || fail "missing $f"
 	done
 	[ "$(stat -c %a /var/lib/testudo)" = 700 ] || fail "state directory mode"
