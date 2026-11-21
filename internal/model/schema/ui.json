@@ -4256,6 +4256,14 @@
           "order": 40
         },
         {
+          "name": "sync_address",
+          "label": "Address on the HA sync link",
+          "type": "string",
+          "group": "HA",
+          "order": 45,
+          "help": "Where the partner node sends connection state"
+        },
+        {
           "name": "mesh_index",
           "label": "Fabric index",
           "type": "integer",
@@ -5840,6 +5848,215 @@
           "type": "integer",
           "order": 30,
           "help": "Chosen automatically when empty"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "ha_pair",
+      "plural": "ha-pairs",
+      "title": "HA pair",
+      "menu": "cluster/ha",
+      "scopes": [
+        "site"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "nodes",
+          "label": "Nodes",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "cluster_node",
+          "order": 10,
+          "help": "The first one is preferred unless the nodes set their own VRRP priority",
+          "required": true,
+          "list": true
+        },
+        {
+          "name": "instances",
+          "label": "Virtual addresses",
+          "type": "object",
+          "widget": "table",
+          "order": 20,
+          "required": true,
+          "list": true,
+          "fields": [
+            {
+              "name": "interface",
+              "label": "Interface",
+              "type": "string",
+              "order": 10,
+              "required": true,
+              "rules": [
+                "ifname"
+              ]
+            },
+            {
+              "name": "vrid",
+              "label": "Virtual router ID",
+              "type": "integer",
+              "order": 20,
+              "help": "Unique on the network segment",
+              "required": true
+            },
+            {
+              "name": "virtual_ips",
+              "label": "Virtual addresses",
+              "type": "string",
+              "widget": "list",
+              "order": 30,
+              "help": "One address family per instance",
+              "required": true,
+              "list": true
+            }
+          ]
+        },
+        {
+          "name": "sync_interface",
+          "label": "Sync link",
+          "type": "string",
+          "order": 30,
+          "help": "A link between the two nodes that carries nothing else",
+          "required": true,
+          "rules": [
+            "ifname"
+          ]
+        },
+        {
+          "name": "advert_ms",
+          "label": "Advertisement interval (ms)",
+          "type": "integer",
+          "order": 40,
+          "help": "Default 1000; the standby takes over after about three intervals"
+        },
+        {
+          "name": "preempt",
+          "label": "Take back when the preferred node returns",
+          "type": "boolean",
+          "order": 50
         },
         {
           "name": "scope",

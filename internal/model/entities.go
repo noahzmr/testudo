@@ -36,6 +36,7 @@ const (
 	KindAPIToken       Kind = "api_token"
 	KindFabric         Kind = "fabric"
 	KindPathPolicy     Kind = "path_policy"
+	KindHAPair         Kind = "ha_pair"
 )
 
 func init() {
@@ -69,6 +70,7 @@ func init() {
 	register("api-tokens", "API token", "system/tokens", globalOny, func() Entity { return &APIToken{} })
 	register("fabrics", "Fabric", "cluster/fabric", globalOny, func() Entity { return &Fabric{} })
 	register("path-policies", "Path policy", "routing/paths", allLevels, func() Entity { return &PathPolicy{} })
+	register("ha-pairs", "HA pair", "cluster/ha", []string{"site"}, func() Entity { return &HAPair{} })
 }
 
 // Interface binds a kernel network device on one node to a zone.
@@ -408,6 +410,7 @@ type ClusterNode struct {
 	VRRPPriority int       `json:"vrrp_priority,omitempty" yaml:"vrrp_priority,omitempty" validate:"min=0,max=254" ui:"label=VRRP priority,order=40"`
 	// The node's place in the fabric. The public key is filled in by the
 	// node itself; its private key never leaves it.
+	SyncAddress   string   `json:"sync_address,omitempty" yaml:"sync_address,omitempty" validate:"omitempty,ip" ui:"label=Address on the HA sync link,group=HA,order=45,help=Where the partner node sends connection state"`
 	MeshIndex     int      `json:"mesh_index,omitempty" yaml:"mesh_index,omitempty" validate:"min=0,max=31" ui:"label=Fabric index,group=Fabric,order=50,help=1 to 31 and unique; decides the tunnel addresses and ports of the node"`
 	MeshPublicKey string   `json:"mesh_public_key,omitempty" yaml:"mesh_public_key,omitempty" validate:"omitempty,wgkey" ui:"label=Fabric public key,widget=readonly,group=Fabric,order=60"`
 	Uplinks       []Uplink `json:"uplinks,omitempty" yaml:"uplinks,omitempty" validate:"max=4,dive" ui:"label=Uplinks,widget=table,group=Fabric,order=70"`
@@ -550,3 +553,27 @@ type PathPolicy struct {
 }
 
 func (PathPolicy) Kind() Kind { return KindPathPolicy }
+
+// HAPair makes two nodes of a site one router: VRRP moves the virtual
+// addresses to whichever node is up, and conntrackd keeps the standby's
+// connection table in step over a dedicated link, so connections survive
+// the move.
+type HAPair struct {
+	Meta          `yaml:",inline"`
+	Enabled       bool               `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Nodes         []Ref[ClusterNode] `json:"nodes" yaml:"nodes" validate:"required,min=2,max=2" ui:"label=Nodes,widget=ref-picker,ref=cluster_node,order=10,help=The first one is preferred unless the nodes set their own VRRP priority"`
+	Instances     []VRRPInstance     `json:"instances" yaml:"instances" validate:"required,min=1,max=16,dive" ui:"label=Virtual addresses,widget=table,order=20"`
+	SyncInterface string             `json:"sync_interface" yaml:"sync_interface" validate:"required,ifname" ui:"label=Sync link,order=30,help=A link between the two nodes that carries nothing else"`
+	AdvertMs      int                `json:"advert_ms,omitempty" yaml:"advert_ms,omitempty" validate:"omitempty,min=100,max=40000" ui:"label=Advertisement interval (ms),order=40,help=Default 1000; the standby takes over after about three intervals"`
+	Preempt       bool               `json:"preempt,omitempty" yaml:"preempt,omitempty" validate:"-" ui:"label=Take back when the preferred node returns,order=50"`
+}
+
+func (HAPair) Kind() Kind { return KindHAPair }
+
+// VRRPInstance is one set of virtual addresses on one interface. All
+// instances of a pair move together.
+type VRRPInstance struct {
+	Interface  string   `json:"interface" yaml:"interface" validate:"required,ifname" ui:"label=Interface,order=10"`
+	VRID       int      `json:"vrid" yaml:"vrid" validate:"required,min=1,max=255" ui:"label=Virtual router ID,order=20,help=Unique on the network segment"`
+	VirtualIPs []string `json:"virtual_ips" yaml:"virtual_ips" validate:"required,min=1,max=16,dive,cidr" ui:"label=Virtual addresses,widget=list,order=30,help=One address family per instance"`
+}

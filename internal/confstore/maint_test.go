@@ -260,3 +260,40 @@ func TestFabricChecks(t *testing.T) {
 		t.Errorf("two policies on one mark: %v", err)
 	}
 }
+
+func TestHAPairChecks(t *testing.T) {
+	s := open(t)
+	hq := mustCreate(t, s, "a", &model.Site{Meta: model.Meta{Name: "hq"}})
+	branch := mustCreate(t, s, "a", &model.Site{Meta: model.Meta{Name: "branch"}})
+	node := func(name, site, sync string) model.Entity {
+		return mustCreate(t, s, "a", &model.ClusterNode{Meta: model.Meta{Name: name}, Site: model.Ref[model.Site]{ID: site},
+			Hostname: name, Address: "192.0.2.1", SyncAddress: sync})
+	}
+	fw1, fw2 := node("fw1", hq.GetMeta().ID, "10.9.9.1"), node("fw2", hq.GetMeta().ID, "10.9.9.2")
+	nosync := node("fw3", hq.GetMeta().ID, "")
+	away := node("br1", branch.GetMeta().ID, "10.9.9.3")
+	pair := func(name string, a, b model.Entity, in ...model.VRRPInstance) *model.HAPair {
+		p := &model.HAPair{Meta: model.Meta{Name: name}, Enabled: true, SyncInterface: "sync0",
+			Nodes: []model.Ref[model.ClusterNode]{{ID: a.GetMeta().ID}, {ID: b.GetMeta().ID}}, Instances: in}
+		p.Scope = model.SiteScope(hq.GetMeta().ID)
+		return p
+	}
+	lan := model.VRRPInstance{Interface: "lan", VRID: 51, VirtualIPs: []string{"10.0.0.1/24"}}
+	for _, tc := range []struct {
+		p    *model.HAPair
+		want string
+	}{
+		{pair("same", fw1, fw1, lan), "two different nodes"},
+		{pair("away", fw1, away, lan), "not at the pair's site"},
+		{pair("nosync", fw1, nosync, lan), "no address on the sync link"},
+		{pair("mixed", fw1, fw2, model.VRRPInstance{Interface: "lan", VRID: 9, VirtualIPs: []string{"10.0.0.1/24", "2001:db8::1/64"}}), "mixes IPv4 and IPv6"},
+	} {
+		if _, err := s.Create(ctx, "a", tc.p); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want %q", tc.p.Name, err, tc.want)
+		}
+	}
+	mustCreate(t, s, "a", pair("edge", fw1, fw2, lan))
+	if _, err := s.Create(ctx, "a", pair("edge2", fw1, fw2, lan)); err == nil || !strings.Contains(err.Error(), "virtual router id 51") {
+		t.Errorf("a second pair with the same VRID on the same interface: %v", err)
+	}
+}

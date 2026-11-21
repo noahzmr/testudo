@@ -266,5 +266,46 @@ func fabricChecks(s *State, add func(model.Entity, string, string, ...any)) []Pr
 			add(p, "prefer", "%q is neither lowest_latency, lowest_loss nor one of the fabric's colors", p.Prefer)
 		}
 	}
+	// HA pairs: two nodes of the pair's site, each with an address on the
+	// sync link, one address family per VRRP instance, router ids unique
+	// per interface.
+	vrids := map[string]string{}
+	for _, e := range sortedByName(s.objects[model.KindHAPair]) {
+		p := e.(*model.HAPair)
+		var nodes []*model.ClusterNode
+		for _, r := range p.Nodes {
+			if n, ok := s.peek(model.KindClusterNode, r.ID).(*model.ClusterNode); ok {
+				nodes = append(nodes, n)
+			}
+		}
+		if len(nodes) == 2 && nodes[0].ID == nodes[1].ID {
+			add(p, "nodes", "a pair needs two different nodes")
+		}
+		for _, n := range nodes {
+			if p.Scope != model.SiteScope(n.Site.ID) {
+				add(p, "nodes", "node %q is not at the pair's site", n.Name)
+			}
+			if n.SyncAddress == "" {
+				add(p, "nodes", "node %q has no address on the sync link", n.Name)
+			}
+		}
+		for _, in := range p.Instances {
+			v6 := map[bool]bool{}
+			for _, ip := range in.VirtualIPs {
+				addr, _, err := net.ParseCIDR(ip)
+				if err == nil {
+					v6[addr.To4() == nil] = true
+				}
+			}
+			if len(v6) > 1 {
+				add(p, "instances", "instance %d on %s mixes IPv4 and IPv6; use one instance per family", in.VRID, in.Interface)
+			}
+			key := fmt.Sprintf("%s|%s|%d", p.Scope, in.Interface, in.VRID)
+			if other, dup := vrids[key]; dup {
+				add(p, "instances", "virtual router id %d on %s is used by %q too", in.VRID, in.Interface, other)
+			}
+			vrids[key] = p.Name
+		}
+	}
 	return nil
 }

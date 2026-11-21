@@ -1394,6 +1394,12 @@
             "type": "string",
             "x-ref": "site"
           },
+          "sync_address": {
+            "description": "Where the partner node sends connection state",
+            "format": "ip",
+            "title": "Address on the HA sync link",
+            "type": "string"
+          },
           "updated_at": {
             "format": "date-time",
             "readOnly": true,
@@ -2423,6 +2429,197 @@
         "x-menu": "system/groups",
         "x-scopes": [
           "global"
+        ]
+      },
+      "HAPair": {
+        "additionalProperties": false,
+        "properties": {
+          "advert_ms": {
+            "description": "Default 1000; the standby takes over after about three intervals",
+            "maximum": 40000,
+            "minimum": 100,
+            "title": "Advertisement interval (ms)",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "instances": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "interface": {
+                  "description": "kernel interface name, at most 15 characters",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+                  "title": "Interface",
+                  "type": "string",
+                  "x-rule": "ifname"
+                },
+                "virtual_ips": {
+                  "description": "One address family per instance",
+                  "items": {
+                    "format": "cidr",
+                    "type": "string"
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "title": "Virtual addresses",
+                  "type": "array"
+                },
+                "vrid": {
+                  "description": "Unique on the network segment",
+                  "maximum": 255,
+                  "minimum": 1,
+                  "title": "Virtual router ID",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "interface",
+                "virtual_ips",
+                "vrid"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Virtual addresses",
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "nodes": {
+            "description": "The first one is preferred unless the nodes set their own VRRP priority",
+            "items": {
+              "format": "uuid",
+              "type": "string",
+              "x-ref": "cluster_node"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Nodes",
+            "type": "array"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "preempt": {
+            "title": "Take back when the preferred node returns",
+            "type": "boolean"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "sync_interface": {
+            "description": "A link between the two nodes that carries nothing else",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$",
+            "title": "Sync link",
+            "type": "string",
+            "x-rule": "ifname"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "instances",
+          "name",
+          "nodes",
+          "scope",
+          "sync_interface"
+        ],
+        "type": "object",
+        "x-kind": "ha_pair",
+        "x-menu": "cluster/ha",
+        "x-scopes": [
+          "site"
         ]
       },
       "Interface": {
@@ -9464,6 +9661,278 @@
         "summary": "List the objects that reference this Group",
         "tags": [
           "system"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/ha-pairs": {
+      "get": {
+        "operationId": "list_ha_pair",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HAPair"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List HA pair objects",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "post": {
+        "operationId": "create_ha_pair",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HAPair"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HAPair"
+                }
+              }
+            },
+            "description": "HA pair",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a HA pair",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/ha-pairs/{id}": {
+      "delete": {
+        "operationId": "delete_ha_pair",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a HA pair",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "get": {
+        "operationId": "get_ha_pair",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HAPair"
+                }
+              }
+            },
+            "description": "HA pair",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a HA pair",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_ha_pair",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HAPair"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HAPair"
+                }
+              }
+            },
+            "description": "HA pair",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a HA pair",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/ha-pairs/{id}/effective": {
+      "get": {
+        "operationId": "effective_ha_pair",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/HAPair"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The HA pair as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/ha-pairs/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_ha_pair",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this HA pair",
+        "tags": [
+          "cluster"
         ]
       },
       "parameters": [
