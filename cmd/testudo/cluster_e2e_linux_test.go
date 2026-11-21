@@ -354,6 +354,82 @@ func TestClusterEndToEnd(t *testing.T) {
 		eventually("the logout on "+n1.name+" ends the session on "+n3.name, 15*time.Second, func() bool { return on(n3, "/api/me") == 401 })
 	}
 
+	// An access request made on one member is decided on another, and each
+	// sees the request and both members' access logs.
+	{
+		var users, roles []map[string]any
+		_, d, _ := n1.call("GET", "/api/v1/users", nil)
+		json.Unmarshal(d, &users)
+		_, d, _ = n1.call("GET", "/api/v1/roles", nil)
+		json.Unmarshal(d, &roles)
+		id := func(list []map[string]any, key, name string) string {
+			for _, o := range list {
+				if o[key] == name {
+					return o["id"].(string)
+				}
+			}
+			t.Fatalf("no %s %q", key, name)
+			return ""
+		}
+		admin, approver := id(users, "username", "testudo"), id(roles, "name", "approver")
+		res := write(n1, "POST", "/access-resources", map[string]any{"name": "db", "type": "network", "target": "10.60.0.5", "protocol": "any"})
+		write(n1, "POST", "/access-policies", map[string]any{"name": "db-on-request", "resource": res["id"], "users": []string{admin},
+			"max_duration": "1h", "requires_approval": true})
+		carol := write(n1, "POST", "/users", map[string]any{"name": "carol", "username": "carol", "source": "local", "roles": []string{approver}})
+		write(n1, "POST", "/users/"+carol["id"].(string)+"/password", map[string]string{"password": "carol-Passw0rd-for-test"})
+
+		status, d, _ := n1.call("POST", "/api/pam/request", map[string]any{"resource_id": res["id"], "ttl_sec": 600,
+			"justification": "cluster test request"})
+		var asked map[string]any
+		json.Unmarshal(d, &asked)
+		if status/100 != 2 || asked["state"] != "pending" {
+			t.Fatalf("request on %s: %d %s", n1.name, status, d)
+		}
+		jar, _ := cookiejar.New(nil)
+		carolC := &http.Client{Jar: jar, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		eventually("carol logs in on "+n3.name, 20*time.Second, func() bool {
+			r, err := carolC.PostForm(n3.base()+"/login", url.Values{"username": {"carol"}, "password": {"carol-Passw0rd-for-test"}})
+			if err != nil {
+				return false
+			}
+			r.Body.Close()
+			return r.StatusCode == http.StatusSeeOther
+		})
+		body, _ := json.Marshal(map[string]any{"grant_id": asked["id"], "reason": "not today"})
+		var denied map[string]any
+		eventually(n3.name+" decides the request made on "+n1.name, 20*time.Second, func() bool {
+			req, _ := http.NewRequest("POST", n3.base()+"/api/pam/deny", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", n3.base())
+			r, err := carolC.Do(req)
+			if err != nil {
+				return false
+			}
+			defer r.Body.Close()
+			data, _ := io.ReadAll(r.Body)
+			json.Unmarshal(data, &denied)
+			return r.StatusCode == 200 && denied["state"] == "denied"
+		})
+		eventually(n1.name+" sees the decision and "+n3.name+"'s log", 20*time.Second, func() bool {
+			_, d, _ := n1.call("GET", "/api/pam", nil)
+			var view struct {
+				Overview struct {
+					Grants []map[string]any `json:"grants"`
+					Events []map[string]any `json:"events"`
+				} `json:"overview"`
+			}
+			json.Unmarshal(d, &view)
+			decided, logged := false, false
+			for _, g := range view.Overview.Grants {
+				decided = decided || (g["id"] == asked["id"] && g["state"] == "denied")
+			}
+			for _, e := range view.Overview.Events {
+				logged = logged || (e["member"] == n3.name && e["action"] == "denied" && e["grant_id"] == asked["id"])
+			}
+			return decided && logged
+		})
+	}
+
 	// 2. A change made on a member that does not lead is decided by the
 	//    leader and takes effect in every node's own packet filter.
 	l := leader(nodes...)
