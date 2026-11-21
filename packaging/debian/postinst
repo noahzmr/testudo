@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ]; then
+	# Members of this group are administrators of the console whatever the
+	# configuration says: the local way in when the identity provider is down.
+	getent group testudo-admin >/dev/null || addgroup --system testudo-admin >/dev/null
+	install -d -m 0700 /var/lib/testudo
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload >/dev/null || true
+		if [ -z "$2" ]; then
+			systemctl enable --now testudo.service >/dev/null || true
+			echo "testudo: started; the first password of the user 'testudo' is in: journalctl -u testudo"
+		else
+			systemctl try-restart testudo.service >/dev/null || true
+		fi
+	fi
+fi
+exit 0

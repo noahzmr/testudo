@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload >/dev/null || true
+fi
+if [ "$1" = purge ]; then
+	# The configuration, its history and the keys stay: removing them by
+	# accident cannot be undone. Delete /var/lib/testudo by hand.
+	echo "testudo: /var/lib/testudo was kept; remove it by hand if it is not needed any more"
+fi
+exit 0

@@ -1,0 +1,16 @@
+Package: testudo
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Section: net
+Priority: optional
+Installed-Size: @SIZE@
+Depends: libc6 (>= 2.36), libpam0g, libpam-modules, nftables, iproute2
+Recommends: frr, frr-pythontools, keepalived, conntrackd, conntrack, wireguard-tools
+Homepage: https://github.com/noahzmr/testudo
+Description: firewall, router and network operations console
+ Testudo turns a Linux host into a firewall appliance driven by one
+ configuration model: packet filter, NAT, routing through FRR, WireGuard,
+ a load balancer, intra-site HA with keepalived and conntrackd, and a
+ multi-site cluster. Every change is applied atomically and rolled back
+ unless confirmed. Flow analysis, replay and alerting run alongside.
