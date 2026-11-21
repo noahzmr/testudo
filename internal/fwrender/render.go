@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/harender"
 	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
@@ -193,6 +194,9 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 	if plan.Enabled {
 		r.zoneIfs[plan.Fabric.Zone.ID] = append(r.zoneIfs[plan.Fabric.Zone.ID], plan.Devices()...)
 	}
+	// An HA pair needs VRRP on its interfaces and the partner's state sync.
+	// A pair that does not render opens nothing; the HA stage reports why.
+	ha, _ := harender.Render(r.st, harender.Options{SiteID: opt.SiteID, NodeID: opt.NodeID})
 	r.sets()
 	f.Sets = r.take()
 
@@ -233,6 +237,9 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 				fmt.Sprintf("iifname { %s } udp dport { 3784, 3785, 4784 } counter accept comment \"fabric: bfd\"", strings.Join(devs, ", ")),
 			}, c.Rules...)
 		}
+		if chain == "input" && ha.Enabled {
+			c.Rules = append(haInput(ha), c.Rules...)
+		}
 		if chain != "output" {
 			for _, id := range zoneIDs {
 				z := r.zones[id]
@@ -255,6 +262,26 @@ func Build(st *confstore.State, opt Options) (Fragments, error) {
 	f.Pre, f.Post = r.nat(nat)
 	f.Pre = append(f.Pre, r.balance()...)
 	return f, r.err()
+}
+
+// haInput is what an HA pair member accepts ahead of the operator's rules,
+// so that a default-deny policy cannot split the pair: VRRP adverts on the
+// pair's interfaces and conntrackd's sync from the partner's sync address.
+func haInput(ha harender.Result) []string {
+	devs := make([]string, 0, len(ha.Interfaces))
+	for _, d := range ha.Interfaces {
+		devs = append(devs, quote(d))
+	}
+	fam := "ip"
+	if isV6(ha.Peer) {
+		fam = "ip6"
+	}
+	var out []string
+	if len(devs) > 0 {
+		out = append(out, fmt.Sprintf("iifname { %s } meta l4proto 112 counter accept comment \"ha: vrrp\"", strings.Join(devs, ", ")))
+	}
+	return append(out, fmt.Sprintf("iifname %s %s saddr %s udp dport %d counter accept comment \"ha: state sync\"",
+		quote(ha.SyncInterface), fam, ha.Peer, harender.SyncPort))
 }
 
 // Policy returns the firewall policy in effect on the node, or nil.

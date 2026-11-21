@@ -310,3 +310,33 @@ func TestKernelModeBalancing(t *testing.T) {
 		t.Errorf("pools to health-check: %v", KernelBackends(f.store.Current(), o))
 	}
 }
+
+// TestHAPairOpensVRRPAndSync: a pair member lets the partner's VRRP adverts
+// and state sync in ahead of any policy; a node outside the pair does not.
+func TestHAPairOpensVRRPAndSync(t *testing.T) {
+	f := newFixture(t)
+	pair := &model.HAPair{Meta: meta(40, "edge"), Enabled: true, SyncInterface: "sync0",
+		Nodes:     []model.Ref[model.ClusterNode]{{ID: id(node)}, {ID: id(node2)}},
+		Instances: []model.VRRPInstance{{Interface: "lan0", VRID: 7, VirtualIPs: []string{"10.0.0.254/24"}}, {Interface: "wan0", VRID: 8, VirtualIPs: []string{"192.0.2.1/24"}}}}
+	pair.Scope = model.SiteScope(id(site))
+	f.add(
+		&model.Site{Meta: meta(site, "hq")},
+		&model.ClusterNode{Meta: meta(node, "fw1"), Site: model.Ref[model.Site]{ID: id(site)}, Hostname: "fw1", Address: "10.0.0.1", SyncAddress: "10.9.9.1"},
+		&model.ClusterNode{Meta: meta(node2, "fw2"), Site: model.Ref[model.Site]{ID: id(site)}, Hostname: "fw2", Address: "10.0.0.2", SyncAddress: "10.9.9.2"},
+		&model.ClusterNode{Meta: meta(4, "fw3"), Site: model.Ref[model.Site]{ID: id(site)}, Hostname: "fw3", Address: "10.0.0.3"},
+		&model.FirewallPolicy{Meta: meta(41, "deny"), DefaultDeny: true},
+		pair,
+	)
+	out := f.render(Options{SiteID: id(site), NodeID: id(node)})
+	for _, want := range []string{
+		`iifname { "lan0", "wan0" } meta l4proto 112 counter accept comment "ha: vrrp"`,
+		`iifname "sync0" ip saddr 10.9.9.2 udp dport 3780 counter accept comment "ha: state sync"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	if out := f.render(Options{SiteID: id(site), NodeID: id(4)}); strings.Contains(out, "ha: ") {
+		t.Errorf("a node outside the pair opens HA traffic:\n%s", out)
+	}
+}
