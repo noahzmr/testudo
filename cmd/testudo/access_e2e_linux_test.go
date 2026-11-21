@@ -140,15 +140,23 @@ func TestPublishedServiceNeedsLogin(t *testing.T) {
 		json.Unmarshal([]byte(data), &m)
 		return m
 	}
-	// Two built-in accounts; the model says which groups they are in.
-	for _, name := range []string{"erin", "frank"} {
-		if status, body, _ := do(admin, "POST", console+"/api/users/add", map[string]string{"name": name, "password": name + "-Passw0rd-for-test", "role": "viewer"}); status/100 != 2 {
-			t.Fatalf("add %s: %d %s", name, status, body)
+	// Two local users; the model says which groups they are in.
+	var roles []map[string]any
+	_, rolesRaw, _ := do(admin, "GET", console+"/api/v1/roles", nil)
+	json.Unmarshal([]byte(rolesRaw), &roles)
+	readOnly := ""
+	for _, r := range roles {
+		if r["name"] == "read-only" {
+			readOnly = r["id"].(string)
 		}
 	}
 	staff := write("POST", "/groups", map[string]any{"name": "staff"})
-	erin := write("POST", "/users", map[string]any{"name": "erin", "username": "erin", "source": "host", "groups": []string{staff["id"].(string)}})
-	write("POST", "/users", map[string]any{"name": "frank", "username": "frank", "source": "host"})
+	erin := write("POST", "/users", map[string]any{"name": "erin", "username": "erin", "source": "local", "roles": []string{readOnly},
+		"groups": []string{staff["id"].(string)}})
+	frank := write("POST", "/users", map[string]any{"name": "frank", "username": "frank", "source": "local", "roles": []string{readOnly}})
+	for name, u := range map[string]map[string]any{"erin": erin, "frank": frank} {
+		write("POST", "/users/"+u["id"].(string)+"/password", map[string]string{"password": name + "-Passw0rd-for-test"})
+	}
 	zone := write("POST", "/zones", map[string]any{"name": "wan", "default_action": "drop"})
 	pool := write("POST", "/lb-backend-pools", map[string]any{"name": "app", "algorithm": "weighted_round_robin",
 		"backends": []map[string]any{{"address": "127.0.0.1:9000"}}, "health_check": map[string]any{"type": "none"}})
