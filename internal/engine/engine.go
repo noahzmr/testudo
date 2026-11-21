@@ -98,6 +98,8 @@ type Engine struct {
 	// ("running unprivileged; privileged ops via helper (pid N)"). Set once at
 	// startup before the UIs run, then read-only.
 	privsepInfo string
+	// started is when Start ran, for the uptime metric.
+	started time.Time
 
 	// fwTrack derives a DROP/REJECT velocity from successive firewall-rule
 	// counter snapshots (see snapshotter.go). The grade reads it via
@@ -268,6 +270,7 @@ func (e *Engine) Start(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	e.cancel = cancel
 	e.rootCtx = ctx
+	e.started = time.Now()
 
 	e.sessionID = newSessionID()
 	targets := append([]string{}, e.cfg.ICMPTargets...)

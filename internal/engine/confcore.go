@@ -72,6 +72,8 @@ type confCore struct {
 	proxyMu     sync.Mutex
 	proxyState  map[string]any
 	proxyAt     time.Time
+	// started is set once the model has been applied after the start.
+	started atomic.Bool
 }
 
 // Loopback addresses the proxy and this program talk on.
@@ -165,6 +167,10 @@ func (e *Engine) configNotice(n confapply.Notice) {
 	if n.Err != nil {
 		result = n.Err.Error()
 	}
+	if (n.Event == "applied" || n.Event == "confirmed") && n.Err == nil {
+		// A start that failed is over once a change applies.
+		e.conf.started.Store(true)
+	}
 	detail := map[string]any{"record": n.Index, "reason": n.Reason}
 	// Say what changed. The values before and after are in the history
 	// record the row names (GET /api/v1/history), with secrets masked.
@@ -216,6 +222,8 @@ func (e *Engine) startConfig(ctx context.Context) {
 	}
 	if err := e.conf.apply.Start(ctx); err != nil {
 		log.Printf("config: start: %v", err)
+	} else {
+		e.conf.started.Store(true)
 	}
 	e.seedRoles(ctx)
 	if e.fwNft != nil {
