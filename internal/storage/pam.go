@@ -152,6 +152,9 @@ type AccessEvent struct {
 	Detail   string    `json:"detail"`
 	PrevHash string    `json:"prev_hash"`
 	Hash     string    `json:"hash"`
+	// Member names the cluster member whose log holds the event; it is not
+	// stored, only set where the logs of several members are shown.
+	Member string `json:"member,omitempty"`
 }
 
 // ---- resources -------------------------------------------------------

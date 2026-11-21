@@ -79,6 +79,10 @@ type Config struct {
 	// member that correlates what the sites saw. Flow data travels this
 	// way, member to member, and never through the consensus log.
 	Flows func() ([]byte, error)
+	// AccessEvents returns this member's access log, as JSON, for another
+	// member that shows the cluster's: each member keeps and chains its
+	// own.
+	AccessEvents func() ([]byte, error)
 	// LocalOnly names the secrets that belong to this member alone; every
 	// other secret the node has when it starts a cluster goes to the
 	// cluster with it (keys the model refers to, local users' passwords).
@@ -735,6 +739,19 @@ func (m *Manager) routes() http.Handler {
 			return
 		}
 		data, err := m.cfg.Flows()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}))
+	mux.HandleFunc("GET /cluster/v1/access-events", member(func(w http.ResponseWriter, r *http.Request, _ string) {
+		if m.cfg.AccessEvents == nil {
+			http.Error(w, "this member keeps no access log", http.StatusNotFound)
+			return
+		}
+		data, err := m.cfg.AccessEvents()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
