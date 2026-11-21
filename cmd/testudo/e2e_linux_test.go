@@ -188,6 +188,26 @@ func TestPrivilegedPathEndToEnd(t *testing.T) {
 	if _, rt := call("GET", "/api/v1/runtime", nil); rt["counters"] == nil {
 		t.Errorf("no counters from the running ruleset: %v", rt)
 	}
+	// A collector takes the logged packets and the changes of the model.
+	collector, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer collector.Close()
+	write("/api/v1/log-exports", map[string]any{"name": "siem", "enabled": true, "address": collector.LocalAddr().String(),
+		"transport": "udp", "format": "rfc5424", "categories": []string{"firewall", "config"}})
+	collected := make(chan string, 256)
+	go func() {
+		buf := make([]byte, 8192)
+		for {
+			n, _, err := collector.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			collected <- string(buf[:n])
+		}
+	}()
+
 	// A rule with logging on: the packets it matches reach the console,
 	// read from the log group the helper opened, with the rule's name.
 	write("/api/v1/filter-rules", map[string]any{"name": "log-probe", "enabled": true, "action": "accept",
@@ -219,6 +239,18 @@ func TestPrivilegedPathEndToEnd(t *testing.T) {
 	}
 	if !logged {
 		t.Errorf("the logged packet did not reach the console\n%s", stderr.String())
+	}
+	// The collector got the packet, with the rule's name, and the change
+	// that made the rule.
+	var gotPacket, gotChange bool
+	for deadline := time.After(10 * time.Second); !gotPacket || !gotChange; {
+		select {
+		case m := <-collected:
+			gotPacket = gotPacket || (strings.Contains(m, " firewall ") && strings.Contains(m, `rule="log-probe"`) && strings.Contains(m, `dst_port="9999"`))
+			gotChange = gotChange || (strings.Contains(m, " config ") && strings.Contains(m, `object="log-probe"`))
+		case <-deadline:
+			t.Fatalf("the collector got the packet: %v, the change: %v", gotPacket, gotChange)
+		}
 	}
 	// The apply shows up in the audit log without the ruleset text.
 	if strings.Contains(stderr.String(), "nft runner unavailable") {
