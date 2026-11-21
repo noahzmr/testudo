@@ -6,7 +6,7 @@ Section: net
 Priority: optional
 Installed-Size: @SIZE@
 Depends: libc6 (>= 2.36), libpam0g, libpam-modules, nftables, iproute2
-Recommends: frr, frr-pythontools, keepalived, conntrackd, conntrack, wireguard-tools, kea-dhcp4-server, kea-dhcp6-server, unbound, dns-root-data, chrony, radvd, isc-dhcp-client | dhcpcd-base
+Recommends: frr, frr-pythontools, keepalived, conntrackd, conntrack, wireguard-tools, kea-dhcp4-server, kea-dhcp6-server, unbound, dns-root-data, chrony, radvd, isc-dhcp-client | dhcpcd-base, ppp
 Homepage: https://github.com/noahzmr/testudo
 Description: firewall, router and network operations console
  Testudo turns a Linux host into a firewall appliance driven by one

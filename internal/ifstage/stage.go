@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/noahzmr/testudo/internal/confstore"
@@ -68,8 +69,10 @@ type Stage struct {
 	mu           sync.Mutex
 	done         map[string]*record // by device; nil until loaded
 	owned        bool               // the stage has made links (bonds, bridges, VLANs)
+	sessions     []string           // the PPPoE sessions the stage runs, by device
 	applied      []Device
 	appliedLinks []netops.LinkSpec
+	appliedPPPoE []PPPoE
 	cmu          sync.Mutex
 	client       string // the DHCP client installed here, once known (cmu)
 	missing      []string
@@ -151,7 +154,7 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 			devs = append(devs, d)
 		}
 	}
-	links, lerrs := renderLinks(st, site, node)
+	links, sessions, lerrs := renderLinks(st, site, node)
 	errs = append(errs, lerrs...)
 	member := map[string]string{}
 	for _, l := range links {
@@ -168,7 +171,7 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 		return nil, err
 	}
 	sort.Slice(devs, func(a, b int) bool { return devs[a].Name < devs[b].Name })
-	return json.MarshalIndent(artifact{Devices: devs, Links: links}, "", " ")
+	return json.MarshalIndent(artifact{Devices: devs, Links: links, PPPoE: sessions}, "", " ")
 }
 
 // artifact is what the stage applies: the links to create and how each
@@ -176,6 +179,70 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 type artifact struct {
 	Devices []Device          `json:"devices"`
 	Links   []netops.LinkSpec `json:"links,omitempty"`
+	PPPoE   []PPPoE           `json:"pppoe,omitempty"`
+}
+
+// PPPoE is one PPPoE session the stage runs.
+type PPPoE struct {
+	Device       string `json:"device"`
+	Parent       string `json:"parent"`
+	Username     string `json:"username"`
+	Password     string `json:"password,omitempty"`
+	ServiceName  string `json:"service_name,omitempty"`
+	MTU          int    `json:"mtu,omitempty"`
+	DefaultRoute bool   `json:"default_route,omitempty"`
+	PeerDNS      bool   `json:"peer_dns,omitempty"`
+	IPv6         bool   `json:"ipv6,omitempty"`
+}
+
+// options is the pppd options file of the session. pppd is told nothing
+// else; the password stays in this file.
+func (p PPPoE) options() string {
+	mtu := p.MTU
+	if mtu == 0 {
+		mtu = 1492
+	}
+	q := func(v string) string { return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"` }
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Written by Testudo for %s; changes are overwritten.\n", p.Device)
+	b.WriteString("plugin pppoe.so\n")
+	fmt.Fprintf(&b, "nic-%s\n", p.Parent)
+	if p.ServiceName != "" {
+		fmt.Fprintf(&b, "rp_pppoe_service %s\n", q(p.ServiceName))
+	}
+	fmt.Fprintf(&b, "ifname %s\n", p.Device)
+	fmt.Fprintf(&b, "user %s\n", q(p.Username))
+	if p.Password != "" {
+		fmt.Fprintf(&b, "password %s\n", q(p.Password))
+	}
+	b.WriteString("hide-password\nnoauth\nnodetach\npersist\nmaxfail 0\nholdoff 5\nnoipdefault\n")
+	b.WriteString("lcp-echo-interval 20\nlcp-echo-failure 3\n")
+	fmt.Fprintf(&b, "mtu %d\nmru %d\n", mtu, mtu)
+	if p.DefaultRoute {
+		b.WriteString("defaultroute\nreplacedefaultroute\n")
+	}
+	if p.PeerDNS {
+		b.WriteString("usepeerdns\n")
+	}
+	if p.IPv6 {
+		b.WriteString("+ipv6\n")
+	}
+	return b.String()
+}
+
+// Redact hides the PPPoE passwords where an artifact is shown.
+func (s *Stage) Redact(raw []byte) []byte {
+	a, err := decode(raw)
+	if err != nil {
+		return nil
+	}
+	for i := range a.PPPoE {
+		if a.PPPoE[i].Password != "" {
+			a.PPPoE[i].Password = model.SecretMask
+		}
+	}
+	out, _ := json.MarshalIndent(a, "", " ")
+	return out
 }
 
 func decode(raw []byte) (artifact, error) {
@@ -189,9 +256,11 @@ func decode(raw []byte) (artifact, error) {
 	return a, err
 }
 
-// renderLinks lists the bonds, bridges and VLANs of the node.
-func renderLinks(st *confstore.State, site, node string) ([]netops.LinkSpec, []error) {
+// renderLinks lists the bonds, bridges, VLANs and PPPoE sessions of the
+// node.
+func renderLinks(st *confstore.State, site, node string) ([]netops.LinkSpec, []PPPoE, []error) {
 	var out []netops.LinkSpec
+	var sessions []PPPoE
 	var errs []error
 	each := func(k model.Kind, fn func(model.Entity)) {
 		for _, e := range st.List(k) {
@@ -217,6 +286,12 @@ func renderLinks(st *confstore.State, site, node string) ([]netops.LinkSpec, []e
 			out = append(out, netops.LinkSpec{Name: b.Device, Kind: "bridge", Members: b.Ports, STP: b.STP, VLANFiltering: b.VLANFiltering})
 		}
 	})
+	each(model.KindPPPoE, func(e model.Entity) {
+		if p := e.(*model.PPPoE); p.Enabled {
+			sessions = append(sessions, PPPoE{Device: p.Device, Parent: p.Parent, Username: p.Username, Password: p.Password,
+				ServiceName: p.ServiceName, MTU: p.MTU, DefaultRoute: p.DefaultRoute, PeerDNS: p.PeerDNS, IPv6: p.IPv6})
+		}
+	})
 	each(model.KindVLAN, func(e model.Entity) {
 		if v := e.(*model.VLAN); v.Enabled {
 			out = append(out, netops.LinkSpec{Name: v.Device, Kind: "vlan", Parent: v.Parent, VID: v.VID, Protocol: v.Protocol})
@@ -229,15 +304,38 @@ func renderLinks(st *confstore.State, site, node string) ([]netops.LinkSpec, []e
 	if err := (netops.LinksSpec{Links: out}).Validate(); err != nil {
 		errs = append(errs, err)
 	}
-	return out, errs
+	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Device < sessions[j].Device })
+	devices := map[string]bool{}
+	for _, l := range out {
+		devices[l.Name] = true
+	}
+	for _, p := range sessions {
+		// One option per line: a line break would add options of its own.
+		for _, v := range []string{p.Username, p.Password, p.ServiceName} {
+			if strings.ContainsAny(v, "\n\r\x00") {
+				errs = append(errs, fmt.Errorf("pppoe %s: user name, password and service name are one line each", p.Device))
+				break
+			}
+		}
+		if devices[p.Device] {
+			errs = append(errs, fmt.Errorf("pppoe %s: a link of that name exists", p.Device))
+		}
+		devices[p.Device] = true
+	}
+	return out, sessions, errs
 }
 
 // Check makes sure the node can do what the devices ask for. Nothing is
 // changed.
 func (s *Stage) Check(_ context.Context, raw []byte) error {
 	a, err := decode(raw)
-	if err != nil || (len(a.Devices) == 0 && len(a.Links) == 0) {
+	if err != nil || (len(a.Devices) == 0 && len(a.Links) == 0 && len(a.PPPoE) == 0) {
 		return err
+	}
+	if len(a.PPPoE) > 0 && s.Runner != nil {
+		if st, err := s.Runner.DaemonStateOf(netops.DaemonRequest{Name: "pppd", RunDir: s.RunDir, Interface: "lo"}); err != nil || st == "missing" {
+			return fmt.Errorf("PPPoE needs pppd, which is not installed (%v)", err)
+		}
 	}
 	if s.Runner == nil {
 		return errors.New("interfaces cannot be configured on this node (no network privileges)")
@@ -303,6 +401,7 @@ func (s *Stage) loadLocked() error {
 			s.done = f.Devices
 		}
 		s.owned = f.Links
+		s.sessions = f.PPPoE
 		return nil
 	}
 	// The first form: the devices alone.
@@ -316,6 +415,7 @@ type recordFile struct {
 	Version int                `json:"version"`
 	Devices map[string]*record `json:"devices"`
 	Links   bool               `json:"links,omitempty"`
+	PPPoE   []string           `json:"pppoe,omitempty"`
 }
 
 func (s *Stage) saveLocked() error {
@@ -327,7 +427,7 @@ func (s *Stage) saveLocked() error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(recordFile{Version: recordVersion, Devices: s.done, Links: s.owned}, "", " ")
+	b, err := json.MarshalIndent(recordFile{Version: recordVersion, Devices: s.done, Links: s.owned, PPPoE: s.sessions}, "", " ")
 	if err != nil {
 		return err
 	}
@@ -351,7 +451,7 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 	if err := s.loadLocked(); err != nil {
 		return fmt.Errorf("record of configured interfaces: %w", err)
 	}
-	if len(devs) == 0 && len(s.done) == 0 && len(a.Links) == 0 && !s.owned {
+	if len(devs) == 0 && len(s.done) == 0 && len(a.Links) == 0 && !s.owned && len(a.PPPoE) == 0 && len(s.sessions) == 0 {
 		s.applied, s.appliedLinks, s.missing = nil, nil, nil
 		return nil
 	}
@@ -369,6 +469,12 @@ func (s *Stage) Apply(_ context.Context, raw []byte) error {
 		}
 	}
 	s.appliedLinks = a.Links
+	if len(a.PPPoE) > 0 || len(s.sessions) > 0 {
+		if err := s.syncPPPoE(a.PPPoE); err != nil {
+			return err
+		}
+	}
+	s.appliedPPPoE = a.PPPoE
 	want := map[string]Device{}
 	names := map[string]bool{}
 	for _, d := range devs {
@@ -527,6 +633,15 @@ func (s *Stage) Healthy(context.Context) error {
 	devs, links := s.applied, s.appliedLinks
 	s.mu.Unlock()
 	var errs []error
+	s.mu.Lock()
+	sessions := s.appliedPPPoE
+	s.mu.Unlock()
+	for _, p := range sessions {
+		st, err := s.Runner.DaemonStateOf(s.pppRequest(p.Device, netops.DaemonStatus))
+		if err != nil || st != "running" {
+			errs = append(errs, fmt.Errorf("the PPPoE session %s is not running (%s%v)", p.Device, st, err))
+		}
+	}
 	for _, l := range links {
 		if _, ok, err := s.links()(l.Name); err != nil || !ok {
 			errs = append(errs, fmt.Errorf("%s %s is missing after the apply (%v)", l.Kind, l.Name, err))
@@ -587,4 +702,63 @@ func (s *Stage) Missing() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.missing...)
+}
+
+func (s *Stage) pppDir() string { return filepath.Join(s.Dir, "ppp") }
+
+func (s *Stage) pppRequest(device string, mode netops.DaemonMode) netops.DaemonRequest {
+	return netops.DaemonRequest{Name: "pppd", Mode: mode, RunDir: s.RunDir, Interface: device,
+		ConfigFile: filepath.Join(s.pppDir(), device+".options")}
+}
+
+// syncPPPoE runs the wanted sessions, with their options file written
+// first and pppd restarted when it changed, and stops the others. Caller
+// holds mu.
+func (s *Stage) syncPPPoE(want []PPPoE) error {
+	if err := os.MkdirAll(s.pppDir(), 0o700); err != nil {
+		return err
+	}
+	var errs []error
+	keep := map[string]bool{}
+	var running []string
+	for _, p := range want {
+		keep[p.Device] = true
+		path := filepath.Join(s.pppDir(), p.Device+".options")
+		text := p.options()
+		mode := netops.DaemonEnsure
+		if old, err := os.ReadFile(path); err != nil || string(old) != text {
+			if err := os.WriteFile(path+".tmp", []byte(text), 0o600); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if err := os.Rename(path+".tmp", path); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if err == nil {
+				// A running session reads its options again only at a start.
+				mode = netops.DaemonRestart
+			}
+		}
+		if err := s.Runner.DaemonControl(s.pppRequest(p.Device, mode)); err != nil {
+			errs = append(errs, fmt.Errorf("pppoe %s: %w", p.Device, err))
+			continue
+		}
+		running = append(running, p.Device)
+	}
+	for _, d := range s.sessions {
+		if keep[d] {
+			continue
+		}
+		if err := s.Runner.DaemonControl(s.pppRequest(d, netops.DaemonStop)); err != nil {
+			errs = append(errs, fmt.Errorf("pppoe %s: %w", d, err))
+			running = append(running, d)
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.pppDir(), d+".options"))
+	}
+	sort.Strings(running)
+	s.sessions = running
+	errs = append(errs, s.saveLocked())
+	return errors.Join(errs...)
 }

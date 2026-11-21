@@ -3,6 +3,8 @@ package ifstage
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ type fakeKernel struct {
 	links   map[string]*Link
 	clients map[string]string // device -> running client
 	made    map[string]bool   // links SyncLinks created
+	ppp     map[string]int    // pppd per device: how often it was (re)started
 	calls   []string
 	fail    string
 }
@@ -82,6 +85,22 @@ func (k *fakeKernel) DaemonControl(r netops.DaemonRequest) error {
 	if err := k.do(fmt.Sprintf("%s %s %s", r.Mode, r.Name, r.Interface)); err != nil {
 		return err
 	}
+	if r.Name == "pppd" {
+		if k.ppp == nil {
+			k.ppp = map[string]int{}
+		}
+		switch r.Mode {
+		case netops.DaemonEnsure:
+			if _, ok := k.ppp[r.Interface]; !ok {
+				k.ppp[r.Interface] = 1
+			}
+		case netops.DaemonRestart:
+			k.ppp[r.Interface]++
+		case netops.DaemonStop:
+			delete(k.ppp, r.Interface)
+		}
+		return nil
+	}
 	switch r.Mode {
 	case netops.DaemonEnsure:
 		if k.clients[r.Interface] == "" {
@@ -98,6 +117,12 @@ func (k *fakeKernel) DaemonControl(r netops.DaemonRequest) error {
 }
 
 func (k *fakeKernel) DaemonStateOf(r netops.DaemonRequest) (string, error) {
+	if r.Name == "pppd" {
+		if _, ok := k.ppp[r.Interface]; ok {
+			return "running", nil
+		}
+		return "stopped", nil
+	}
 	if r.Name == "dhclient" {
 		if k.clients[r.Interface] == r.Name {
 			return "running", nil
@@ -414,5 +439,81 @@ func TestTheFirstArtifactFormStillApplies(t *testing.T) {
 	a, err := decode([]byte(`[{"name":"eth1","addresses":["10.0.0.1/24"]}]`))
 	if err != nil || len(a.Devices) != 1 || a.Devices[0].Name != "eth1" || len(a.Links) != 0 {
 		t.Errorf("decode: %+v %v", a, err)
+	}
+}
+
+// TestAPPPoESession: the stage writes the session's options file (0600,
+// the password in it and nowhere else), runs pppd for it, restarts it
+// when the options change, and stops it and removes the file when the
+// session leaves the model. Shown artifacts carry no password.
+func TestAPPPoESession(t *testing.T) {
+	f := newFixture(t)
+	f.create(&model.PPPoE{Meta: model.Meta{Name: "isp"}, Enabled: true, Device: "ppp0", Parent: "eth0",
+		Username: "alice@isp", Password: `s3"cret`, DefaultRoute: true})
+	if err := f.apply(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(f.dir, "ppp", "ppp0.options")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+		t.Errorf("options file mode %v", fi.Mode().Perm())
+	}
+	for _, want := range []string{"plugin pppoe.so", "nic-eth0", "ifname ppp0", `user "alice@isp"`, `password "s3\"cret"`, "defaultroute", "nodetach"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("options lack %q:\n%s", want, b)
+		}
+	}
+	if f.k.ppp["ppp0"] != 1 {
+		t.Fatalf("pppd starts: %v", f.k.ppp)
+	}
+	raw, _ := f.s.Render(f.store.Current())
+	if shown := string(f.s.Redact(raw)); strings.Contains(shown, "s3") || !strings.Contains(shown, model.SecretMask) {
+		t.Errorf("a shown artifact carries the password:\n%s", shown)
+	}
+
+	// Unchanged: pppd runs on. Changed: it starts again with the new options.
+	if err := f.apply(); err != nil || f.k.ppp["ppp0"] != 1 {
+		t.Errorf("an unchanged session was restarted: %v %v", err, f.k.ppp)
+	}
+	for _, o := range f.store.Current().List(model.KindPPPoE) {
+		p := o.(*model.PPPoE)
+		p.MTU = 1480
+		if _, err := f.store.Update(context.Background(), "t", p, p.Version); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.apply(); err != nil || f.k.ppp["ppp0"] != 2 {
+		t.Errorf("a changed session was not restarted: %v %v", err, f.k.ppp)
+	}
+
+	// A line break would add options of its own.
+	for _, o := range f.store.Current().List(model.KindPPPoE) {
+		p := o.(*model.PPPoE)
+		p.Password = "x\nplugin evil.so"
+		if _, err := f.store.Update(context.Background(), "t", p, p.Version); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.s.Render(f.store.Current()); err == nil {
+		t.Error("a password with a line break was taken")
+	}
+
+	// Gone from the model: stopped, file removed.
+	for _, o := range f.store.Current().List(model.KindPPPoE) {
+		if err := f.store.Delete(context.Background(), "t", model.KindPPPoE, o.GetMeta().ID, o.GetMeta().Version); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.apply(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.k.ppp["ppp0"]; ok {
+		t.Error("pppd still runs")
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("the options file stayed")
 	}
 }

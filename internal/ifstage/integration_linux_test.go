@@ -311,3 +311,75 @@ func TestLinksOnARealKernel(t *testing.T) {
 		}
 	}
 }
+
+// TestPPPoEOnARealKernel: a PPPoE link of the model dials a PPPoE server in
+// another namespace: ppp0 comes up with the address the server hands out,
+// and goes when the link leaves the model.
+//
+//	[node] wan ── eth0 isp (pppoe-server, 10.64.0.1)
+func TestPPPoEOnARealKernel(t *testing.T) {
+	for _, bin := range []string{"pppd", "pppoe-server"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skip(bin + " is not installed")
+		}
+	}
+	if testnet.Isolate(t) {
+		return
+	}
+	isp := testnet.NewNS(t, "isp")
+	testnet.Veth(t, "wan", isp, "eth0")
+	testnet.Must(t, os.MkdirAll("/etc/ppp", 0o755))
+	testnet.Must(t, os.WriteFile("/etc/ppp/pap-secrets", []byte("\"alice\" * \"s3cret\" *\n"), 0o600))
+	testnet.Must(t, os.WriteFile("/etc/ppp/pppoe-server-options", []byte("require-pap\nlcp-echo-interval 5\nlcp-echo-failure 3\n"), 0o644))
+	var srv *exec.Cmd
+	testnet.Must(t, isp.Do(func() error {
+		srv = exec.Command("pppoe-server", "-F", "-I", "eth0", "-L", "10.64.0.1", "-R", "10.64.0.100", "-N", "4")
+		return srv.Start()
+	}))
+	t.Cleanup(func() { _ = srv.Process.Kill(); _ = srv.Wait() })
+
+	dir := t.TempDir()
+	store, err := confstore.Open(filepath.Join(dir, "config"))
+	testnet.Must(t, err)
+	defer store.Close()
+	ctx := context.Background()
+	site, err := store.Create(ctx, "t", &model.Site{Meta: model.Meta{Name: "hq"}})
+	testnet.Must(t, err)
+	node, err := store.Create(ctx, "t", &model.ClusterNode{Meta: model.Meta{Name: "fw1"},
+		Site: model.Ref[model.Site]{ID: site.GetMeta().ID}, Hostname: "fw1", Address: "10.255.0.1"})
+	testnet.Must(t, err)
+	link, err := store.Create(ctx, "t", &model.PPPoE{Meta: model.Meta{Name: "isp", Scope: model.NodeScope(node.GetMeta().ID)},
+		Enabled: true, Device: "ppp0", Parent: "wan", Username: "alice", Password: "s3cret"})
+	testnet.Must(t, err)
+	nw := &netops.Writer{AllowWrites: true}
+	s := &Stage{Runner: nw, Dir: filepath.Join(dir, "interfaces"), RunDir: filepath.Join(dir, "run"),
+		Locate: func(*confstore.State) (string, string) { return site.GetMeta().ID, node.GetMeta().ID }}
+	t.Cleanup(func() { _ = nw.DaemonControl(s.pppRequest("ppp0", netops.DaemonStop)) })
+	apply := func() {
+		t.Helper()
+		raw, err := s.Render(store.Current())
+		testnet.Must(t, err)
+		testnet.Must(t, s.Check(ctx, raw))
+		testnet.Must(t, s.Apply(ctx, raw))
+		testnet.Must(t, s.Healthy(ctx))
+	}
+	apply()
+	var l Link
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(250 * time.Millisecond) {
+		if l, _, _ = netlinkLinks("ppp0"); slices.Contains(l.Addresses, "10.64.0.100/32") {
+			break
+		}
+	}
+	if !slices.Contains(l.Addresses, "10.64.0.100/32") {
+		t.Fatalf("ppp0 did not come up with the server's address: %+v", l)
+	}
+
+	testnet.Must(t, store.Delete(ctx, "t", model.KindPPPoE, link.GetMeta().ID, link.GetMeta().Version))
+	apply()
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(250 * time.Millisecond) {
+		if _, ok, _ := netlinkLinks("ppp0"); !ok {
+			return
+		}
+	}
+	t.Error("ppp0 stayed after the link left the model")
+}

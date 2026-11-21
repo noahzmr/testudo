@@ -1,0 +1,22 @@
+# A PPPoE session of Testudo (instance: the PPP device, such as ppp0),
+# started and stopped by Testudo when the model has a PPPoE link. pppd reads
+# the options Testudo wrote, credentials included, from a file only root
+# can read. It runs outside Testudo's sandbox so its scripts can set the
+# routes and name servers of the session.
+[Unit]
+Description=PPPoE session %i for Testudo
+Documentation=file:///usr/share/doc/testudo/operations.md
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/pppd file /var/lib/testudo/interfaces/ppp/%i.options
+Restart=on-failure
+RestartSec=5s
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL CAP_SYS_MODULE
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET AF_PPPOX
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
