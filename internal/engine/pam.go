@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/capture"
 	"github.com/noahzmr/testudo/internal/events"
 	"github.com/noahzmr/testudo/internal/integrations/guacamole"
+	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/pam"
 	"github.com/noahzmr/testudo/internal/sshca"
 	"github.com/noahzmr/testudo/internal/storage"
@@ -49,14 +51,14 @@ func (e *Engine) startPAM(ctx context.Context) {
 	if td := e.TCPDump(); td != nil && capture.TCPDumpAvailable() {
 		capturer = pamCapturer{m: td}
 	}
-	th := e.settings.Snapshot()
 	store := e.accessStore()
 	e.shareOpenRequests(ctx, store)
 	e.pam = pam.New(store, accessCatalog{e}, modelGrants{e}, e.netops, capturer, pam.Options{
-		Device:  firstNonEmpty(th.WireGuardDevice, "wg0"),
-		Broker:  e.guacBroker(),
-		OnEvent: e.publishAccessEvent,
-		Leads:   e.LeadsCluster,
+		Device:   "wg0",
+		DeviceOf: e.tunnelDevice,
+		Broker:   e.guacBroker(),
+		OnEvent:  e.publishAccessEvent,
+		Leads:    e.LeadsCluster,
 	})
 	e.wg.Add(1)
 	go func() {
@@ -197,4 +199,28 @@ func (e *Engine) publishAccessEvent(ev storage.AccessEvent) {
 		Kind: events.KindAnomaly, Time: ev.TS, Source: "pam",
 		Payload: events.AnomalyPayload{Severity: string(sev), Message: msg},
 	})
+}
+
+// tunnelDevice is the device of the first enabled WireGuard tunnel of this
+// node in the model, by name; "" when it has none.
+func (e *Engine) tunnelDevice() string {
+	if e.conf.store == nil {
+		return ""
+	}
+	st := e.conf.store.Current()
+	site, node := e.locate(st)
+	var devs []string
+	for _, o := range st.List(model.KindWGTunnel) {
+		if !model.AppliesTo(o, site, node) {
+			continue
+		}
+		if t := o.(*model.WGTunnel); t.Enabled {
+			devs = append(devs, t.Device)
+		}
+	}
+	sort.Strings(devs)
+	if len(devs) == 0 {
+		return ""
+	}
+	return devs[0]
 }

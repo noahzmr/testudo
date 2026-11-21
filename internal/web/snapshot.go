@@ -539,12 +539,6 @@ type thresholdsView struct {
 	FlowRetransPct      float64 `json:"flow_retrans_pct"`
 	ExpectedDownMbps    float64 `json:"expected_down_mbps"`
 	ExpectedUpMbps      float64 `json:"expected_up_mbps"`
-
-	WireGuardServerAddr   string `json:"wireguard_server_addr"`
-	WireGuardListenPort   int    `json:"wireguard_listen_port"`
-	WireGuardNetplanPath  string `json:"wireguard_netplan_path"`
-	WireGuardTunnelSubnet string `json:"wireguard_tunnel_subnet"`
-	WireGuardLANSubnets   string `json:"wireguard_lan_subnets"`
 }
 
 type tcpdumpView struct {
@@ -1111,12 +1105,6 @@ func (s *Server) buildSnapshot() snapshot {
 		FlowRetransPct:      th.FlowRetransPct,
 		ExpectedDownMbps:    th.ExpectedDownMbps,
 		ExpectedUpMbps:      th.ExpectedUpMbps,
-
-		WireGuardServerAddr:   th.WireGuardServerAddr,
-		WireGuardListenPort:   th.WireGuardListenPort,
-		WireGuardNetplanPath:  th.WireGuardNetplanPath,
-		WireGuardTunnelSubnet: th.WireGuardTunnelSubnet,
-		WireGuardLANSubnets:   th.WireGuardLANSubnets,
 	}
 	return snap
 }

@@ -87,39 +87,23 @@ type Thresholds struct {
 	MaxMindAutoUpdate   bool   // periodically re-download the configured editions
 	MaxMindRefreshHours int    // refresh cadence in hours; 0 => 7-day default
 
-	// WireGuard management inputs used by the "Provision Peer" flow. These are
-	// operator-set (not end-user) so a peer wizard can't fat-finger the routing
-	// policy. Public material only - no keys except the server's PUBLIC key.
-	WireGuardDevice          string // wg device to manage, e.g. "wg0"
-	WireGuardTunnelSubnet    string // IPAM pool, e.g. "10.8.0.0/24"
-	WireGuardServerAddr      string // server's tunnel address, e.g. "10.8.0.1"
-	WireGuardServerPublicKey string // server's PUBLIC key for client configs
-	WireGuardEndpoint        string // public endpoint host:port for client configs
-	WireGuardDNS             string // optional DNS pushed to clients (e.g. Pi-hole)
-	WireGuardWANIface        string // egress iface for the full-tunnel masquerade
-	WireGuardLANSubnets      string // comma-separated subnets for the split preset
-	WireGuardListenPort      int    // wg interface listen port for netplan render
-	WireGuardNetplanPath     string // netplan file to write, under /etc/netplan
 }
 
 func DefaultThresholds() Thresholds {
 	return Thresholds{
-		PacketLossPct:        2.0,
-		DNSLatencyMs:         120,
-		JitterMs:             20,
-		RTTMs:                150,
-		RetransmissionsPct:   5,
-		IncidentCooldown:     60 * time.Second,
-		AllowNetopsWrite:     false,
-		IPFIXEnabled:         false,
-		IPFIXEndpoint:        "",
-		IPFIXIntervalSec:     30,
-		IPFIXDomainID:        0,
-		EBPFEnabled:          false,
-		FlowRetransPct:       5,
-		WireGuardDevice:      "wg0",
-		WireGuardListenPort:  51820,
-		WireGuardNetplanPath: "/etc/netplan/60-testudo-wg.yaml",
+		PacketLossPct:      2.0,
+		DNSLatencyMs:       120,
+		JitterMs:           20,
+		RTTMs:              150,
+		RetransmissionsPct: 5,
+		IncidentCooldown:   60 * time.Second,
+		AllowNetopsWrite:   false,
+		IPFIXEnabled:       false,
+		IPFIXEndpoint:      "",
+		IPFIXIntervalSec:   30,
+		IPFIXDomainID:      0,
+		EBPFEnabled:        false,
+		FlowRetransPct:     5,
 	}
 }
 

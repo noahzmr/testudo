@@ -121,9 +121,12 @@ type Broker interface {
 // Options configures a Manager.
 type Options struct {
 	Device       string // wg device grants are scoped to (iifname), e.g. "wg0"
-	CaptureIface string // interface to capture on; defaults to Device
-	Now          func() time.Time
-	Broker       Broker
+	CaptureIface string // interface to capture on; defaults to the device
+	// DeviceOf names the device when it can change (the node's tunnels);
+	// "" falls back to Device.
+	DeviceOf func() string
+	Now      func() time.Time
+	Broker   Broker
 	// OnEvent is called (outside the lock) after every access event is stored.
 	OnEvent func(storage.AccessEvent)
 	// Leads reports whether this manager does the chores every member
@@ -161,9 +164,6 @@ func New(store Store, cat Catalog, fw Enforcer, flows Flows, cap Capturer, opts 
 	}
 	if opts.Device == "" {
 		opts.Device = "wg0"
-	}
-	if opts.CaptureIface == "" {
-		opts.CaptureIface = opts.Device
 	}
 	return &Manager{store: store, cat: cat, fw: fw, flows: flows, cap: cap, opts: opts}
 }
@@ -371,7 +371,7 @@ func (m *Manager) activateLocked(ctx context.Context, g *storage.PAMGrant, res s
 	}
 	if m.cap != nil {
 		bpf := captureFilter(ips, res.CIDR)
-		if id, err := m.cap.Start("pam-"+g.ID, m.opts.CaptureIface, bpf); err != nil {
+		if id, err := m.cap.Start("pam-"+g.ID, firstOf(m.opts.CaptureIface, m.device()), bpf); err != nil {
 			m.event(ctx, g.User, "capture_failed", g.ID, err.Error())
 		} else {
 			g.CaptureID = id
@@ -394,7 +394,7 @@ func (m *Manager) activateLocked(ctx context.Context, g *storage.PAMGrant, res s
 		return err
 	}
 	m.event(ctx, g.User, "activated", g.ID, fmt.Sprintf("%s via %s until %s (peers %s)%s",
-		res.Name, m.opts.Device, g.EndsAt.UTC().Format(time.RFC3339), strings.Join(ips, ","), brokered))
+		res.Name, m.device(), g.EndsAt.UTC().Format(time.RFC3339), strings.Join(ips, ","), brokered))
 	return nil
 }
 
@@ -614,7 +614,7 @@ func (m *Manager) Overview(ctx context.Context) (Overview, error) {
 	}
 	o.ChainChecked, o.ChainBroken, _ = m.store.VerifyAccessEvents(ctx)
 	o.PeerUsers = m.cat.PeerUsers()
-	o.Device = m.opts.Device
+	o.Device = m.device()
 	return o, nil
 }
 
@@ -706,4 +706,21 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// device is the tunnel device grants are reached through.
+func (m *Manager) device() string {
+	if m.opts.DeviceOf != nil {
+		if d := m.opts.DeviceOf(); d != "" {
+			return d
+		}
+	}
+	return m.opts.Device
+}
+
+func firstOf(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
