@@ -10,7 +10,7 @@ set -eu
 cd "$(git rev-parse --show-toplevel)"
 
 pkgs="./internal/capture ./internal/fwrender ./internal/fwbridge ./internal/fwstage ./internal/frrender ./internal/frrstage ./internal/lbstage ./internal/hastage ./internal/svcstage ./internal/flowattr ./cmd/testudo"
-pattern='^(TestFlowBaseline|TestCaptureFollowsNewInterfaces|TestModelDrivesTheKernel|TestGoldenRulesetLoadsIntoAKernel|TestRulesetOnARealKernel|TestGoldenConfigPassesFRRCheck|TestRoutingOnARealKernel|TestPrivilegedPathEndToEnd|TestVPNEndToEnd|TestKernelBalancingOnARealKernel|TestProxyOnARealKernel|TestPublishedServiceNeedsLogin|TestClusterEndToEnd|TestFabricEndToEnd|TestProxyPrefersLocalBackends|TestNATAttributionOnARealKernel|TestPairOnARealKernel|TestServicesOnARealKernel|TestServicesEndToEnd)$'
+pattern='^(TestFlowBaseline|TestCaptureFollowsNewInterfaces|TestModelDrivesTheKernel|TestGoldenRulesetLoadsIntoAKernel|TestRulesetOnARealKernel|TestGoldenConfigPassesFRRCheck|TestRoutingOnARealKernel|TestPrivilegedPathEndToEnd|TestVPNEndToEnd|TestKernelBalancingOnARealKernel|TestProxyOnARealKernel|TestPublishedServiceNeedsLogin|TestClusterEndToEnd|TestFabricEndToEnd|TestProxyPrefersLocalBackends|TestNATAttributionOnARealKernel|TestPairOnARealKernel|TestServicesOnARealKernel|TestServicesEndToEnd|TestDHCPFailoverOnARealKernel)$'
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
