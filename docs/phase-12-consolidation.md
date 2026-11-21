@@ -165,12 +165,24 @@ sysctl writes, flushing a device's addresses and the old tables' state
 queries were removed from its protocol. The packaged unit no longer may
 write `/etc/netplan`.
 
+## DHCP clients as units
+
+Where systemd runs the host, an interface's DHCP client is a unit of its
+own, `testudo-dhcp@<device>` (dhclient) or `testudo-dhcpcd@<device>`,
+which the privileged runner starts and stops. It runs outside Testudo's
+sandbox, so the client's script sets the routes and the resolver the
+lease brings, and it keeps the lease while Testudo restarts. Testudo's
+own unit may write only its state, FRR's directories and Kea's data
+directory. Without systemd (tests, a developer run) the runner
+supervises the client itself.
+
+## Access-log chains
+
+Each member answers another with its log and the check of its chain;
+the overview on any member shows every member's check, a member that
+cannot be asked as not checked, and the leader raises an alert when a
+chain breaks.
+
 ## Open
 
-* The settings fields of the removed WireGuard provisioner are still read
-  from `settings.json` (only the device name is used, by the access
-  manager).
-* Name servers from a DHCP lease are not applied under the packaged
-  unit's read-only `/etc`.
-* Each member verifies only its own access-log chain; a broken chain on
-  another member shows on that member.
+Nothing from the list "What the existing code makes harder" is left.
