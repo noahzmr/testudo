@@ -118,9 +118,7 @@ func usage() {
 	fmt.Println("  replay <id>       open a past session in the replay TUI")
 	fmt.Println("  ifaces            list capturable interfaces")
 	fmt.Println("  routes            show kernel routing table")
-	fmt.Println("  nat list          show Testudo-managed port forwards")
-	fmt.Println("  nat add <proto> <wan> <lan-ip>[:<lan-port>]   add port forward")
-	fmt.Println("  nat del <proto> <wan>                          remove port forward")
+	fmt.Println("  nat list                                       the model's NAT rules on this node (running daemon)")
 	fmt.Println("  config status | history [-n N] | export        the configuration model (read)")
 	fmt.Println("  config import-legacy [--apply]                 translate firewall.json, users and tunnels into the model")
 	fmt.Println("  config compact [--keep N]                      fold old history into a snapshot")
@@ -128,10 +126,8 @@ func usage() {
 	fmt.Println("  backup create --out FILE                       encrypted backup of model, secrets, users and certificates")
 	fmt.Println("  backup inspect --in FILE                       check an archive and list what it holds")
 	fmt.Println("  backup restore --in FILE [--force]             put an archive back (daemon stopped)")
-	fmt.Println("  firewall status                                policy mode, counts, kernel drift")
-	fmt.Println("  firewall rules                                 render the policy nft-style")
-	fmt.Println("  firewall export                                policy JSON out")
-	fmt.Println("  firewall apply                                 re-apply the policy to the kernel")
+	fmt.Println("  firewall status                                the model's rules, counters, whether the kernel holds them")
+	fmt.Println("  firewall rules                                 the ruleset as nft loads it")
 	fmt.Println("  discover [--active] [--lldp] [--snmp-community] one-shot scan (ARP/ICMP/mDNS/LLDP/SNMP)")
 	fmt.Println("  probe <kind> <target> [port]                   one-shot probe (icmp/tcp/udp/dns/throughput/traceroute)")
 	fmt.Println("  doctor [--target-ip] [--json] [--no-captive]   layered connectivity diagnosis (first failing layer = root cause)")
@@ -317,80 +313,6 @@ func cmdIfaces() error {
 		fmt.Println("  " + name)
 	}
 	return nil
-}
-
-func cmdNAT(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: testudo nat <list|add|del> ...")
-	}
-	// Port forwards are part of the firewall policy: the manager persists the
-	// change to firewall.json and rebuilds the NAT table atomically, so a
-	// forward added here survives a reboot (and shows up in the TUI / Web UI).
-	switch args[0] {
-	case "list":
-		m, err := openDirectFirewall(false)
-		if err != nil {
-			return err
-		}
-		fws, masqs, _ := m.NAT()
-		if len(fws) == 0 && len(masqs) == 0 {
-			fmt.Println("no Testudo-managed port forwards or masquerades")
-			return nil
-		}
-		for _, pf := range fws {
-			live := ""
-			if !pf.Live {
-				live = "  (not live - run `testudo firewall apply`)"
-			}
-			fmt.Printf("  %s wan=%d -> %s:%d%s\n", strings.ToUpper(pf.Proto), pf.WANPort, pf.LANIP, pf.LANPort, live)
-		}
-		for _, ms := range masqs {
-			fmt.Printf("  MASQ %s via %s (%s)\n", ms.SrcCIDR, ms.OutIface, ms.Owner)
-		}
-		return nil
-	case "add":
-		if len(args) < 4 {
-			return fmt.Errorf("usage: testudo nat add <tcp|udp> <wan-port> <lan-ip>[:<lan-port>]")
-		}
-		proto := args[1]
-		wan, err := parsePort(args[2])
-		if err != nil {
-			return fmt.Errorf("wan port: %w", err)
-		}
-		lanIP, lanPort, err := parseHostPort(args[3], wan)
-		if err != nil {
-			return fmt.Errorf("lan target: %w", err)
-		}
-		m, err := openDirectFirewall(true)
-		if err != nil {
-			return err
-		}
-		return m.AddForward(netops.PortForward{
-			Proto: proto, WANPort: wan, LANIP: lanIP, LANPort: lanPort,
-		})
-	case "del":
-		if len(args) < 3 {
-			return fmt.Errorf("usage: testudo nat del <tcp|udp> <wan-port>")
-		}
-		proto := args[1]
-		wan, err := parsePort(args[2])
-		if err != nil {
-			return fmt.Errorf("wan port: %w", err)
-		}
-		m, err := openDirectFirewall(true)
-		if err != nil {
-			return err
-		}
-		n, err := m.DelForwardsMatching(proto, wan)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return fmt.Errorf("no forward for %s/%d", proto, wan)
-		}
-		return nil
-	}
-	return fmt.Errorf("unknown nat subcommand: %s", args[0])
 }
 
 func cmdRoutes(args []string) error {

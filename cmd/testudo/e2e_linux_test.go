@@ -164,7 +164,7 @@ func TestPrivilegedPathEndToEnd(t *testing.T) {
 	listing := string(out)
 	for _, want := range []string{
 		"hook input priority filter; policy drop;",
-		"tcp dport 18080", // the web UI's own port is protected
+		"tcp dport { 22, 18080 } accept", // SSH and the web UI's own port are protected
 		"ip daddr 192.0.2.10 tcp dport 443",
 		"ip6 daddr 2001:db8::10 tcp dport 443",
 		fmt.Sprint(rule["id"]),

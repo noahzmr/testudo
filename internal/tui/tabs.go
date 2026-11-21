@@ -14,7 +14,6 @@ import (
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/engine"
-	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/integrations/guacamole"
 	sentryx "github.com/noahzmr/testudo/internal/integrations/sentry"
@@ -903,13 +902,12 @@ func (t *routesTab) View(w, h int) string {
 // ---- Firewall ----
 
 type firewallTab struct {
-	eng     *engine.Engine
-	app     *App
-	rules   []netops.RuleInfo
-	managed []firewall.RuleStatus // policy rules (baseline included) joined with live counters
-	status  firewall.Status
-	err     error
-	cursor  int
+	eng    *engine.Engine
+	app    *App
+	rules  []netops.RuleInfo
+	view   engine.FirewallView // the model's rules on this node with their counters
+	err    error
+	cursor int
 }
 
 func newFirewallTab(eng *engine.Engine, app *App) *firewallTab {
@@ -919,7 +917,6 @@ func newFirewallTab(eng *engine.Engine, app *App) *firewallTab {
 func (t *firewallTab) HelpHints() []KeyHint {
 	return []KeyHint{
 		{Key: "↑/↓ · j/k", Desc: "select rule"},
-		{Key: "x", Desc: "delete the selected hand-made rule (rules and defaults are edited in the Web UI or with testudo config)"},
 		{Key: "R", Desc: "reset the selected kernel rule's counter (needs netops writes)"},
 		{Key: "r", Desc: "refresh"},
 	}
@@ -933,21 +930,7 @@ func (t *firewallTab) refresh() {
 		return
 	}
 	t.rules, t.err = t.eng.Netops().ListFirewallRules()
-	if fw := t.eng.Firewall(); fw != nil {
-		t.managed, _ = fw.Rules()
-		t.status = fw.Status()
-	} else if ferr := t.eng.FirewallError(); ferr != nil && t.err == nil {
-		t.err = fmt.Errorf("firewall policy unavailable: %w", ferr)
-	}
-}
-
-// selectedManaged returns the policy rule under the cursor, if any.
-func (t *firewallTab) selectedManaged() (firewall.RuleStatus, bool) {
-	rows := t.rows()
-	if t.cursor < 0 || t.cursor >= len(rows) || rows[t.cursor].kind != firewallRowManaged {
-		return firewall.RuleStatus{}, false
-	}
-	return t.managed[rows[t.cursor].managedIdx], true
+	t.view = t.eng.FirewallView()
 }
 
 // firewallRowKind classifies one row in the unified firewall list.
@@ -967,12 +950,12 @@ type firewallRow struct {
 	ruleIdx    int
 }
 
-// rows returns every navigable row in the firewall tab: editable managed
-// rules first, then every decoded kernel rule (with per-rule counters). The
+// rows returns every navigable row in the firewall tab: the model's rules
+// first, then every decoded kernel rule (with per-rule counters). The
 // cursor indexes into this slice so j/k always lands on something visible.
 func (t *firewallTab) rows() []firewallRow {
-	out := make([]firewallRow, 0, len(t.managed)+len(t.rules))
-	for i := range t.managed {
+	out := make([]firewallRow, 0, len(t.view.Rules)+len(t.rules))
+	for i := range t.view.Rules {
 		out = append(out, firewallRow{kind: firewallRowManaged, managedIdx: i})
 	}
 	for i := range t.rules {
@@ -1007,29 +990,12 @@ func (t *firewallTab) Update(msg tea.Msg) tea.Cmd {
 		case "r":
 			t.refresh()
 		case "x":
-			// Only policy rules can be deleted from here; tell the user when
-			// they try to delete a decoded kernel rule or a baseline row.
-			if t.cursor >= 0 && t.cursor < len(rows) && rows[t.cursor].kind == firewallRowRule {
-				return statusCmd("kernel rule is read-only here - delete policy rules only")
-			}
-			return t.openDelModal()
+			return statusCmd("rules are changed in the configuration: the console's Firewall section or testudo config")
 		case "R":
 			return t.resetSelectedCounter()
 		}
 	}
 	return nil
-}
-
-// firewallManager returns the policy manager or a status toast explaining why
-// firewall management is unavailable.
-func (t *firewallTab) firewallManager() (*firewall.Manager, tea.Cmd) {
-	if fw := t.eng.Firewall(); fw != nil {
-		return fw, nil
-	}
-	if err := t.eng.FirewallError(); err != nil {
-		return nil, statusCmd("firewall policy unavailable: " + err.Error())
-	}
-	return nil, statusCmd("netops not initialized - firewall management is off")
 }
 
 func isYes(s string) bool {
@@ -1057,67 +1023,28 @@ func (t *firewallTab) resetSelectedCounter() tea.Cmd {
 	return statusCmd(fmt.Sprintf("counter reset on %s/%s/%s handle %d", r.Family, r.Table, r.Chain, r.Handle))
 }
 
-// openDelModal deletes the selected policy rule by its id after a yes/no
-// confirmation. Baseline rows are rendered from the policy baseline and are
-// not deletable one by one.
-func (t *firewallTab) openDelModal() tea.Cmd {
-	fw, cmd := t.firewallManager()
-	if fw == nil {
-		return cmd
-	}
-	rs, ok := t.selectedManaged()
-	if !ok {
-		return statusCmd("select a policy rule to delete")
-	}
-	if rs.Baseline {
-		return statusCmd("baseline rules come from the firewall policy object")
-	}
-	if rs.Owner != "" && rs.Owner != netops.OwnerUser {
-		return statusCmd("this rule belongs to " + rs.Owner + " - change it there")
-	}
-	modal := NewFormModal("Delete rule: "+rs.FilterRule.String(),
-		[]FormField{{Label: "confirm", Value: "", Hint: "type yes to delete rule " + rs.ID}},
-		func(values map[string]string) error {
-			if !isYes(values["confirm"]) {
-				return fmt.Errorf("type yes to confirm")
-			}
-			err := fw.DelRule(rs.ID)
-			t.eng.AuditFirewall(tuiActor(), "rule_del", rs.FilterRule.String(), err)
-			if err == nil {
-				t.refresh()
-			}
-			return err
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-// policyHeader summarises the firewall policy state for the tab header: mode,
-// sync, pending commit-confirm.
+// policyHeader summarises the packet filter for the tab header: mode, and
+// whether the kernel holds the model's ruleset.
 func (t *firewallTab) policyHeader() string {
-	st := t.status
+	v := t.view
+	if !v.HasPolicy {
+		return "no firewall policy in the model: nothing is filtered"
+	}
 	mode := "default-accept"
-	if st.Enforce {
+	if v.DefaultDeny {
 		mode = "DEFAULT-DENY"
 	}
 	parts := []string{mode}
 	switch {
-	case st.PendingConfirm:
-		left := time.Until(st.PendingUntil).Round(time.Second)
-		parts = append(parts, fmt.Sprintf("UNCONFIRMED - reverts in %s", left))
-	case st.DriftError != "":
-		parts = append(parts, "kernel unreadable: "+st.DriftError)
-	case st.Inert && !st.TableExists:
-		parts = append(parts, "inert - nothing installed until the first rule or default-deny")
-	case !st.InSync && !st.LastChecked.IsZero():
-		parts = append(parts, "DRIFT: "+strings.Join(st.DriftDetail, "; "))
-	case st.LastError != "":
-		parts = append(parts, "error: "+st.LastError)
+	case v.Error != "":
+		parts = append(parts, "error: "+v.Error)
+	case v.InSync:
+		parts = append(parts, "kernel holds the model's ruleset")
 	default:
-		parts = append(parts, "kernel in sync")
+		parts = append(parts, "kernel differs from the model (reloaded automatically)")
 	}
-	if !st.WritesAllowed {
-		parts = append(parts, "writes disabled")
+	if v.Policy != "" {
+		parts = append(parts, "policy "+v.Policy)
 	}
 	return strings.Join(parts, " · ")
 }
@@ -1125,15 +1052,15 @@ func (t *firewallTab) policyHeader() string {
 func (t *firewallTab) View(w, h int) string {
 	all := t.rows()
 	out := []string{headerStyle.Render(fmt.Sprintf(
-		"Firewall - %s · %d policy rules · %d kernel rules",
-		t.policyHeader(), t.status.RuleCount, len(t.rules)))}
-	out = append(out, dimStyle.Render("  ↑/↓ select · a=add · e=edit · x=del · E=toggle default-deny · C=confirm · R=reset counter · r=refresh"))
+		"Firewall - %s · %d model rules · %d kernel rules",
+		t.policyHeader(), len(t.view.Rules), len(t.rules)))}
+	out = append(out, dimStyle.Render("  ↑/↓ select · R=reset counter · r=refresh · rules are changed in the configuration"))
 	if t.err != nil {
 		out = append(out, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(out, "\n"))
 	}
 	if len(all) == 0 {
-		out = append(out, subtitleStyle.Render("  no rules visible - press 'a' to add the first policy rule"))
+		out = append(out, subtitleStyle.Render("  no rules visible - add them in the console's Firewall section"))
 		return boxStyle.Render(strings.Join(out, "\n"))
 	}
 
@@ -1141,12 +1068,12 @@ func (t *firewallTab) View(w, h int) string {
 	// marker / indent, the actual table width is w - 6.
 	innerW := w - 6
 
-	// Policy section first. Cursor index 0..len(managed)-1 falls here.
-	mw := []int{8, 8, 44, 16, 8, 8}
-	if len(t.managed) > 0 {
-		out = append(out, headerStyle.Render("Policy rules (install order; baseline rows dimmed, read-only)"))
+	// The model's rules first. Cursor index 0..len(view.Rules)-1 falls here.
+	mw := []int{18, 8, 8, 36, 8, 8}
+	if len(t.view.Rules) > 0 {
+		out = append(out, headerStyle.Render("Rules of the model (disabled ones dimmed)"))
 		out = append(out, "  "+renderTableRow(innerW, mw,
-			"CHAIN", "ACTION", "MATCH", "OWNER", "PKTS", "BYTES"))
+			"RULE", "DIR", "ACTION", "MATCH", "PKTS", "BYTES"))
 	}
 	// Decoded per-rule section. Rules arrive already top-sorted per chain
 	// (highest-hit DROP/REJECT first); we print a sub-header whenever the
@@ -1158,25 +1085,13 @@ func (t *firewallTab) View(w, h int) string {
 		var rendered string
 		switch r.kind {
 		case firewallRowManaged:
-			rs := t.managed[r.managedIdx]
-			action := strings.ToUpper(rs.Action)
-			if rs.Log && rs.Action != "log" {
-				action += "+LOG"
-			}
-			owner := rs.Owner
-			if owner == netops.OwnerUser {
-				owner = "-"
-			}
-			if !rs.Live {
-				owner = "NOT LIVE " + owner
-			}
-			pkts, bytes := "-", "-"
-			if rs.HasCounter {
-				pkts = fmt.Sprintf("%d", rs.Packets)
-				bytes = fmtBytes(rs.Bytes)
+			rv := t.view.Rules[r.managedIdx]
+			match := rv.Match
+			if match == "" {
+				match = "any"
 			}
 			rendered = renderTableRow(innerW, mw,
-				rs.Chain, action, ruleMatchText(rs.FilterRule), owner, pkts, bytes)
+				rv.Name, rv.Direction, strings.ToUpper(rv.Action), match, fmt.Sprintf("%d", rv.Packets), fmtBytes(rv.Bytes))
 		case firewallRowRule:
 			ru := t.rules[r.ruleIdx]
 			if !ruleHeaderShown {
@@ -1209,7 +1124,7 @@ func (t *firewallTab) View(w, h int) string {
 		switch {
 		case i == t.cursor:
 			out = append(out, selectedRowStyle.Render(marker+rendered))
-		case r.kind == firewallRowManaged && t.managed[r.managedIdx].Baseline:
+		case r.kind == firewallRowManaged && !t.view.Rules[r.managedIdx].Enabled:
 			out = append(out, dimStyle.Render(marker+rendered))
 		case r.kind == firewallRowRule && t.rules[r.ruleIdx].IsBlocking() && t.rules[r.ruleIdx].Packets > 0:
 			// Active blocking rules are the "what's blocking me" signal -
@@ -1240,12 +1155,11 @@ func ruleMatchText(fr netops.FilterRule) string {
 // ---- NAT ----
 
 type natTab struct {
-	eng      *engine.Engine
-	app      *App
-	forwards []firewall.ForwardStatus
-	masqs    []firewall.MasqStatus
-	err      error
-	cursor   int
+	eng    *engine.Engine
+	app    *App
+	nat    []engine.RuleView // the model's NAT rules on this node
+	err    error
+	cursor int
 
 	// focusCT moves the cursor into the live conntrack table (below the
 	// port forwards) so a translated flow can be selected and flushed.
@@ -1258,7 +1172,6 @@ func newNATTab(eng *engine.Engine, app *App) *natTab { return &natTab{eng: eng, 
 func (t *natTab) HelpHints() []KeyHint {
 	return []KeyHint{
 		{Key: "↑/↓ · j/k", Desc: "select row"},
-		{Key: "x", Desc: "delete the selected hand-made port forward (NAT rules are edited in the Web UI or with testudo config)"},
 		{Key: "c", Desc: "focus the live conntrack table"},
 		{Key: "F", Desc: "flush the selected conntrack flow (needs netops writes)"},
 		{Key: "r", Desc: "refresh"},
@@ -1268,18 +1181,9 @@ func (t *natTab) Title() string    { return "NAT" }
 func (t *natTab) ShortKey() string { return "7" }
 func (t *natTab) Init() tea.Cmd    { return nil }
 func (t *natTab) refresh() {
-	fw := t.eng.Firewall()
-	if fw == nil {
-		if err := t.eng.FirewallError(); err != nil {
-			t.err = fmt.Errorf("firewall policy unavailable: %w", err)
-		} else {
-			t.err = fmt.Errorf("netops not initialized")
-		}
-		return
-	}
-	t.forwards, t.masqs, t.err = fw.NAT()
-	if t.cursor >= len(t.forwards) {
-		t.cursor = len(t.forwards) - 1
+	t.nat, t.err = t.eng.FirewallView().NAT, nil
+	if t.cursor >= len(t.nat) {
+		t.cursor = len(t.nat) - 1
 	}
 	if t.cursor < 0 {
 		t.cursor = 0
@@ -1308,13 +1212,13 @@ func (t *natTab) Update(msg tea.Msg) tea.Cmd {
 				if t.ctCursor < len(t.conntrack())-1 {
 					t.ctCursor++
 				}
-			} else if t.cursor < len(t.forwards)-1 {
+			} else if t.cursor < len(t.nat)-1 {
 				t.cursor++
 			}
 		case "r":
 			t.refresh()
 		case "x":
-			return t.openDelModal()
+			return statusCmd("NAT rules are changed in the configuration: the console's NAT rules or testudo config")
 		case "F":
 			return t.flushSelectedConntrack()
 		}
@@ -1369,33 +1273,6 @@ func (t *natTab) openFlushModal(f netops.ConntrackFlow) tea.Cmd {
 	return t.app.SetModal(modal)
 }
 
-// openDelModal deletes the selected port forward when it was made by hand.
-func (t *natTab) openDelModal() tea.Cmd {
-	fw := t.eng.Firewall()
-	if fw == nil || t.cursor < 0 || t.cursor >= len(t.forwards) {
-		return statusCmd("select a port forward to delete")
-	}
-	pf := t.forwards[t.cursor]
-	if pf.Owner != "" && pf.Owner != netops.OwnerUser {
-		return statusCmd("this forward belongs to " + pf.Owner + " - change it there")
-	}
-	modal := NewFormModal("Delete port forward: "+pf.PortForward.String(),
-		[]FormField{{Label: "confirm", Value: "", Hint: "type yes to delete"}},
-		func(values map[string]string) error {
-			if !isYes(values["confirm"]) {
-				return fmt.Errorf("type yes to confirm")
-			}
-			err := fw.DelForward(pf.ID)
-			t.eng.AuditFirewall(tuiActor(), "forward_del", pf.PortForward.String(), err)
-			if err == nil {
-				t.refresh()
-			}
-			return err
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
 func parseUint16(s string) (uint16, error) {
 	if s == "" {
 		return 0, fmt.Errorf("required")
@@ -1410,59 +1287,28 @@ func parseUint16(s string) (uint16, error) {
 	return uint16(n), nil
 }
 func (t *natTab) View(w, h int) string {
-	rows := []string{headerStyle.Render("NAT - port forwards in testudo_nat table · a=add · x=del · c=conntrack · r=refresh")}
+	rows := []string{headerStyle.Render("NAT - the model's NAT rules · c=conntrack · r=refresh · rules are changed in the configuration")}
 	if t.err != nil {
 		rows = append(rows, netopsErrLines(t.err)...)
 		return boxStyle.Render(strings.Join(rows, "\n"))
 	}
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
-	if len(t.forwards) == 0 {
-		rows = append(rows, subtitleStyle.Render("  no port forwards in the firewall policy"))
-		rows = append(rows, dimStyle.Render("  press 'a' to add · or CLI: testudo nat add tcp 8080 192.168.1.10:80"))
+	if len(t.nat) == 0 {
+		rows = append(rows, subtitleStyle.Render("  no NAT rules on this node - add them in the console's NAT rules"))
 	} else {
-		widths := []int{6, 8, 8, 18, 8, 10, 14}
-		rows = append(rows, renderTableRow(innerW, widths, "PROTO", "WAN", "=>", "LAN IP", "LAN PORT", "PKTS", "OWNER"))
-		for i, pf := range t.forwards {
-			pkts := "-"
-			if pf.HasCounter {
-				pkts = fmt.Sprintf("%d", pf.Packets)
-			}
-			owner := pf.Owner
-			if owner == netops.OwnerUser {
-				owner = "-"
-			}
-			if !pf.Live {
-				owner = "NOT LIVE"
-			}
-			row := renderTableRow(innerW, widths,
-				strings.ToUpper(pf.Proto), fmt.Sprintf("%d", pf.WANPort), "=>",
-				pf.LANIP, fmt.Sprintf("%d", pf.LANPort), pkts, owner)
-			if i == t.cursor && !t.focusCT {
+		widths := []int{18, 12, 40, 10, 10}
+		rows = append(rows, renderTableRow(innerW, widths, "RULE", "TYPE", "MATCH", "PKTS", "BYTES"))
+		for i, n := range t.nat {
+			row := renderTableRow(innerW, widths, n.Name, n.Direction, n.Match, fmt.Sprintf("%d", n.Packets), fmtBytes(n.Bytes))
+			switch {
+			case i == t.cursor && !t.focusCT:
 				rows = append(rows, selectedRowStyle.Render(row))
-			} else {
+			case !n.Enabled:
+				rows = append(rows, dimStyle.Render(row))
+			default:
 				rows = append(rows, rowStyle.Render(row))
 			}
-		}
-	}
-	if len(t.masqs) > 0 {
-		rows = append(rows, "")
-		rows = append(rows, headerStyle.Render("Masquerades (source NAT; WireGuard full-tunnel peers appear here)"))
-		widths := []int{20, 12, 10, 24}
-		rows = append(rows, renderTableRow(innerW, widths, "SOURCE", "OUT IFACE", "PKTS", "OWNER"))
-		for _, ms := range t.masqs {
-			pkts := "-"
-			if ms.HasCounter {
-				pkts = fmt.Sprintf("%d", ms.Packets)
-			}
-			owner := ms.Owner
-			if owner == netops.OwnerUser {
-				owner = "-"
-			}
-			if !ms.Live {
-				owner = "NOT LIVE"
-			}
-			rows = append(rows, dimStyle.Render(renderTableRow(innerW, widths, ms.SrcCIDR, ms.OutIface, pkts, owner)))
 		}
 	}
 	rows = append(rows, "")

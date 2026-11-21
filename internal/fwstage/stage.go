@@ -1,10 +1,8 @@
 // Package fwstage applies the nftables ruleset that internal/fwrender
-// produces. It is the apply stage for the packet filter and, at the same
-// time, the firewall manager's backend: the manager keeps owning the
-// defaults and the rules of WireGuard peers, access grants and direct
-// edits, but instead of programming the kernel itself it hands its tables to
-// this stage, which loads them together with the model's rules as one
-// ruleset in one transaction.
+// produces from the model: the policy and baseline, the rules, NAT, kernel
+// load balancing, access grants. It loads the whole table in one nft
+// transaction, checks that the kernel still holds what it loaded, and loads
+// it again when something else changed it.
 package fwstage
 
 import (
@@ -13,13 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/noahzmr/testudo/internal/confstore"
-	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/fwrender"
 	"github.com/noahzmr/testudo/internal/netops"
 )
@@ -32,17 +26,12 @@ type Runner interface {
 	NftListTable(family, table string) ([]byte, error)
 }
 
-// Manager is the part of the firewall manager the stage needs.
-type Manager interface {
-	ReplaceOwned(owner string, set firewall.OwnedSet, dryRun bool) error
-	PreviewOwned(owner string, set firewall.OwnedSet) (netops.FilterTableSpec, netops.NATSpec, error)
-	Specs() (netops.FilterTableSpec, netops.NATSpec)
-	Reconcile() firewall.Drift
-}
-
-// Stage implements confapply.Stage and firewall.Backend.
+// Stage implements confapply.Stage.
 type Stage struct {
 	Runner Runner
+	// ProtectedTCPPorts stay open on the input chain whatever the policy
+	// says: SSH and the console, the ways back in.
+	ProtectedTCPPorts []int
 	// Locate finds this node in the model; nil means only global objects.
 	Locate func(*confstore.State) (siteID, nodeID string)
 	// Elements returns the current content of run-time aliases by alias id.
@@ -52,47 +41,21 @@ type Stage struct {
 	BackendDown func() map[string]bool
 
 	mu      sync.Mutex
-	manager Manager
 	frags   fwrender.Fragments
-	filter  netops.FilterTableSpec
-	nat     netops.NATSpec
+	loaded  bool   // the fragments are what the model wants, applied once
 	applied string // the ruleset the kernel is believed to hold
-}
-
-// SetManager connects the stage to the manager that uses it as its backend
-// and takes over the manager's current tables.
-func (s *Stage) SetManager(m Manager) {
-	f, n := m.Specs()
-	s.mu.Lock()
-	s.manager, s.filter, s.nat = m, f, n
-	s.mu.Unlock()
 }
 
 func (s *Stage) Name() string { return "packet-filter" }
 
 type artifact struct {
 	Fragments fwrender.Fragments `json:"fragments"`
-	// Defaults carries the model's firewall policy to the manager, which
-	// owns default deny and the baseline. Nil when the model has none.
-	Defaults *firewall.OwnedSet `json:"defaults,omitempty"`
-}
-
-func ports(in []string) ([]uint16, error) {
-	var out []uint16
-	for _, p := range in {
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			return nil, fmt.Errorf("always-open port %q: list single ports", p)
-		}
-		out = append(out, uint16(n))
-	}
-	return out, nil
 }
 
 // Render builds the model's fragments. The result does not depend on the
 // running side, so the same state always renders to the same artifact.
 func (s *Stage) Render(st *confstore.State) ([]byte, error) {
-	var opt fwrender.Options
+	opt := fwrender.Options{ProtectedTCPPorts: s.ProtectedTCPPorts}
 	if s.Locate != nil {
 		opt.SiteID, opt.NodeID = s.Locate(st)
 	}
@@ -106,78 +69,46 @@ func (s *Stage) Render(st *confstore.State) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := artifact{Fragments: frags}
-	if p := fwrender.Policy(st, opt); p != nil {
-		tcp, err := ports(p.AllowTCPPorts)
-		if err != nil {
-			return nil, fmt.Errorf("firewall_policy %q: %w", p.Name, err)
-		}
-		udp, err := ports(p.AllowUDPPorts)
-		if err != nil {
-			return nil, fmt.Errorf("firewall_policy %q: %w", p.Name, err)
-		}
-		enforce := p.DefaultDeny
-		a.Defaults = &firewall.OwnedSet{Enforce: &enforce, Baseline: &netops.FilterBaseline{
-			AllowEstablished: p.AllowEstablished, DropInvalid: p.DropInvalid, AllowLoopback: p.AllowLoopback,
-			AllowICMP: p.AllowICMP, AllowTCPPorts: tcp, AllowUDPPorts: udp, LogDrops: p.LogDrops, LogPrefix: p.LogPrefix}}
-	}
-	return json.MarshalIndent(a, "", " ")
+	return json.MarshalIndent(artifact{Fragments: frags}, "", " ")
 }
 
-func decode(raw []byte) (artifact, firewall.OwnedSet, error) {
+func decode(raw []byte) (artifact, error) {
 	var a artifact
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return a, firewall.OwnedSet{}, err
-	}
-	var set firewall.OwnedSet
-	if a.Defaults != nil {
-		set = *a.Defaults
-	}
-	return a, set, nil
+	err := json.Unmarshal(raw, &a)
+	return a, err
 }
 
-func assemble(f fwrender.Fragments, filter netops.FilterTableSpec, nat netops.NATSpec) string {
-	return fwrender.Assemble(f, &fwrender.Running{Filter: filter, NAT: nat, DropLegacyTables: true})
+// assemble is the ruleset; it removes the old firewall manager's tables in
+// the same transaction.
+func assemble(f fwrender.Fragments) string {
+	return fwrender.Assemble(f, &fwrender.Running{DropLegacyTables: true})
 }
 
 // Check assembles the ruleset the change would produce and has nft validate
 // it. Nothing is loaded.
 func (s *Stage) Check(_ context.Context, raw []byte) error {
-	a, set, err := decode(raw)
+	a, err := decode(raw)
 	if err != nil {
 		return err
 	}
-	filter, nat, err := s.manager.PreviewOwned(firewall.OwnerModel, set)
-	if err != nil {
-		return err
-	}
-	return s.Runner.NftCheck(assemble(a.Fragments, filter, nat))
+	return s.Runner.NftCheck(assemble(a.Fragments))
 }
 
-// Apply makes the artifact the model's part of the running ruleset.
+// Apply loads the ruleset the artifact describes.
 func (s *Stage) Apply(_ context.Context, raw []byte) error {
-	a, set, err := decode(raw)
+	a, err := decode(raw)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	prev := s.frags
-	s.frags = a.Fragments
-	s.mu.Unlock()
-	// The manager reloads through ApplyFilterTable/ApplyNATTable when the
-	// defaults changed; the explicit load covers the case where they did not.
-	err = s.manager.ReplaceOwned(firewall.OwnerModel, set, false)
-	if err == nil {
-		s.mu.Lock()
-		err = s.loadLocked()
-		s.mu.Unlock()
+	defer s.mu.Unlock()
+	prev, prevLoaded := s.frags, s.loaded
+	s.frags, s.loaded = a.Fragments, true
+	if err := s.loadLocked(); err != nil {
+		s.frags, s.loaded = prev, prevLoaded
+		return err
 	}
-	if err != nil {
-		s.mu.Lock()
-		s.frags = prev
-		s.mu.Unlock()
-	}
-	return err
+	return nil
 }
 
 // Refresh renders the model again and loads the result if it differs. It is
@@ -189,7 +120,7 @@ func (s *Stage) Refresh(st *confstore.State) error {
 	if err != nil {
 		return err
 	}
-	a, _, err := decode(raw)
+	a, err := decode(raw)
 	if err != nil {
 		return err
 	}
@@ -206,12 +137,17 @@ func (s *Stage) Refresh(st *confstore.State) error {
 
 // Healthy reports whether the kernel holds the ruleset that was loaded.
 func (s *Stage) Healthy(context.Context) error {
-	if d := s.manager.Reconcile(); d.Error != "" {
-		return errors.New(d.Error)
-	}
 	st, err := s.read()
 	if err != nil {
 		return err
+	}
+	if !s.hasPolicy() {
+		// Without a firewall policy the model filters nothing and loads no
+		// table.
+		if st.exists {
+			return errors.New("a table of Testudo is in the kernel although the model has no firewall policy")
+		}
+		return nil
 	}
 	if !st.current {
 		return errors.New("the kernel does not hold the ruleset that was just loaded")
@@ -219,9 +155,80 @@ func (s *Stage) Healthy(context.Context) error {
 	return nil
 }
 
+// Drift is what a reconcile found.
+type Drift struct {
+	// InSync: the kernel holds the ruleset the model wants.
+	InSync bool `json:"in_sync"`
+	// Reloaded: it did not, and the ruleset was loaded again.
+	Reloaded bool   `json:"reloaded,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// Reconcile checks that the kernel still holds the model's ruleset and
+// loads it again when it does not (a reboot, someone's nft flush). Before
+// the first apply there is nothing to compare with.
+func (s *Stage) Reconcile() Drift {
+	s.mu.Lock()
+	loaded := s.loaded
+	s.mu.Unlock()
+	if !loaded {
+		return Drift{InSync: true}
+	}
+	st, err := s.read()
+	if err != nil {
+		return Drift{Error: err.Error()}
+	}
+	if (st.exists || s.hasPolicy()) && !st.current {
+		if !s.Runner.WritesAllowed() {
+			return Drift{Error: "the kernel's ruleset differs from the model's, and writes are disabled"}
+		}
+		s.mu.Lock()
+		s.applied = ""
+		err := s.loadLocked()
+		s.mu.Unlock()
+		if err != nil {
+			return Drift{Error: "reloading the ruleset: " + err.Error()}
+		}
+		return Drift{InSync: true, Reloaded: true}
+	}
+	return Drift{InSync: true}
+}
+
+func (s *Stage) hasPolicy() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.frags.HasPolicy
+}
+
+// Status is the running packet filter as the UIs show it.
+type Status struct {
+	Loaded      bool   `json:"loaded"`
+	HasPolicy   bool   `json:"has_policy"`
+	DefaultDeny bool   `json:"default_deny"`
+	InSync      bool   `json:"in_sync"`
+	Error       string `json:"error,omitempty"`
+}
+
+// Status reads the kernel and says whether it holds the model's ruleset.
+func (s *Stage) Status() Status {
+	s.mu.Lock()
+	out := Status{Loaded: s.loaded, HasPolicy: s.frags.HasPolicy, DefaultDeny: s.frags.Policy.DefaultDeny}
+	s.mu.Unlock()
+	st, err := s.read()
+	switch {
+	case err != nil:
+		out.Error = err.Error()
+	case !out.HasPolicy:
+		out.InSync = !st.exists || st.current
+	default:
+		out.InSync = st.current
+	}
+	return out
+}
+
 // loadLocked loads the assembled ruleset unless the kernel already has it.
 func (s *Stage) loadLocked() error {
-	text := assemble(s.frags, s.filter, s.nat)
+	text := assemble(s.frags)
 	if text == s.applied {
 		return nil
 	}
@@ -229,34 +236,6 @@ func (s *Stage) loadLocked() error {
 		return err
 	}
 	s.applied = text
-	return nil
-}
-
-// ---- firewall.Backend ------------------------------------------------------
-
-func (s *Stage) WritesAllowed() bool { return s.Runner.WritesAllowed() }
-
-func (s *Stage) ApplyFilterTable(spec netops.FilterTableSpec) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	prev := s.filter
-	s.filter = spec
-	if err := s.loadLocked(); err != nil {
-		s.filter = prev
-		return err
-	}
-	return nil
-}
-
-func (s *Stage) ApplyNATTable(spec netops.NATSpec) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	prev := s.nat
-	s.nat = spec
-	if err := s.loadLocked(); err != nil {
-		s.nat = prev
-		return err
-	}
 	return nil
 }
 
@@ -283,7 +262,7 @@ type kernelState struct {
 
 var genRe = regexp.MustCompile(`^gen_[0-9a-f]{16}$`)
 
-// read lists the table and decodes what the manager and the model need.
+// read lists the table and decodes the generation marker and the counters.
 func (s *Stage) read() (kernelState, error) {
 	st := kernelState{policies: map[string]string{}}
 	raw, err := s.Runner.NftListTable("inet", fwrender.Table)
@@ -316,7 +295,7 @@ func (s *Stage) read() (kernelState, error) {
 	}
 	st.exists = true
 	s.mu.Lock()
-	want := fwrender.Generation(s.frags, &fwrender.Running{Filter: s.filter, NAT: s.nat, DropLegacyTables: true})
+	want := fwrender.Generation(s.frags)
 	s.mu.Unlock()
 	for _, o := range doc.Nftables {
 		switch {
@@ -349,60 +328,6 @@ func (s *Stage) forget() {
 	s.mu.Lock()
 	s.applied = ""
 	s.mu.Unlock()
-}
-
-// FilterTableState reports the manager's rules as the kernel holds them. A
-// table that is not the one loaded last is reported as empty, which makes
-// the manager's drift check reload it.
-func (s *Stage) FilterTableState() (netops.FilterTableState, error) {
-	st, err := s.read()
-	out := netops.FilterTableState{Exists: st.exists, Policies: map[string]string{}}
-	if err != nil || !st.exists || !st.current {
-		return out, err
-	}
-	for chain, pol := range st.policies {
-		if chain == "input" || chain == "forward" || chain == "output" {
-			out.Policies[chain] = pol
-		}
-	}
-	for _, r := range st.rules {
-		if id, ok := strings.CutPrefix(r.comment, fwrender.RuleTag); ok {
-			out.Rules = append(out.Rules, netops.ManagedRule{Chain: r.chain, Handle: r.handle, ID: id,
-				Packets: r.Packets, Bytes: r.Bytes, HasCounter: r.hasCounter})
-		}
-	}
-	sort.SliceStable(out.Rules, func(i, j int) bool { return out.Rules[i].Chain < out.Rules[j].Chain })
-	return out, nil
-}
-
-func (s *Stage) NATTableState() (netops.NATTableState, error) {
-	st, err := s.read()
-	out := netops.NATTableState{Exists: st.exists && st.current}
-	if err != nil || !out.Exists {
-		return out, err
-	}
-	s.mu.Lock()
-	nat := s.nat
-	s.mu.Unlock()
-	fwd := map[string]netops.PortForward{}
-	for _, f := range nat.Forwards {
-		fwd[f.ID()] = f
-	}
-	masq := map[string]netops.Masquerade{}
-	for _, m := range nat.Masquerades {
-		masq[m.ID()] = m
-	}
-	for _, r := range st.rules {
-		if id, ok := strings.CutPrefix(r.comment, fwrender.ForwardTag); ok {
-			out.Forwards = append(out.Forwards, netops.ManagedForward{PortForward: fwd[id], ID: id, Handle: r.handle,
-				Packets: r.Packets, Bytes: r.Bytes, HasCounter: r.hasCounter})
-		}
-		if id, ok := strings.CutPrefix(r.comment, fwrender.MasqueradeTag); ok {
-			out.Masquerades = append(out.Masquerades, netops.ManagedMasquerade{Masquerade: masq[id], ID: id, Handle: r.handle,
-				Packets: r.Packets, Bytes: r.Bytes, HasCounter: r.hasCounter})
-		}
-	}
-	return out, nil
 }
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

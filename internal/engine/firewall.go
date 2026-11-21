@@ -2,186 +2,283 @@ package engine
 
 import (
 	"context"
-	"log"
+	"errors"
 	"net"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/events"
-	"github.com/noahzmr/testudo/internal/firewall"
+	"github.com/noahzmr/testudo/internal/fwrender"
 	"github.com/noahzmr/testudo/internal/fwstage"
 	"github.com/noahzmr/testudo/internal/health"
+	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 )
 
-// firewallReconcileInterval is how often the live nftables tables are compared
-// with the policy file. Drift is rare (a reboot, a stray `nft flush ruleset`),
-// so a slow cadence is plenty; the boot apply is what matters most.
+// The packet filter is the model's: internal/fwrender renders it, the
+// nftables stage (internal/fwstage) loads it in one transaction and checks
+// every firewallReconcileInterval that the kernel still holds it, loading
+// it again when not. Nothing else writes the table.
+
+// firewallReconcileInterval is how often the kernel's table is compared with
+// the model's ruleset. Drift is rare (a reboot, a stray nft flush), so a
+// slow cadence is plenty; the boot apply is what matters most.
 const firewallReconcileInterval = 30 * time.Second
 
-// firewallPolicyPath is the desired-state file next to settings.json.
+// firewallPolicyPath is where the old firewall manager kept its policy; it
+// is read once, to move it into the model.
 func firewallPolicyPath(cfg config.Config) string {
 	return filepath.Join(cfg.StorageDir, "firewall.json")
 }
 
-// fwUnprivilegedHint mirrors the WireGuard row's remediation: reading and
-// writing nftables needs CAP_NET_ADMIN, which the privileged helper normally
-// holds on the engine's behalf.
-const fwUnprivilegedHint = "grant CAP_NET_ADMIN (sudo setcap cap_net_admin+ep ./testudo) or run with the privileged helper"
+// fwUnprivilegedHint is the remediation for a packet filter the process may
+// not read or write.
+const fwUnprivilegedHint = "run with the privileged helper (the default) or grant CAP_NET_ADMIN"
 
-// fwCond is the firewall reconciler's condition, derived from a Status.
-type fwCond int
-
-const (
-	fwCondOK          fwCond = iota
-	fwCondUnreadable         // kernel tables could not be read (DriftError)
-	fwCondApplyFailed        // the last apply returned an error
-	fwCondDrift              // tables readable but not matching the policy
-)
-
-func firewallCondition(st firewall.Status) fwCond {
-	switch {
-	case st.DriftError != "":
-		return fwCondUnreadable
-	case st.LastError != "":
-		return fwCondApplyFailed
-	case !st.InSync:
-		return fwCondDrift
-	}
-	return fwCondOK
-}
-
-// isPermissionError recognises the netlink/EPERM wording surfaced by nftables
-// reads and writes from an unprivileged process.
+// isPermissionError recognises the EPERM wording surfaced by nftables reads
+// and writes from an unprivileged process.
 func isPermissionError(msg string) bool {
 	m := strings.ToLower(msg)
 	return strings.Contains(m, "operation not permitted") || strings.Contains(m, "permission denied")
 }
 
-// firewallProtectedPorts returns the TCP ports the baseline must always accept
-// on input when enforcing: SSH and the Web UI listen port. Losing either is
-// the one firewall mistake that cannot be fixed remotely.
-func firewallProtectedPorts(cfg config.Config) []uint16 {
-	ports := []uint16{22}
+// firewallProtectedPorts returns the TCP ports the input chain always
+// accepts: SSH and the console's port. Losing either is the one firewall
+// mistake that cannot be fixed remotely.
+func firewallProtectedPorts(cfg config.Config) []int {
+	ports := []int{22}
 	if _, p, err := net.SplitHostPort(strings.TrimSpace(cfg.WebListen)); err == nil {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
-			ports = append(ports, uint16(n))
+		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 && n != 22 {
+			ports = append(ports, n)
 		}
 	}
 	return ports
 }
 
-// openFirewall builds the policy manager over the netops writer. A policy file
-// that fails to load is a hard problem (the operator's intent is unreadable),
-// but not one that should stop the observability engine: it is logged, the
-// firewall subsystem is marked failed, and all firewall mutations are refused
-// until the file is fixed.
-func openFirewall(cfg config.Config, nw *netops.Writer) (*firewall.Manager, *fwstage.Stage, error) {
-	if nw == nil {
-		return nil, nil, nil
+// unavailableRunner stands in for the privileged side when there is none:
+// every change of the packet filter is refused with the reason.
+type unavailableRunner struct{}
+
+var errNoPacketFilter = errors.New("the packet filter cannot be changed here: no privileged helper (start with privileges, or --allow-netops-write)")
+
+func (unavailableRunner) WritesAllowed() bool                         { return false }
+func (unavailableRunner) NftCheck(string) error                       { return errNoPacketFilter }
+func (unavailableRunner) NftApply(string) error                       { return errNoPacketFilter }
+func (unavailableRunner) NftListTable(string, string) ([]byte, error) { return nil, errNoPacketFilter }
+
+// newPacketFilter builds the nftables stage.
+func newPacketFilter(cfg config.Config, nw *netops.Writer) *fwstage.Stage {
+	st := &fwstage.Stage{Runner: unavailableRunner{}, ProtectedTCPPorts: firewallProtectedPorts(cfg)}
+	if nw != nil {
+		st.Runner = nw
 	}
-	opts := firewall.Options{Path: firewallPolicyPath(cfg), ProtectedTCPPorts: firewallProtectedPorts(cfg)}
-	// With nft available on the privileged side, the manager hands its
-	// tables to the nftables stage, which loads them together with the
-	// model's rules as one ruleset. Otherwise it programs the kernel over
-	// netlink as before and the model is enforced through the bridge.
-	if nw.NftAvailable() {
-		stage := &fwstage.Stage{Runner: nw}
-		m, err := firewall.Open(opts, stage)
-		if err != nil {
-			return nil, nil, err
-		}
-		stage.SetManager(m)
-		return m, stage, nil
-	}
-	m, err := firewall.Open(opts, nw)
-	return m, nil, err
+	return st
 }
 
-// Firewall returns the policy manager (nil when netops is unavailable or the
-// policy file failed to load; see FirewallError).
-func (e *Engine) Firewall() *firewall.Manager { return e.fw }
+// PacketFilter returns the nftables stage.
+func (e *Engine) PacketFilter() *fwstage.Stage { return e.fwNft }
 
-// FirewallError is the reason the firewall manager is unavailable, or nil.
-func (e *Engine) FirewallError() error { return e.fwErr }
-
-// startFirewallReconciler applies the policy at boot and keeps the kernel in
-// sync with it. Transitions are surfaced as anomalies so a foreign flush, a
-// failed boot apply or a drift that cannot be corrected (writes disabled) all
-// show up in Alerts and in the Health tab's "firewall" row.
+// startFirewallReconciler keeps the kernel's table in step with the model.
+// Transitions are surfaced as anomalies, so a foreign flush, a reload that
+// fails or a drift that cannot be corrected (writes disabled) show up in
+// Alerts and in the Health tab's "firewall" row.
 func (e *Engine) startFirewallReconciler(ctx context.Context) {
-	if e.fw == nil {
-		if e.fwErr != nil {
-			e.MarkSubsystem("firewall", false, health.StateFailed, e.fwErr.Error(),
-				"fix or remove the policy file and restart")
-		}
+	if e.netops == nil {
+		e.MarkSubsystem("firewall", false, health.StateUnprivileged, "no privileged helper", fwUnprivilegedHint)
 		return
 	}
 	e.MarkSubsystem("firewall", false, health.StateOK, "", "")
-	if n := e.fw.Imported(); n > 0 {
-		log.Printf("firewall: imported %d pre-policy kernel entries into %s", n, firewallPolicyPath(e.cfg))
-	}
-
-	// The reconciler reports after every check; only transitions between
-	// conditions reach the health registry and the alert stream, so an
-	// unprivileged box does not emit an alert every 30 s.
-	prev := fwCondOK
-	e.fw.SetOnChange(func(st firewall.Status) {
-		cond := firewallCondition(st)
-		if cond == prev {
-			return
-		}
-		now := time.Now()
-		switch cond {
-		case fwCondUnreadable:
-			// Not a drift: the kernel state could not be read at all. Report it
-			// as the privilege posture it is, like the WireGuard row does.
-			msg := "kernel tables unreadable: " + st.DriftError
-			if isPermissionError(st.DriftError) {
-				e.MarkSubsystem("firewall", false, health.StateUnprivileged, msg, fwUnprivilegedHint)
-			} else {
-				e.MarkSubsystem("firewall", false, health.StateDegraded, msg, "")
-			}
-		case fwCondApplyFailed:
-			e.MarkSubsystem("firewall", false, health.StateDegraded, st.LastError, "")
-			e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: now, Source: "firewall",
-				Payload: events.AnomalyPayload{Severity: string(events.SevError),
-					Message: "firewall policy apply failed: " + st.LastError}})
-		case fwCondDrift:
-			detail := strings.Join(st.DriftDetail, "; ")
-			hint := "enable netops writes so the reconciler can re-apply the policy"
-			if st.WritesAllowed {
-				hint = "re-apply will be retried on the next reconcile tick"
-			}
-			e.MarkSubsystem("firewall", false, health.StateDegraded, "kernel tables drifted from policy: "+detail, hint)
-			e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: now, Source: "firewall",
-				Payload: events.AnomalyPayload{Severity: string(events.SevWarn),
-					Message: "firewall drift detected (" + detail + ")"}})
-		case fwCondOK:
-			e.MarkSubsystem("firewall", false, health.StateOK, "", "")
-			if prev == fwCondDrift || prev == fwCondApplyFailed {
-				e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: now, Source: "firewall",
-					Payload: events.AnomalyPayload{Severity: string(events.SevInfo),
-						Message: "firewall policy re-applied; kernel tables back in sync"}})
-			}
-		}
-		prev = cond
-	})
-
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		e.fw.Run(ctx, firewallReconcileInterval)
+		tick := time.NewTicker(firewallReconcileInterval)
+		defer tick.Stop()
+		prev := ""
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+			d := e.fwNft.Reconcile()
+			now := time.Now()
+			state := "ok"
+			if d.Error != "" {
+				state = "error:" + d.Error
+			}
+			if d.Reloaded {
+				e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: now, Source: "firewall",
+					Payload: events.AnomalyPayload{Severity: string(events.SevWarn),
+						Message: "the kernel's packet filter differed from the model's and was loaded again"}})
+			}
+			if state == prev {
+				continue
+			}
+			switch {
+			case d.Error != "" && isPermissionError(d.Error):
+				e.MarkSubsystem("firewall", false, health.StateUnprivileged, d.Error, fwUnprivilegedHint)
+			case d.Error != "":
+				e.MarkSubsystem("firewall", false, health.StateDegraded, d.Error, "")
+				e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: now, Source: "firewall",
+					Payload: events.AnomalyPayload{Severity: string(events.SevError), Message: "packet filter: " + d.Error}})
+			default:
+				e.MarkSubsystem("firewall", false, health.StateOK, "", "")
+				if strings.HasPrefix(prev, "error:") {
+					e.bus.Publish(events.Event{Kind: events.KindAnomaly, Time: now, Source: "firewall",
+						Payload: events.AnomalyPayload{Severity: string(events.SevInfo),
+							Message: "packet filter back in step with the model"}})
+				}
+			}
+			prev = state
+		}
 	}()
 }
 
-// AuditFirewall records a firewall policy mutation to the audit log. Args
-// never contain anything secret - rules are public configuration. The UIs
-// call it after driving the manager so every policy change is traceable next
-// to the netlink mutations the helper logs.
+// FirewallView is the running packet filter as the UIs and the command line
+// show it: whether the kernel holds the model's ruleset, and the model's
+// rules with what each has matched. Rules are changed in the model.
+type FirewallView struct {
+	fwstage.Status
+	Policy string     `json:"policy,omitempty"`
+	Rules  []RuleView `json:"rules"`
+	NAT    []RuleView `json:"nat"`
+}
+
+// RuleView is one filter or NAT rule of the model.
+type RuleView struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Enabled   bool   `json:"enabled"`
+	Direction string `json:"direction"` // in, out, forward; dnat, snat, masquerade, one_to_one
+	Action    string `json:"action"`
+	Match     string `json:"match"`
+	Owner     string `json:"owner,omitempty"`
+	Packets   uint64 `json:"packets"`
+	Bytes     uint64 `json:"bytes"`
+}
+
+// FirewallView reads the model and the kernel's counters.
+func (e *Engine) FirewallView() FirewallView {
+	var v FirewallView
+	if e.fwNft != nil {
+		v.Status = e.fwNft.Status()
+	}
+	if e.conf.store == nil {
+		return v
+	}
+	st := e.conf.store.Current()
+	site, node := e.locate(st)
+	counters := map[string]fwstage.Counter{}
+	if e.fwNft != nil {
+		if c, err := e.fwNft.Counters(); err == nil {
+			counters = c
+		}
+	}
+	if p := fwrender.Policy(st, fwrender.Options{SiteID: site, NodeID: node}); p != nil {
+		v.Policy = p.Name
+	}
+	zone := func(r model.Ref[model.Zone]) string {
+		if o, ok := st.Get(model.KindZone, r.ID); ok {
+			return o.GetMeta().Name
+		}
+		return ""
+	}
+	alias := func(refs []model.Ref[model.Alias], nets []string) string {
+		var out []string
+		for _, r := range refs {
+			if o, ok := st.Get(model.KindAlias, r.ID); ok {
+				out = append(out, o.GetMeta().Name)
+			}
+		}
+		return strings.Join(append(out, nets...), ",")
+	}
+	applies := func(o model.Entity) (model.Entity, bool) {
+		if !model.AppliesTo(o, site, node) {
+			return nil, false
+		}
+		eff, _, err := model.Effective(o, site, node)
+		return eff, err == nil
+	}
+	for _, o := range st.List(model.KindFilterRule) {
+		eff, ok := applies(o)
+		if !ok {
+			continue
+		}
+		r := eff.(*model.FilterRule)
+		var m []string
+		if z := zone(r.SourceZone); z != "" {
+			m = append(m, "from "+z)
+		}
+		if s := alias(r.Source, r.SourceNets); s != "" {
+			m = append(m, "src "+s)
+		}
+		if z := zone(r.DestinationZone); z != "" {
+			m = append(m, "to "+z)
+		}
+		if d := alias(r.Destination, r.DestinationNets); d != "" {
+			m = append(m, "dst "+d)
+		}
+		if r.Protocol != "any" {
+			m = append(m, r.Protocol)
+		}
+		if p := alias(r.PortAliases, r.Ports); p != "" {
+			m = append(m, "port "+p)
+		}
+		if len(r.States) > 0 {
+			m = append(m, "ct "+strings.Join(r.States, ","))
+		}
+		c := counters[r.ID]
+		v.Rules = append(v.Rules, RuleView{ID: r.ID, Name: r.Name, Enabled: r.Enabled, Direction: r.Direction, Action: r.Action,
+			Match: strings.Join(m, " "), Owner: r.Owner, Packets: c.Packets, Bytes: c.Bytes})
+	}
+	sort.SliceStable(v.Rules, func(i, j int) bool { return v.Rules[i].Name < v.Rules[j].Name })
+	for _, o := range st.List(model.KindNATRule) {
+		eff, ok := applies(o)
+		if !ok {
+			continue
+		}
+		r := eff.(*model.NATRule)
+		var m []string
+		if z := zone(r.Zone); z != "" {
+			m = append(m, "on "+z)
+		}
+		if r.Protocol != "any" {
+			m = append(m, r.Protocol)
+		}
+		if len(r.SourceNets) > 0 {
+			m = append(m, "src "+strings.Join(r.SourceNets, ","))
+		}
+		if r.Destination != "" || r.Port != "" {
+			m = append(m, strings.Trim(r.Destination+":"+r.Port, ":"))
+		}
+		if r.TranslateTo != "" {
+			m = append(m, "-> "+strings.Trim(r.TranslateTo+":"+r.TranslatePort, ":"))
+		}
+		c := counters[r.ID]
+		v.NAT = append(v.NAT, RuleView{ID: r.ID, Name: r.Name, Enabled: r.Enabled, Direction: r.Type, Action: r.Type,
+			Match: strings.Join(m, " "), Packets: c.Packets, Bytes: c.Bytes})
+	}
+	sort.SliceStable(v.NAT, func(i, j int) bool { return v.NAT[i].Name < v.NAT[j].Name })
+	return v
+}
+
+// RenderedFirewall is the ruleset the model renders for this node, as nft
+// would load it.
+func (e *Engine) RenderedFirewall() (string, error) {
+	if e.conf.store == nil {
+		return "", errors.New("the configuration model is unavailable")
+	}
+	st := e.conf.store.Current()
+	site, node := e.locate(st)
+	out, err := fwrender.Render(st, fwrender.Options{SiteID: site, NodeID: node, ProtectedTCPPorts: firewallProtectedPorts(e.cfg)})
+	return string(out), err
+}
+
+// AuditFirewall records a firewall operation to the audit log.
 func (e *Engine) AuditFirewall(actor, op, args string, opErr error) {
 	e.auditOp(context.Background(), actor, "fw_"+op, args, opErr)
 }

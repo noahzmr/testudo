@@ -16,7 +16,6 @@ import (
 
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
-	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/testnet"
@@ -24,10 +23,8 @@ import (
 
 // Compile-time proof that the pieces fit.
 var (
-	_ confapply.Stage  = (*Stage)(nil)
-	_ firewall.Backend = (*Stage)(nil)
-	_ Manager          = (*firewall.Manager)(nil)
-	_ Runner           = (*netops.Writer)(nil)
+	_ confapply.Stage = (*Stage)(nil)
+	_ Runner          = (*netops.Writer)(nil)
 )
 
 var ctx = context.Background()
@@ -146,14 +143,9 @@ func TestRulesetOnARealKernel(t *testing.T) {
 		t.Fatal("precondition: the netlink table was not created")
 	}
 
-	stage := &Stage{Runner: nw, Locate: func(*confstore.State) (string, string) { return id(siteN), id(nodeN) }}
+	stage := &Stage{Runner: nw, ProtectedTCPPorts: []int{22}, Locate: func(*confstore.State) (string, string) { return id(siteN), id(nodeN) }}
 	blocklist := []string{}
 	stage.Elements = func() map[string][]string { return map[string][]string{id(33): blocklist} }
-	mgr, err := firewall.Open(firewall.Options{Path: filepath.Join(dir, "firewall.json"), ProtectedTCPPorts: []uint16{22}}, stage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stage.SetManager(mgr)
 	store, err := confstore.Open(filepath.Join(dir, "config"))
 	if err != nil {
 		t.Fatal(err)
@@ -166,8 +158,10 @@ func TestRulesetOnARealKernel(t *testing.T) {
 	if err := eng.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// The old manager's tables are gone; a model without a policy has no
+	// table of its own either.
 	tables := nft("list", "tables")
-	if strings.Contains(tables, "testudo_filter") || !strings.Contains(tables, "inet testudo") {
+	if strings.Contains(tables, "testudo_filter") || strings.Contains(tables, "testudo_nat") {
 		t.Fatalf("after the switch the tables are:\n%s", tables)
 	}
 
@@ -281,19 +275,6 @@ func TestRulesetOnARealKernel(t *testing.T) {
 		t.Errorf("port forward: server saw %q, want 10.77.2.1", got)
 	}
 
-	// 5. A rule made outside the model (as WireGuard and access grants do)
-	//    is loaded with the model's rules and survives model changes.
-	if err := mgr.AddRule(netops.FilterRule{Chain: "forward", Action: "accept", Proto: "tcp", Port: 8444,
-		InIface: "lan0", DstCIDR: "fd77:2::2", Owner: "wg-peer:abc"}); err != nil {
-		t.Fatalf("manager rule: %v", err)
-	}
-	if got := dial("[fd77:2::2]:8444"); got != "fd77:1::2" {
-		t.Errorf("rule added through the manager is not in effect (%q)", got)
-	}
-	if rules, err := mgr.Rules(); err != nil || len(rules) == 0 {
-		t.Errorf("the manager's rule view: %d rules, %v", len(rules), err)
-	}
-
 	// 6. An unconfirmed change comes back by itself.
 	rule, _ := store.Current().Get(model.KindFilterRule, id(50))
 	if _, err := eng.Apply(ctx, "test", "cut off", []confstore.Op{{Type: confstore.OpDelete, Kind: model.KindFilterRule, ID: id(50), IfMatch: rule.GetMeta().Version}}); err != nil {
@@ -310,17 +291,17 @@ func TestRulesetOnARealKernel(t *testing.T) {
 	if got := dial("[fd77:2::2]:8443"); got != "fd77:1::2" {
 		t.Errorf("service still cut off after the automatic rollback (%q)", got)
 	}
-	if got := dial("[fd77:2::2]:8444"); got != "fd77:1::2" {
-		t.Errorf("the manager's rule did not survive the rollback (%q)", got)
-	}
 
 	// 7. Someone flushes the table: the drift check notices and reloads.
 	nft("delete", "table", "inet", "testudo")
 	if got := dial("[fd77:2::2]:8444"); got == "" {
 		t.Error("precondition: without the table everything should be forwarded")
 	}
-	if d := mgr.Reconcile(); d.Error != "" || !d.Corrected || !d.InSync {
+	if d := stage.Reconcile(); d.Error != "" || !d.Reloaded || !d.InSync {
 		t.Errorf("drift after a flushed table: %+v", d)
+	}
+	if d := stage.Reconcile(); d.Reloaded || !d.InSync {
+		t.Errorf("a second check reloaded again: %+v", d)
 	}
 	if got := dial("[fd77:2::2]:8443"); got != "fd77:1::2" {
 		t.Errorf("after the reload the service is unreachable (%q)", got)

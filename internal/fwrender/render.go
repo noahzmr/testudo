@@ -21,7 +21,6 @@ import (
 	"github.com/noahzmr/testudo/internal/harender"
 	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
-	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/svcrender"
 )
 
@@ -51,10 +50,8 @@ type Options struct {
 // given, those rules are rendered ahead of the model's in the same chains,
 // and the manager's defaults decide the chain policies.
 type Running struct {
-	Filter netops.FilterTableSpec
-	NAT    netops.NATSpec
-	// DropLegacyTables removes the tables the netlink path used to own, in
-	// the same transaction that installs this one.
+	// DropLegacyTables removes the tables the old firewall manager used to
+	// own, in the same transaction that installs this one.
 	DropLegacyTables bool
 }
 
@@ -430,10 +427,10 @@ func Assemble(f Fragments, run *Running) string {
 	// Replace-the-table idiom: create (no-op if present), delete, define.
 	// nft applies one file as a single transaction.
 	fmt.Fprintf(&b, "table inet %s\ndelete table inet %s\n", Table, Table)
-	if run == nil && !f.HasPolicy {
+	if !f.HasPolicy {
 		return b.String()
 	}
-	body := assembleBody(f, run)
+	body := assembleBody(f)
 	sum := sha256.Sum256([]byte(body))
 	// The generation set carries a hash of the content, which is how a later
 	// check tells whether the kernel still holds exactly this ruleset.
@@ -445,20 +442,15 @@ func Assemble(f Fragments, run *Running) string {
 func GenerationSet(sum [32]byte) string { return "gen_" + hex.EncodeToString(sum[:])[:16] }
 
 // Generation returns the marker set name Assemble would use.
-func Generation(f Fragments, run *Running) string {
-	return GenerationSet(sha256.Sum256([]byte(assembleBody(f, run))))
+func Generation(f Fragments) string {
+	return GenerationSet(sha256.Sum256([]byte(assembleBody(f))))
 }
 
-func assembleBody(f Fragments, run *Running) string {
+func assembleBody(f Fragments) string {
 	var b strings.Builder
 	b.WriteString(f.Sets)
 	b.WriteString(f.Policy.Timeouts)
 	deny := f.Policy.DefaultDeny
-	var head, foreign, logTail map[string][]string
-	if run != nil {
-		deny = run.Filter.Enforce
-		head, foreign, logTail = runningLines(run.Filter)
-	}
 	for _, chain := range []string{"input", "forward", "output"} {
 		verdict := "accept"
 		if deny && chain != "output" {
@@ -473,9 +465,7 @@ func assembleBody(f Fragments, run *Running) string {
 		c := f.Chains[chain]
 		// Timeouts are attached before anything accepts the packet.
 		w(f.Policy.Tracking...)
-		if run != nil {
-			w(head[chain]...)
-		} else if chain != "output" {
+		if chain != "output" {
 			w(f.Policy.Stateful...)
 			if chain == "input" {
 				// Loopback first, then the guards, then the rest of the
@@ -496,19 +486,11 @@ func assembleBody(f Fragments, run *Running) string {
 				w(rest...)
 				c.Guards = nil
 			}
-		}
-		if chain != "output" {
 			w(c.Guards...)
-			if run != nil && chain == "input" && f.Policy.SynFlood {
-				w(synFloodLine)
-			}
 		}
 		if chain == "forward" {
 			// Connections a destination NAT rule accepted are forwarded.
 			w("ct status dnat accept")
-		}
-		if run != nil {
-			w(foreign[chain]...)
 		}
 		w(c.Rules...)
 		if chain != "output" {
@@ -516,25 +498,18 @@ func assembleBody(f Fragments, run *Running) string {
 			if !deny {
 				w(c.TailOpen...)
 			}
-			if run != nil {
-				w(logTail[chain]...)
-			} else if f.Policy.LogPrefix != "" {
+			if f.Policy.LogPrefix != "" {
 				w(fmt.Sprintf("limit rate 10/second log prefix %s", quote(f.Policy.LogPrefix+" "+chain+": ")))
 			}
 		}
 		b.WriteString("\t}\n")
 	}
-	pre, post := f.Pre, f.Post
-	if run != nil {
-		rp, rq := runningNAT(run.NAT)
-		pre, post = append(rp, pre...), append(rq, post...)
-	}
 	b.WriteString("\tchain prerouting {\n\t\ttype nat hook prerouting priority dstnat; policy accept;\n")
-	for _, l := range pre {
+	for _, l := range f.Pre {
 		fmt.Fprintf(&b, "\t\t%s\n", l)
 	}
 	b.WriteString("\t}\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n")
-	for _, l := range post {
+	for _, l := range f.Post {
 		fmt.Fprintf(&b, "\t\t%s\n", l)
 	}
 	b.WriteString("\t}\n")

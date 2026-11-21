@@ -227,3 +227,8 @@ func loadLegacy(cfg config.Config) (confimport.Legacy, error) {
 	}
 	return in, nil
 }
+
+// firewallPolicyPathFor is where the old firewall manager kept its policy.
+func firewallPolicyPathFor(cfg config.Config) string {
+	return filepath.Join(cfg.StorageDir, "firewall.json")
+}

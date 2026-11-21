@@ -1,117 +1,121 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/noahzmr/testudo/internal/config"
-	"github.com/noahzmr/testudo/internal/firewall"
-	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/engine"
 )
 
-// openDirectFirewall builds a policy manager over an in-process netops writer
-// for one-shot CLI use (no engine, no helper). It needs the capabilities the
-// live engine's helper normally holds; the usual setcap on the binary covers it.
-func openDirectFirewall(allowWrites bool) (*firewall.Manager, error) {
-	cfg := config.Default()
-	if err := cfg.EnsureDirs(); err != nil {
-		return nil, err
-	}
-	nw := &netops.Writer{AllowWrites: allowWrites}
-	return firewall.Open(firewall.Options{
-		Path:              firewallPolicyPathFor(cfg),
-		ProtectedTCPPorts: protectedPortsFor(cfg),
-	}, nw)
-}
-
-func firewallPolicyPathFor(cfg config.Config) string {
-	return cfg.StorageDir + string(os.PathSeparator) + "firewall.json"
-}
-
-// protectedPortsFor mirrors the engine's anti-lockout set: SSH plus the Web
-// UI port from the default listen address.
-func protectedPortsFor(cfg config.Config) []uint16 {
-	ports := []uint16{22}
-	if i := strings.LastIndex(cfg.WebListen, ":"); i >= 0 {
-		if p, err := parsePort(cfg.WebListen[i+1:]); err == nil {
-			ports = append(ports, p)
-		}
-	}
-	return ports
-}
-
-// cmdFirewall handles `testudo firewall <status|rules|export|apply>`: a view
-// of what the manager enforces and a way to put it back into the kernel.
-// Changes are made through the configuration model.
+// cmdFirewall handles `testudo firewall <status|rules>`: what the running
+// daemon's packet filter holds. Rules, NAT and the policy are objects of the
+// configuration model and are changed there.
 func cmdFirewall(args []string) error {
+	const usage = "usage: testudo firewall <status|rules> [--storage DIR]"
 	if len(args) == 0 {
-		return fmt.Errorf("usage: testudo firewall <status|rules|export|apply>")
+		return errors.New(usage)
 	}
+	cfg := config.Default()
+	fs := flag.NewFlagSet("firewall", flag.ExitOnError)
+	storage := fs.String("storage", cfg.StorageDir, "storage directory of the running daemon")
+	_ = parseInterleaved(fs, args[1:])
 	switch args[0] {
 	case "status":
-		m, err := openDirectFirewall(false)
+		c, err := dialControl(*storage)
 		if err != nil {
 			return err
 		}
-		d := m.Reconcile() // read-only with writes disabled: reports drift
-		st := m.Status()
-		mode := "default-accept (permissive)"
-		if st.Enforce {
-			mode = "DEFAULT-DENY (enforcing)"
+		var v engine.FirewallView
+		if err := c.call("GET", "/api/firewall/view", nil, 0, &v); err != nil {
+			return err
 		}
-		fmt.Printf("policy:   %s\n", st.Path)
-		fmt.Printf("mode:     %s\n", mode)
-		fmt.Printf("rules:    %d filter · %d forwards · %d masquerades\n", st.RuleCount, st.ForwardCount, st.MasqCount)
-		if d.Error != "" {
-			fmt.Printf("kernel:   unreadable (%s)\n", d.Error)
-		} else if st.Inert && !d.TableExists {
-			fmt.Println("kernel:   nothing installed (policy is inert: no rules, default-accept)")
-		} else if d.InSync {
-			fmt.Println("kernel:   in sync")
-		} else {
-			fmt.Printf("kernel:   DRIFT - %s\n", strings.Join(d.Details, "; "))
-			fmt.Println("          run `testudo firewall apply` (needs CAP_NET_ADMIN) or let the live engine reconcile")
+		switch {
+		case !v.HasPolicy:
+			fmt.Println("mode:     no firewall policy in the model: nothing is filtered")
+		case v.DefaultDeny:
+			fmt.Println("mode:     DEFAULT-DENY (enforcing)")
+		default:
+			fmt.Println("mode:     default-accept (permissive)")
 		}
-		if !st.UpdatedAt.IsZero() {
-			fmt.Printf("updated:  %s\n", st.UpdatedAt.Format(time.RFC3339))
+		if v.Policy != "" {
+			fmt.Printf("policy:   %s\n", v.Policy)
+		}
+		fmt.Printf("rules:    %d filter · %d NAT\n", len(v.Rules), len(v.NAT))
+		switch {
+		case v.Error != "":
+			fmt.Printf("kernel:   %s\n", v.Error)
+		case v.InSync:
+			fmt.Println("kernel:   holds the model's ruleset")
+		default:
+			fmt.Println("kernel:   differs from the model; the daemon loads it again within 30 s")
+		}
+		for _, r := range v.Rules {
+			state := ""
+			if !r.Enabled {
+				state = " (disabled)"
+			}
+			fmt.Printf("  %-24s %-7s %-6s %-40s %10d pkts%s\n", r.Name, r.Direction, strings.ToUpper(r.Action), r.Match, r.Packets, state)
 		}
 		return nil
-
 	case "rules":
-		m, err := openDirectFirewall(false)
+		c, err := dialControl(*storage)
 		if err != nil {
 			return err
 		}
-		fmt.Print(m.RenderNFT())
-		return nil
-
-	case "export":
-		m, err := openDirectFirewall(false)
+		res, err := c.hc.Get("http://testudo/api/firewall/rendered")
 		if err != nil {
 			return err
 		}
-		data, err := m.Export()
-		if err != nil {
-			return err
+		defer res.Body.Close()
+		if res.StatusCode != 200 {
+			b, _ := io.ReadAll(res.Body)
+			return fmt.Errorf("%s", strings.TrimSpace(string(b)))
 		}
-		_, err = os.Stdout.Write(append(data, '\n'))
+		_, err = io.Copy(os.Stdout, res.Body)
 		return err
+	case "export":
+		return errors.New("`testudo firewall export` was removed: the firewall is part of the configuration model; use `testudo config export`")
+	case "apply", "import", "enforce":
+		return fmt.Errorf("`testudo firewall %s` was removed: the daemon applies the model and loads it again when the kernel differs", args[0])
+	}
+	return fmt.Errorf("unknown firewall subcommand: %s\n%s", args[0], usage)
+}
 
-	case "apply":
-		m, err := openDirectFirewall(true)
+// cmdNAT handles `testudo nat list`: the model's NAT rules on this node.
+func cmdNAT(args []string) error {
+	const usage = "usage: testudo nat list [--storage DIR]"
+	if len(args) == 0 {
+		return errors.New(usage)
+	}
+	switch args[0] {
+	case "list":
+		cfg := config.Default()
+		fs := flag.NewFlagSet("nat", flag.ExitOnError)
+		storage := fs.String("storage", cfg.StorageDir, "storage directory of the running daemon")
+		_ = parseInterleaved(fs, args[1:])
+		c, err := dialControl(*storage)
 		if err != nil {
 			return err
 		}
-		if err := m.Apply(); err != nil {
+		var v engine.FirewallView
+		if err := c.call("GET", "/api/firewall/view", nil, 0, &v); err != nil {
 			return err
 		}
-		fmt.Println("policy applied")
+		if len(v.NAT) == 0 {
+			fmt.Println("no NAT rules on this node")
+			return nil
+		}
+		for _, n := range v.NAT {
+			fmt.Printf("  %-24s %-11s %-40s %10d pkts\n", n.Name, n.Direction, n.Match, n.Packets)
+		}
 		return nil
-
-	case "import", "enforce":
-		return fmt.Errorf("`testudo firewall %s` was removed: rules, NAT and the default-deny policy are configuration objects now (Web UI, or `testudo config`)", args[0])
+	case "add", "del":
+		return fmt.Errorf("`testudo nat %s` was removed: NAT rules are objects of the configuration model (the console's NAT rules)", args[0])
 	}
-	return fmt.Errorf("unknown firewall subcommand: %s", args[0])
+	return fmt.Errorf("unknown nat subcommand: %s\n%s", args[0], usage)
 }

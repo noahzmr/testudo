@@ -19,7 +19,6 @@ import (
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/frrender"
 	"github.com/noahzmr/testudo/internal/frrstage"
-	"github.com/noahzmr/testudo/internal/fwbridge"
 	"github.com/noahzmr/testudo/internal/fwrender"
 	"github.com/noahzmr/testudo/internal/gwmon"
 	"github.com/noahzmr/testudo/internal/harender"
@@ -109,18 +108,8 @@ func (e *Engine) openConfig() {
 	c.feed = aliasfeed.New(filepath.Join(dir, "alias-cache.json"))
 	c.feed.GeoDBDir = func() string { return e.settings.Snapshot().MaxMindDBDir }
 	c.backends = &lbhealth.Monitor{}
-	var stage confapply.Stage
-	if e.fwNft != nil {
-		e.fwNft.Locate, e.fwNft.Elements, e.fwNft.BackendDown = e.locate, c.feed.Snapshot, c.backends.Down
-		stage = e.fwNft
-	} else {
-		// A typed nil must not reach the interface, hence the explicit check.
-		var fw fwbridge.Manager
-		if e.fw != nil {
-			fw = e.fw
-		}
-		stage = &fwbridge.Stage{Manager: fw, Locate: e.locate}
-	}
+	e.fwNft.Locate, e.fwNft.Elements, e.fwNft.BackendDown = e.locate, c.feed.Snapshot, c.backends.Down
+	var stage confapply.Stage = e.fwNft
 	// WireGuard devices come first: the packet filter names them and the
 	// routing daemon routes through them.
 	c.secrets = secrets.Store{Dir: filepath.Join(e.cfg.StorageDir, "secrets")}
@@ -245,6 +234,7 @@ func (e *Engine) startConfig(ctx context.Context) {
 	}
 	e.seedRoles(ctx)
 	e.prepareLocalUsers(ctx)
+	e.migrateFirewallFile(ctx)
 	go e.grantLoop(ctx)
 	if e.fwNft != nil {
 		go e.aliasFeedLoop(ctx)

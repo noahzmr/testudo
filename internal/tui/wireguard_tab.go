@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -36,12 +35,6 @@ func (t *wireguardTab) Init() tea.Cmd    { return nil }
 func (t *wireguardTab) HelpHints() []KeyHint {
 	return []KeyHint{
 		{Key: "↑/↓ · j/k", Desc: "select peer"},
-		{Key: "a", Desc: "add peer (name / preset / keygen mode / fixed IP)"},
-		{Key: "e", Desc: "edit peer (endpoint / allowed IPs / keepalive / preset)"},
-		{Key: "x", Desc: "deprovision the selected peer (peer + route + firewall + IP)"},
-		{Key: "n", Desc: "name the interface of the selected peer"},
-		{Key: "R", Desc: "restart the interface (link down/up)"},
-		{Key: "t", Desc: "tune the interface for max performance (MTU/txqueuelen/buffers)"},
 		{Key: "r", Desc: "refresh"},
 	}
 }
@@ -107,213 +100,16 @@ func (t *wireguardTab) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "r":
 			t.refresh()
-		case "a":
-			return t.openAddModal()
-		case "e":
-			if t.cursor >= 0 && t.cursor < len(rows) {
-				return t.openEditModal(rows[t.cursor])
-			}
-			return statusCmd("no peer selected")
-		case "x":
-			if t.cursor >= 0 && t.cursor < len(rows) {
-				return t.deprovision(rows[t.cursor])
-			}
-			return statusCmd("no peer selected")
-		case "n":
-			return t.openRenameModal(t.selectedDevice(rows))
-		case "R":
-			return t.restartInterface(t.selectedDevice(rows))
-		case "t":
-			return t.openTuneModal(t.selectedDevice(rows))
+		case "a", "e", "x":
+			return statusCmd("tunnels and peers are changed in the configuration: the console's WireGuard section or testudo config")
 		}
 	}
 	return nil
 }
 
-func (t *wireguardTab) openAddModal() tea.Cmd {
-	modal := NewFormModal("Add WireGuard Peer",
-		[]FormField{
-			{Label: "name", Value: "", Hint: "human label for the peer (phone, laptop…)"},
-			{Label: "preset", Value: "split", Hint: "full / split / isolated routing preset"},
-			{Label: "keygen", Value: "server", Hint: "server = render config once · client = paste public key"},
-			{Label: "public_key", Value: "", Hint: "peer's base64 public key (client keygen only)"},
-			{Label: "fixed_ip", Value: "", Hint: "optional fixed tunnel IP; blank = next free"},
-		},
-		func(values map[string]string) error {
-			preset := wireguard.FirewallPreset(strings.TrimSpace(values["preset"]))
-			if !preset.Valid() {
-				return fmt.Errorf("preset must be full / split / isolated")
-			}
-			serverKeygen := strings.TrimSpace(values["keygen"]) != "client"
-			pub := strings.TrimSpace(values["public_key"])
-			if !serverKeygen && pub == "" {
-				return fmt.Errorf("client keygen needs the peer's public key")
-			}
-			res, err := t.eng.ProvisionWireGuardPeer(tuiActor(),
-				strings.TrimSpace(values["name"]), preset, serverKeygen, pub,
-				strings.TrimSpace(values["fixed_ip"]))
-			if err != nil {
-				return err
-			}
-			t.refresh()
-			// Server-side keygen returns a one-shot config containing the private
-			// key. Surface it once in a modal; it is never persisted or logged.
-			if res.ClientConfig != "" {
-				t.app.SetModal(newWireGuardConfigModal(res.AssignedIP, res.ClientConfig))
-			}
-			return nil
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-func (t *wireguardTab) openEditModal(r peerRow) tea.Cmd {
-	kaVal := "-1"
-	if int(r.peer.PersistentKeepalive.Seconds()) > 0 {
-		kaVal = fmt.Sprintf("%d", int(r.peer.PersistentKeepalive.Seconds()))
-	}
-	modal := NewFormModal(
-		fmt.Sprintf("Edit peer %s on %s", r.peer.PeerDisplayName(), r.device),
-		[]FormField{
-			{Label: "endpoint", Value: r.peer.Endpoint, Hint: "host:port; blank clears the stored endpoint"},
-			{Label: "allowed_ips", Value: strings.Join(r.peer.AllowedIPs, ", "), Hint: "comma-separated CIDRs; blank keeps current"},
-			{Label: "keepalive", Value: kaVal, Hint: "persistent-keepalive seconds: -1 leave, 0 off, e.g. 25"},
-			{Label: "preset", Value: "split", Hint: "full / split / isolated firewall preset"},
-		},
-		func(values map[string]string) error {
-			preset := wireguard.FirewallPreset(strings.TrimSpace(values["preset"]))
-			if !preset.Valid() {
-				return fmt.Errorf("preset must be full / split / isolated")
-			}
-			var allowed []string
-			for _, s := range strings.Split(values["allowed_ips"], ",") {
-				if s = strings.TrimSpace(s); s != "" {
-					allowed = append(allowed, s)
-				}
-			}
-			keepalive := -1
-			if v := strings.TrimSpace(values["keepalive"]); v != "" {
-				n, err := strconv.Atoi(v)
-				if err != nil {
-					return fmt.Errorf("keepalive must be an integer (seconds)")
-				}
-				keepalive = n
-			}
-			if err := t.eng.UpdateWireGuardPeer(tuiActor(), r.peer.PublicKey, strings.TrimSpace(values["endpoint"]), allowed, keepalive, preset); err != nil {
-				return err
-			}
-			t.refresh()
-			return nil
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-// selectedDevice returns the device of the peer under the cursor, or the first
-// device when the cursor isn't on a peer row.
-func (t *wireguardTab) selectedDevice(rows []peerRow) string {
-	if t.cursor >= 0 && t.cursor < len(rows) {
-		return rows[t.cursor].device
-	}
-	if len(t.snap.Devices) > 0 {
-		return t.snap.Devices[0].Name
-	}
-	return ""
-}
-
-func (t *wireguardTab) openRenameModal(device string) tea.Cmd {
-	if device == "" {
-		return statusCmd("no interface to name")
-	}
-	var cur string
-	for _, d := range t.snap.Devices {
-		if d.Name == device {
-			cur = d.Label
-		}
-	}
-	modal := NewFormModal(
-		fmt.Sprintf("Name interface %s", device),
-		[]FormField{{Label: "name", Value: cur, Hint: "human label for this wg interface"}},
-		func(values map[string]string) error {
-			if err := t.eng.SetWireGuardInterfaceName(tuiActor(), device, strings.TrimSpace(values["name"])); err != nil {
-				return err
-			}
-			t.refresh()
-			return nil
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-func (t *wireguardTab) openTuneModal(device string) tea.Cmd {
-	if device == "" {
-		return statusCmd("no interface to tune")
-	}
-	modal := NewFormModal(
-		fmt.Sprintf("Tune %s for performance", device),
-		[]FormField{
-			{Label: "mtu", Value: "1420", Hint: "1420 default; try 1380/1280 if tx/rx errors persist; 0 = leave"},
-			{Label: "txqueuelen", Value: "1000", Hint: "transmit queue length; 0 = leave"},
-			{Label: "socket_buffers", Value: "yes", Hint: "yes = enlarge UDP socket buffers (system-wide sysctls)"},
-		},
-		func(values map[string]string) error {
-			mtu, _ := strconv.Atoi(strings.TrimSpace(values["mtu"]))
-			txq, _ := strconv.Atoi(strings.TrimSpace(values["txqueuelen"]))
-			bufs := strings.EqualFold(strings.TrimSpace(values["socket_buffers"]), "yes")
-			if err := t.eng.TuneWireGuardInterface(tuiActor(), device, engine.TuneParams{
-				MTU: mtu, TxQueueLen: txq, SocketBuffers: bufs,
-			}); err != nil {
-				return err
-			}
-			t.refresh()
-			return nil
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-func (t *wireguardTab) restartInterface(device string) tea.Cmd {
-	if device == "" {
-		return statusCmd("no interface to restart")
-	}
-	modal := NewFormModal(
-		fmt.Sprintf("Restart interface %s?", device),
-		[]FormField{{Label: "confirm", Value: "no", Hint: "type 'yes' to bounce the link (down/up); the tunnel drops briefly"}},
-		func(values map[string]string) error {
-			if strings.TrimSpace(values["confirm"]) != "yes" {
-				return fmt.Errorf("cancelled")
-			}
-			if err := t.eng.RestartWireGuardInterface(tuiActor(), device); err != nil {
-				return err
-			}
-			t.refresh()
-			return nil
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-func (t *wireguardTab) deprovision(r peerRow) tea.Cmd {
-	modal := NewFormModal(
-		fmt.Sprintf("Deprovision peer %s on %s?", r.peer.PeerName(), r.device),
-		[]FormField{{Label: "confirm", Value: "no", Hint: "type 'yes' to remove peer + route + firewall rules + free IP"}},
-		func(values map[string]string) error {
-			if strings.TrimSpace(values["confirm"]) != "yes" {
-				return fmt.Errorf("cancelled")
-			}
-			if err := t.eng.DeprovisionWireGuardPeer(tuiActor(), r.peer.PublicKey); err != nil {
-				return err
-			}
-			t.refresh()
-			return nil
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
 func (t *wireguardTab) View(w, h int) string {
 	out := []string{headerStyle.Render(
-		"WireGuard - ↑/↓ select · a=add peer · x=deprovision · r=refresh")}
+		"WireGuard - ↑/↓ select · r=refresh · tunnels and peers are changed in the configuration")}
 
 	if t.err != nil {
 		out = append(out, netopsErrLines(t.err)...)
@@ -436,44 +232,4 @@ func nonNeg64(v int64) int64 {
 		return 0
 	}
 	return v
-}
-
-// wireguardConfigModal shows a one-shot server-side-keygen client config,
-// including its PRIVATE key, exactly once. The config is held only in this
-// modal's memory and is never persisted or logged; dismiss it after copying.
-// (In the browser, the equivalent flow generates the QR client-side.)
-type wireguardConfigModal struct {
-	ip     string
-	config string
-	done   bool
-}
-
-func newWireGuardConfigModal(ip, config string) *wireguardConfigModal {
-	return &wireguardConfigModal{ip: ip, config: config}
-}
-
-func (m *wireguardConfigModal) Title() string { return "WireGuard client config" }
-func (m *wireguardConfigModal) Init() tea.Cmd { return nil }
-func (m *wireguardConfigModal) Done() bool    { return m.done }
-func (m *wireguardConfigModal) Result() any   { return nil }
-
-func (m *wireguardConfigModal) Update(msg tea.Msg) tea.Cmd {
-	if _, ok := msg.(tea.KeyMsg); ok {
-		// Wipe the secret from memory on dismiss.
-		m.config = ""
-		m.done = true
-	}
-	return nil
-}
-
-func (m *wireguardConfigModal) View() string {
-	var b strings.Builder
-	b.WriteString(headerStyle.Render("WireGuard client config (" + m.ip + ")"))
-	b.WriteString("\n")
-	b.WriteString(warnStyle.Render("Shown once - contains a PRIVATE key. Copy it now; it is never stored."))
-	b.WriteString("\n\n")
-	b.WriteString(m.config)
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("press any key to dismiss (wipes it from memory)"))
-	return modalFrame.Render(b.String())
 }

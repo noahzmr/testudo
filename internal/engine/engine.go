@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,7 +19,6 @@ import (
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/discovery"
 	"github.com/noahzmr/testudo/internal/events"
-	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/flowattr"
 	"github.com/noahzmr/testudo/internal/flows"
 	"github.com/noahzmr/testudo/internal/fwstage"
@@ -58,13 +56,8 @@ type Engine struct {
 	ipfixMgr  *ipfix.Manager
 	settings  *config.SettingsStore
 	netops    *netops.Writer
-	// fw owns the firewall/NAT desired state (policy file) and keeps the kernel
-	// in sync with it; nil when netops is unavailable or the policy file is
-	// unreadable (fwErr says why). All firewall/NAT mutations go through it.
-	fw    *firewall.Manager
-	fwErr error
-	// fwNft is the nftables stage when nft can be driven with privileges;
-	// nil means the manager programs the kernel over netlink.
+	// fwNft is the packet filter: the nftables stage that loads the model's
+	// ruleset. Without the privileged side it refuses every change.
 	fwNft *fwstage.Stage
 	// conf is the configuration model's store and apply engine.
 	conf confCore
@@ -139,14 +132,8 @@ func New(cfg config.Config, store *storage.Store, settings *config.SettingsStore
 	bus := events.NewBus(2048)
 	dnsCache := flows.NewDNSCache()
 	dnsCache.SetReverseEnabled(cfg.ReverseDNSEnabled)
-	fw, fwNft, fwErr := openFirewall(cfg, nw)
-	if fwErr != nil {
-		log.Printf("firewall: policy unavailable, firewall/NAT management disabled: %v", fwErr)
-	}
 	e := &Engine{
-		fw:        fw,
-		fwNft:     fwNft,
-		fwErr:     fwErr,
+		fwNft:     newPacketFilter(cfg, nw),
 		cfg:       cfg,
 		bus:       bus,
 		sup:       newSupervisor(bus),

@@ -232,30 +232,13 @@ func (s *Server) buildMux() error {
 	// Firewall / NAT: every mutation goes through the policy manager (desired
 	// state in firewall.json, applied atomically, reconciled after reboot).
 	// The policy view is read-only; defaults and rules are model objects.
-	mux.HandleFunc("/api/firewall/policy", s.protect(s.handleFirewallPolicy))
-	mux.HandleFunc("/api/firewall/del", s.protect(s.handleFirewallDel))
-	mux.HandleFunc("/api/firewall/export", s.protect(s.handleFirewallExport))
 	mux.HandleFunc("/api/firewall/reset-counter", s.protect(s.handleFirewallResetCounter))
-	mux.HandleFunc("/api/nat/del", s.protect(s.handleNATDel))
-	mux.HandleFunc("/api/nat/masquerade/del", s.protect(s.handleMasqueradeDel))
+	mux.HandleFunc("/api/firewall/view", s.protect(s.handleFirewallView))
+	mux.HandleFunc("/api/firewall/rendered", s.protect(s.handleFirewallRendered))
 	mux.HandleFunc("/api/conntrack/flush", s.protect(s.handleConntrackFlush))
 
 	// WireGuard: read via /api/snapshot; provision/deprovision here. Peer
 	// provisioning is a write-gated, audit-logged transaction with rollback.
-	mux.HandleFunc("/api/wireguard/interface", s.protect(s.handleWireGuardInterfaceCreate))
-	mux.HandleFunc("/api/wireguard/interface/delete", s.protect(s.handleWireGuardInterfaceDelete))
-	mux.HandleFunc("/api/wireguard/interface/name", s.protect(s.handleWireGuardInterfaceName))
-	mux.HandleFunc("/api/wireguard/interface/restart", s.protect(s.handleWireGuardInterfaceRestart))
-	mux.HandleFunc("/api/wireguard/interface/tune", s.protect(s.handleWireGuardInterfaceTune))
-	mux.HandleFunc("/api/wireguard/peer", s.protect(s.handleWireGuardProvision))
-	mux.HandleFunc("/api/wireguard/peer/update", s.protect(s.handleWireGuardUpdate))
-	mux.HandleFunc("/api/wireguard/peer/deprovision", s.protect(s.handleWireGuardDeprovision))
-	mux.HandleFunc("/api/wireguard/netplan/render", s.protect(s.handleWireGuardNetplanRender))
-	mux.HandleFunc("/api/wireguard/netplan/write", s.protect(s.handleWireGuardNetplanWrite))
-	mux.HandleFunc("/api/wireguard/netplan/list", s.protect(s.handleWireGuardNetplanList))
-	mux.HandleFunc("/api/wireguard/netplan/save", s.protect(s.handleWireGuardNetplanSave))
-	mux.HandleFunc("/api/wireguard/netplan/apply", s.protect(s.handleWireGuardNetplanApply))
-	mux.HandleFunc("/api/wireguard/netplan/save-apply", s.protect(s.handleWireGuardNetplanSaveApply))
 
 	// TCPDump
 	mux.HandleFunc("/api/tcpdump/start", s.protect(s.handleTCPDumpStart))

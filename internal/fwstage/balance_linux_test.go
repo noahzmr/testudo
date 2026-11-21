@@ -14,7 +14,6 @@ import (
 
 	"github.com/noahzmr/testudo/internal/confapply"
 	"github.com/noahzmr/testudo/internal/confstore"
-	"github.com/noahzmr/testudo/internal/firewall"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 	"github.com/noahzmr/testudo/internal/testnet"
@@ -97,11 +96,8 @@ func TestKernelBalancingOnARealKernel(t *testing.T) {
 	dir := t.TempDir()
 	nw := &netops.Writer{AllowWrites: true}
 	down := map[string]bool{}
-	stage := &Stage{Runner: nw, Locate: func(*confstore.State) (string, string) { return id(siteN), id(nodeN) },
+	stage := &Stage{Runner: nw, ProtectedTCPPorts: []int{22}, Locate: func(*confstore.State) (string, string) { return id(siteN), id(nodeN) },
 		BackendDown: func() map[string]bool { return down }}
-	mgr, err := firewall.Open(firewall.Options{Path: filepath.Join(dir, "firewall.json"), ProtectedTCPPorts: []uint16{22}}, stage)
-	testnet.Must(t, err)
-	stage.SetManager(mgr)
 	store, err := confstore.Open(filepath.Join(dir, "config"))
 	testnet.Must(t, err)
 	defer store.Close()

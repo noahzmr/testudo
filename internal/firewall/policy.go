@@ -1,11 +1,8 @@
-// Package firewall is the policy layer above netops: it owns the desired state
-// of everything Testudo puts into nftables (filter rules, port forwards,
-// masquerades, chain policies), persists it as a file the operator can read
-// and back up, applies it atomically, and reconciles the kernel back to it when
-// something else (a reboot, a stray `nft flush ruleset`) made them diverge.
-//
-// The kernel is never the only copy. netops knows how to rebuild a table from
-// a spec; this package knows what the table should contain.
+// Package firewall reads the policy file of the firewall manager Testudo had
+// before the configuration model (firewall.json). Nothing applies it any
+// more: a node that starts with one moves it into the model once
+// (internal/engine, internal/confimport), and the packet filter is the
+// model's from then on (internal/fwrender, internal/fwstage).
 package firewall
 
 import (
