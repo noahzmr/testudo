@@ -165,6 +165,9 @@ func (s *Server) buildMux() error {
 	s.loginTmpl = t
 
 	mux.HandleFunc("/login", s.handleLogin)
+	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/readyz", s.handleReadyz)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/api/logout", s.handleLogout)
 	mux.HandleFunc("/access/login", s.handleAccessLogin)
 	s.Engine.SetForwardAuth(http.HandlerFunc(s.handleForwardAuth))

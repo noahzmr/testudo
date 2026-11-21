@@ -76,10 +76,41 @@ func TestPrivilegedPathEndToEnd(t *testing.T) {
 	if pw == "" {
 		t.Fatal("the daemon did not come up")
 	}
+	// Monitoring: liveness and readiness without a login, metrics only with one.
+	get := func(c *http.Client, path string) (int, string) {
+		t.Helper()
+		res, err := c.Get(base + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer res.Body.Close()
+		raw, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(raw)
+	}
+	anon := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if code, body := get(anon, "/healthz"); code != 200 || body != "ok\n" {
+		t.Errorf("/healthz: %d %q", code, body)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		code, body := get(anon, "/readyz")
+		if code == 200 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("/readyz never ready: %d %q", code, body)
+		}
+	}
+	if code, _ := get(anon, "/metrics"); code != 401 {
+		t.Errorf("/metrics without a login: %d", code)
+	}
 	if res, err := hc.PostForm(base+"/login", url.Values{"username": {"testudo"}, "password": {pw}}); err != nil {
 		t.Fatal(err)
 	} else {
 		res.Body.Close()
+	}
+	if code, body := get(hc, "/metrics"); code != 200 || !strings.Contains(body, "# TYPE testudo_config_ready gauge\ntestudo_config_ready 1\n") ||
+		!strings.Contains(body, "testudo_build_info{build=") {
+		t.Errorf("/metrics: %d\n%s", code, body)
 	}
 	call := func(method, path string, body any) (int, map[string]any) {
 		t.Helper()
