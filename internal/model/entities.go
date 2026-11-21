@@ -42,6 +42,7 @@ const (
 	KindDNSResolver    Kind = "dns_resolver"
 	KindDNSRecord      Kind = "dns_record"
 	KindNTPService     Kind = "ntp_service"
+	KindAccessGrant    Kind = "access_grant"
 )
 
 func init() {
@@ -81,6 +82,7 @@ func init() {
 	register("dns-resolvers", "DNS resolver", "services/dns", allLevels, func() Entity { return &DNSResolver{} })
 	register("dns-records", "DNS record", "services/dns-records", allLevels, func() Entity { return &DNSRecord{} })
 	register("ntp-services", "NTP service", "services/ntp", allLevels, func() Entity { return &NTPService{} })
+	register("access-grants", "Access grant", "access/grants", allLevels, func() Entity { return &AccessGrant{} })
 }
 
 // Interface binds a kernel network device on one node to a zone.
@@ -485,6 +487,25 @@ type AccessPolicy struct {
 }
 
 func (AccessPolicy) Kind() Kind { return KindAccessPolicy }
+
+// AccessGrant is access to a resource that one user has for a limited
+// time: what an approved request, a policy without approval or a
+// break-glass becomes. The packet filter lets the user's WireGuard peers
+// reach the resource while the grant exists; the grant is removed when it
+// ends, and the connections it allowed are cut.
+type AccessGrant struct {
+	Meta       `yaml:",inline"`
+	Resource   Ref[AccessResource] `json:"resource" yaml:"resource" validate:"required" ui:"label=Resource,widget=ref-picker,ref=access_resource,order=10"`
+	User       Ref[User]           `json:"user" yaml:"user" validate:"required" ui:"label=User,widget=ref-picker,ref=user,order=20"`
+	Ends       *time.Time          `json:"ends" yaml:"ends" validate:"required" ui:"label=Ends,widget=datetime,order=30"`
+	Policy     Ref[AccessPolicy]   `json:"policy,omitzero" yaml:"policy,omitempty" validate:"-" ui:"label=Policy,widget=ref-picker,ref=access_policy,order=40"`
+	Reason     string              `json:"reason,omitempty" yaml:"reason,omitempty" validate:"max=512" ui:"label=Justification,order=50"`
+	ApprovedBy string              `json:"approved_by,omitempty" yaml:"approved_by,omitempty" validate:"max=128" ui:"label=Approved by,widget=readonly,order=60"`
+	BreakGlass bool                `json:"break_glass,omitempty" yaml:"break_glass,omitempty" validate:"-" ui:"label=Break-glass,widget=readonly,order=70"`
+	Request    string              `json:"request,omitempty" yaml:"request,omitempty" validate:"max=64" ui:"label=Request,widget=readonly,order=80,help=The request in the access log"`
+}
+
+func (AccessGrant) Kind() Kind { return KindAccessGrant }
 
 // PolicyRoute sends traffic that a filter rule marked through a chosen
 // gateway or gateway group instead of the main routing table.

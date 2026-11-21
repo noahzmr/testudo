@@ -369,6 +369,167 @@
           "global"
         ]
       },
+      "AccessGrant": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_by": {
+            "maxLength": 128,
+            "readOnly": true,
+            "title": "Approved by",
+            "type": "string"
+          },
+          "break_glass": {
+            "readOnly": true,
+            "title": "Break-glass",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "ends": {
+            "format": "date-time",
+            "title": "Ends",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "policy": {
+            "format": "uuid",
+            "title": "Policy",
+            "type": "string",
+            "x-ref": "access_policy"
+          },
+          "reason": {
+            "maxLength": 512,
+            "title": "Justification",
+            "type": "string"
+          },
+          "request": {
+            "description": "The request in the access log",
+            "maxLength": 64,
+            "readOnly": true,
+            "title": "Request",
+            "type": "string"
+          },
+          "resource": {
+            "format": "uuid",
+            "title": "Resource",
+            "type": "string",
+            "x-ref": "access_resource"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "user": {
+            "format": "uuid",
+            "title": "User",
+            "type": "string",
+            "x-ref": "user"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ends",
+          "id",
+          "name",
+          "resource",
+          "scope",
+          "user"
+        ],
+        "type": "object",
+        "x-kind": "access_grant",
+        "x-menu": "access/grants",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
       "AccessPolicy": {
         "additionalProperties": false,
         "properties": {
@@ -6565,6 +6726,278 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/access-grants": {
+      "get": {
+        "operationId": "list_access_grant",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccessGrant"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Access grant objects",
+        "tags": [
+          "access"
+        ]
+      },
+      "post": {
+        "operationId": "create_access_grant",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessGrant"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessGrant"
+                }
+              }
+            },
+            "description": "Access grant",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Access grant",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access-grants/{id}": {
+      "delete": {
+        "operationId": "delete_access_grant",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Access grant",
+        "tags": [
+          "access"
+        ]
+      },
+      "get": {
+        "operationId": "get_access_grant",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessGrant"
+                }
+              }
+            },
+            "description": "Access grant",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Access grant",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_access_grant",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessGrant"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessGrant"
+                }
+              }
+            },
+            "description": "Access grant",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Access grant",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access-grants/{id}/effective": {
+      "get": {
+        "operationId": "effective_access_grant",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/AccessGrant"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Access grant as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/access-grants/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_access_grant",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Access grant",
+        "tags": [
+          "access"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
     "/api/v1/access-policies": {
       "get": {
         "operationId": "list_access_policy",

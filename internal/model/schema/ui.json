@@ -7195,6 +7195,199 @@
           "order": 906
         }
       ]
+    },
+    {
+      "kind": "access_grant",
+      "plural": "access-grants",
+      "title": "Access grant",
+      "menu": "access/grants",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "resource",
+          "label": "Resource",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "access_resource",
+          "order": 10,
+          "required": true
+        },
+        {
+          "name": "user",
+          "label": "User",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "user",
+          "order": 20,
+          "required": true
+        },
+        {
+          "name": "ends",
+          "label": "Ends",
+          "type": "datetime",
+          "widget": "datetime",
+          "order": 30,
+          "required": true
+        },
+        {
+          "name": "policy",
+          "label": "Policy",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "access_policy",
+          "order": 40
+        },
+        {
+          "name": "reason",
+          "label": "Justification",
+          "type": "string",
+          "order": 50
+        },
+        {
+          "name": "approved_by",
+          "label": "Approved by",
+          "type": "string",
+          "widget": "readonly",
+          "order": 60
+        },
+        {
+          "name": "break_glass",
+          "label": "Break-glass",
+          "type": "boolean",
+          "widget": "readonly",
+          "order": 70
+        },
+        {
+          "name": "request",
+          "label": "Request",
+          "type": "string",
+          "widget": "readonly",
+          "order": 80,
+          "help": "The request in the access log"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
     }
   ],
   "secret_mask": "********"
