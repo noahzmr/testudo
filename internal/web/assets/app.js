@@ -1280,7 +1280,7 @@
     const tokens = raw ? raw.split(/\s+/) : [];
     const lines = (rows || []).filter(f => {
       if (!tokens.length) return true;
-      const hay = [f.proto, f.iface, f.process, f.a, f.b, f.dns, f.service]
+      const hay = [f.proto, f.iface, f.process, f.a, f.b, f.dns, f.service, flowWhere(f)]
         .map(x => String(x || '').toLowerCase()).join(' ');
       return tokens.every(t => hay.includes(t));
     });
@@ -1294,10 +1294,38 @@
       + '<td>' + escape(f.b) + ipBadge(f.b_label) + '</td>'
       + '<td>' + escape(f.service || '-') + '</td>'
       + '<td>' + escape(f.dns || '-') + '</td>'
+      + '<td>' + escape(flowWhere(f) || '-') + '</td>'
       + '<td>' + f.packets + '</td>'
       + '<td>' + fmtBytes(f.bytes) + '</td>'
       + '</tr>'
-    ).join('') || '<tr><td colspan="9" class="muted">no flows; start capture in this tab</td></tr>';
+    ).join('') || '<tr><td colspan="10" class="muted">no flows; start capture in this tab</td></tr>';
+  }
+
+  // flowWhere says in a few words where a flow belongs in the appliance:
+  // its zone, the tunnel and the person behind it, what address
+  // translation did to it, what the load balancer did with it.
+  function flowWhere(f) {
+    const a = f.attrs;
+    if (!a) return '';
+    const parts = [];
+    if (a.zone) parts.push(a.zone + (a.vrf ? '/' + a.vrf : ''));
+    if (a.tunnel) {
+      let t = a.tunnel === 'fabric' ? 'fabric' : 'tunnel ' + a.tunnel;
+      if (a.peer) t += ' → ' + a.peer + (a.peer_site ? ' @' + a.peer_site : '');
+      if (a.path) t += ' via ' + a.path;
+      if (a.carrier) t += ' (encrypted)';
+      parts.push(t);
+    }
+    if (a.user) parts.push('user ' + a.user);
+    if (a.pre_nat && a.post_nat) parts.push('NAT ' + a.pre_nat.replace(/^\S+ /, '') + ' ⇒ ' + a.post_nat.replace(/^\S+ /, ''));
+    if (a.lb_role) {
+      let l = (a.lb_role === 'client' ? 'LB client of ' : 'LB backend of ') + (a.lb_service || '?');
+      if (a.lb_router) l += ' / ' + a.lb_router;
+      if (a.lb_host) l += ' (' + a.lb_host + ')';
+      if (a.lb_role === 'client' && a.lb_backend) l += ' → ' + a.lb_backend;
+      parts.push(l);
+    }
+    return parts.join(' · ');
   }
 
   // Dashboard "Top flows": the five biggest by bytes, then packets - not the

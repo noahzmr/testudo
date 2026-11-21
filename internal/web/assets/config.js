@@ -98,7 +98,7 @@ const ENFORCED = new Set(['filter_rule', 'zone', 'alias', 'firewall_policy', 'na
   'user', 'group', 'role', 'oidc_provider', 'api_token', 'fabric', 'path_policy', 'site', 'cluster_node']);
 // Sections that open on the model instead of their live view.
 const OPENS_ON = { firewall: 'filter-rules', nat: 'nat-rules', lb: 'lb-services', cluster: 'cluster-overview', changes: 'changesets' };
-const paneOf = seg => seg === 'cluster-overview' ? 'cluster' : seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
+const paneOf = seg => seg === 'cluster-overview' || seg === 'site-flows' ? 'cluster' : seg === 'changesets' || seg === 'history' || seg === 'audit' ? 'changes' : PANE[S.forms.find(f => f.plural === seg)?.kind];
 const paneEl = name => document.querySelector(`.pane[data-pane="${name}"]`);
 
 // buildBars gives every section its row of tabs.
@@ -109,7 +109,7 @@ function buildBars() {
     if (f && can(f, 'read')) (byPane[pane] ||= []).push(f);
   }
   byPane.changes = [{ plural: 'changesets', label: 'Change sets' }, { plural: 'history', label: 'History' }, { plural: 'audit', label: 'Audit log' }];
-  (byPane.cluster ||= []).unshift({ plural: 'cluster-overview', label: 'Overview' });
+  (byPane.cluster ||= []).unshift({ plural: 'cluster-overview', label: 'Overview' }, { plural: 'site-flows', label: 'Flows across sites' });
   for (const [pane, forms] of Object.entries(byPane)) {
     const host = paneEl(pane);
     if (!host || host.querySelector('.cfg-bar')) continue;
@@ -165,6 +165,7 @@ async function route() {
   if (seg === 'history') { S.form = null; return historyView(); }
   if (seg === 'audit') { S.form = null; return auditView(); }
   if (seg === 'cluster-overview') { S.form = null; return clusterView(); }
+  if (seg === 'site-flows') { S.form = null; return siteFlowsView(); }
   S.form = S.forms.find(f => f.plural === seg);
   if (!S.form || !can(S.form, 'read')) return fill($('#cfg-main'), el('p', { text: 'Nothing you may read here.' }));
   if (id === 'new') return S.form.kind === 'api_token' ? tokenView() : editView(S.form, null);
@@ -842,6 +843,32 @@ async function clusterView() {
     tokenOut,
     el('p', { class: 'dim', text: 'Voters decide: keep three or five, at three locations or more. Members without a vote receive the configuration and do not affect the majority.' }),
     fabricSection(fab, rt.data?.routing?.bgp));
+}
+
+// siteFlowsView lists connections seen at more than one member: where each
+// saw it, on which interface and tunnel, over which fabric path. Every
+// member's flows are fetched when the view is opened; nothing of it is
+// replicated.
+async function siteFlowsView() {
+  const g = gen;
+  const r = await api('GET', '/flows/sites');
+  if (g !== gen) return;
+  const main = $('#cfg-main'), head = el('header', {}, el('h2', { text: 'Flows across sites' }),
+    el('button', { type: 'button', text: 'Refresh', onclick: () => siteFlowsView() }));
+  if (!r.ok) return fill(main, head, el('p', { class: 'err', text: r.data?.message || 'failed' }));
+  const nodes = r.data.nodes || [], conns = r.data.connections || [];
+  const fmt = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' kB' : n + ' B';
+  const where = s => [s.attrs?.zone, s.attrs?.tunnel === 'fabric' ? `fabric → ${s.attrs.peer || '?'} via ${s.attrs.path || '?'}${s.attrs.carrier ? ' (encrypted)' : ''}` : s.attrs?.tunnel,
+    s.attrs?.pre_nat && s.attrs?.post_nat ? 'NAT ⇒ ' + s.attrs.post_nat.replace(/^\S+ /, '') : ''].filter(Boolean).join(' · ');
+  fill(main, head,
+    el('p', { class: 'dim', text: 'Members asked: ' + nodes.map(n => `${n.node}${n.site ? ' (' + n.site + ')' : ''}: ${n.error ? 'no answer, ' + n.error : n.flows + ' flows'}`).join(' · ') }),
+    conns.length ? el('table', { class: 'cfg-table' },
+      el('thead', {}, el('tr', {}, ['Connection', 'Sites', 'Path', 'Bytes', 'Seen at'].map(h => el('th', { text: h })))),
+      el('tbody', {}, conns.slice(0, 200).map(c => el('tr', {},
+        el('td', { text: `${c.proto} ${c.a} → ${c.b}` }), el('td', { text: (c.sites || []).join(', ') }),
+        el('td', { text: (c.paths || []).join(', ') }), el('td', { text: fmt(c.bytes || 0) }),
+        el('td', {}, (c.sightings || []).map(s => el('div', { class: 'dim', text: `${s.node} ${s.iface || '(socket)'}${where(s) ? ' · ' + where(s) : ''}` }))))))) :
+      el('p', { class: 'dim', text: 'No connection was seen at more than one member in the last minutes. Flow capture has to run on the members (Flows tab).' }));
 }
 
 // fabricSection shows this member's tunnels to the other sites with what
