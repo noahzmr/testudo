@@ -3,7 +3,7 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 8 complete. Packet filter, NAT, routing, WireGuard
+**Status: Phases 0 to 9 complete. Packet filter, NAT, routing, WireGuard
 with identity-aware access, and load balancing with SNI routing and
 certificates are driven by the model and verified against a real kernel
 ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
@@ -11,9 +11,11 @@ certificates are driven by the model and verified against a real kernel
 go through PAM, OIDC or the built-in store and end in permissions from the
 model ([phase-6](phase-6-identity.md)). Nodes form a Raft cluster that
 replicates the model and applies changes canary first
-([phase-7](phase-7-cluster.md)), and the network between their sites is
-derived from it ([phase-8](phase-8-fabric.md)). Flow analysis extensions
-(Phase 9) are next.**
+([phase-7](phase-7-cluster.md)), the network between their sites is
+derived from it ([phase-8](phase-8-fabric.md)), and flows are attributed
+to zones, tunnels, people, translations and the load balancer, and joined
+across sites ([phase-9](phase-9-flows.md)). Intra-site HA and hardening
+(Phase 10) are next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -31,7 +33,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 6 | Linux-PAM, OIDC, RBAC, audit | done | - | - |
 | 7 | Raft cluster core | done | - | - |
 | 8 | Multi-site SDN fabric | done | - | - |
-| 9 | Flow analysis extensions | about 50 % | 5–6 weeks | medium |
+| 9 | Flow analysis extensions | done | - | - |
 | 10 | Intra-site HA, hardening, operations | about 10 % | 5–6 weeks | medium |
 
 Roughly 15 to 18 months of single-engineer work. The target is a second
@@ -150,19 +152,21 @@ the fabric.
 
 ## 9. Flow analysis
 
+Done; see [phase-9-flows.md](phase-9-flows.md).
+
 | Target | Today |
 | --- | --- |
-| Capture on all interfaces including tunnels | present; no hot-plug |
+| Capture on all interfaces including tunnels | present; follows interfaces that come and go |
 | Per-interface flows with directions | present; A/B ordering is by string, there is no initiator |
-| Pre/post-NAT attribution | absent (string tag only) |
-| Zone, tunnel peer, user identity on flows | absent |
-| Listener-to-backend linkage for load-balanced traffic | absent |
-| Conntrack events as a source | polled for a separate view only |
-| IPFIX export | present (UDP); no NetFlow v9, no collector |
-| Cross-site correlation | absent |
+| Pre/post-NAT attribution | present, from conntrack |
+| Zone, tunnel peer, user identity on flows | present |
+| Listener-to-backend linkage for load-balanced traffic | present (proxy: access log; kernel: conntrack) |
+| Conntrack events as a source | polled every 3 s, not subscribed |
+| IPFIX export | present (UDP) with post-NAT fields; no NetFlow v9, no collector |
+| Cross-site correlation | present, member to member on request |
 | ICMP and other protocols | dropped |
-| Documented retention | row caps, undocumented |
-| Regression tests | **added in Phase 0** |
+| Documented retention | documented; session flows now retired after 30 days |
+| Regression tests | baseline plus a test per new path |
 
 ## 10. Operations and hardening
 
