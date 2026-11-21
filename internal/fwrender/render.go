@@ -1050,35 +1050,18 @@ func (r *renderer) access() []string {
 	sort.SliceStable(policies, func(i, j int) bool { return policies[i].Name < policies[j].Name })
 
 	var out []string
-	for _, pol := range policies {
-		res := resources[pol.Resource.ID]
-		if res == nil || pol.RequiresApproval || pol.RequiresMFA {
-			continue
-		}
-		named := map[string]bool{}
-		for _, u := range pol.Users {
-			named[u.ID] = true
-		}
-		groups := map[string]bool{}
-		for _, g := range pol.Groups {
-			groups[g.ID] = true
-		}
+	// emit lets the peers allowed reach the resource: one rule per tunnel
+	// device, matching the peers' own tunnel addresses.
+	emit := func(res *model.AccessResource, allowed func(p *model.WGPeer, groups map[string]bool) bool, comment string) {
 		// device -> family -> source addresses
 		src := map[string]map[bool][]string{}
 		for _, p := range peers {
 			dev := devices[p.Tunnel.ID]
 			member, known := userGroups[p.User.ID]
 			if !p.Enabled || dev == "" || !known {
-				continue // no identity, no access: an unbound peer matches no policy
+				continue // no identity, no access: an unbound peer matches nothing
 			}
-			allowed := pol.Everyone || named[p.User.ID]
-			for g := range member {
-				allowed = allowed || groups[g]
-			}
-			for _, g := range p.Groups {
-				allowed = allowed || groups[g.ID]
-			}
-			if !allowed {
+			if !allowed(p, member) {
 				continue
 			}
 			for _, a := range p.AllowedIPs {
@@ -1104,7 +1087,7 @@ func (r *renderer) access() []string {
 		if res.Ports != "" {
 			tail = append(tail, "th dport { "+res.Ports+" }")
 		}
-		tail = append(tail, "counter accept", "comment "+quote(pol.ID))
+		tail = append(tail, "counter accept", "comment "+quote(comment))
 		v6 := isV6(res.Target)
 		fam := "ip"
 		if v6 {
@@ -1118,6 +1101,41 @@ func (r *renderer) access() []string {
 			out = append(out, strings.Join(append([]string{"iifname " + quote(dev),
 				fmt.Sprintf("%s saddr { %s }", fam, strings.Join(addrs, ", ")), fam + " daddr " + res.Target}, tail...), " "))
 		}
+	}
+	for _, pol := range policies {
+		res := resources[pol.Resource.ID]
+		if res == nil || pol.RequiresApproval || pol.RequiresMFA {
+			continue
+		}
+		named := map[string]bool{}
+		for _, u := range pol.Users {
+			named[u.ID] = true
+		}
+		groups := map[string]bool{}
+		for _, g := range pol.Groups {
+			groups[g.ID] = true
+		}
+		emit(res, func(p *model.WGPeer, member map[string]bool) bool {
+			allowed := pol.Everyone || named[p.User.ID]
+			for g := range member {
+				allowed = allowed || groups[g]
+			}
+			for _, g := range p.Groups {
+				allowed = allowed || groups[g.ID]
+			}
+			return allowed
+		}, pol.ID)
+	}
+	// Grants: what a request was given, for one user, until it ends. The
+	// grant is removed when it ends; until then it is a rule like any other.
+	grants := effective[*model.AccessGrant](r, model.KindAccessGrant)
+	sort.SliceStable(grants, func(i, j int) bool { return grants[i].ID < grants[j].ID })
+	for _, g := range grants {
+		res := resources[g.Resource.ID]
+		if res == nil {
+			continue
+		}
+		emit(res, func(p *model.WGPeer, _ map[string]bool) bool { return p.User.ID == g.User.ID }, g.ID)
 	}
 	return out
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
 	"github.com/noahzmr/testudo/internal/model"
@@ -237,6 +238,9 @@ func TestAccessPoliciesFollowIdentity(t *testing.T) {
 		&model.AccessPolicy{Meta: meta(96, "wiki-for-engineers"), Resource: model.Ref[model.AccessResource]{ID: id(91)}, Groups: []model.Ref[model.Group]{group(70)}, MaxDuration: "8h"},
 		&model.AccessPolicy{Meta: meta(97, "vault-needs-approval"), Resource: model.Ref[model.AccessResource]{ID: id(92)}, Everyone: true, MaxDuration: "1h", RequiresApproval: true},
 		&model.AccessPolicy{Meta: meta(98, "v6-for-everyone"), Resource: model.Ref[model.AccessResource]{ID: id(93)}, Everyone: true, MaxDuration: "8h"},
+		// bob's request for the vault was approved: a grant for him alone.
+		&model.AccessGrant{Meta: meta(99, "vault-bob"), Resource: model.Ref[model.AccessResource]{ID: id(92)}, User: user(72),
+			Ends: func() *time.Time { t := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC); return &t }(), ApprovedBy: "dave"},
 	)
 	out := f.render(opts())
 	line := func(policy int) string {
@@ -252,6 +256,8 @@ func TestAccessPoliciesFollowIdentity(t *testing.T) {
 		95: `iifname "wg0" ip saddr { 10.8.0.2 } ip daddr 10.50.0.10 meta l4proto tcp th dport { 22 } counter accept comment "` + id(95) + `"`,
 		// group through the user: bob
 		96: `iifname "wg0" ip saddr { 10.8.0.3 } ip daddr 10.50.0.0/24 counter accept comment "` + id(96) + `"`,
+		// the grant: bob's device only, to the resource that otherwise needs approval
+		99: `iifname "wg0" ip saddr { 10.8.0.3 } ip daddr 10.50.0.99 meta l4proto tcp th dport { 22 } counter accept comment "` + id(99) + `"`,
 		// everyone means everyone with an identity, and an IPv6 resource
 		// matches IPv6 tunnel addresses only: alice has one
 		98: `iifname "wg0" ip6 saddr { fd08::2 } ip6 daddr 2001:db8::10 meta l4proto tcp th dport { 443 } counter accept comment "` + id(98) + `"`,
