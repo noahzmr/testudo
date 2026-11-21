@@ -1,6 +1,6 @@
 # ADR 0004: How intra-site HA pairs count as Raft members
 
-Status: proposed (Phase 0), to be confirmed before Phase 7.
+Status: accepted; implemented in Phase 10 (see "Implementation" below).
 
 ## Context
 
@@ -70,3 +70,26 @@ hardware and carries no traffic.
 * Promotion needs a health definition for "partner is healthy and caught up"
   (applied index within a bound, last contact within a bound); that is part
   of Phase 7's tests.
+
+## Implementation
+
+* The pair is the model's `ha_pair` (two nodes of one site, VRRP instances,
+  a sync interface); `internal/harender` renders keepalived and conntrackd,
+  `internal/hastage` applies them through the privileged helper, which
+  supervises both daemons.
+* The leader records every member it fails to heartbeat
+  (`FailedHeartbeatObservation`) and forgets it when heartbeats resume or a
+  new term starts. A voter silent for `FailoverAfter` (30 s by default) is
+  replaced when its partner is a non-voter that the leader reaches and that
+  has announced itself. "Caught up" is left to Raft: the partner has been
+  replicating the log all along, and a lagging new voter costs liveness at
+  most, never safety.
+* The replacement is two member records (dead: non-voter, partner: voter),
+  a `DemoteVoter` of the dead node and the usual promotion of the partner.
+  The dead node steps down first, so the quorum for the step is counted
+  among the voters that are alive. A returning node keeps its non-voter
+  record and catches up.
+* The engine writes an audit row (`cluster_voter_failover`) and sets the
+  site's `voter` in the model to the partner.
+* Not implemented: the standby-first rollout order inside a site. A change
+  set rolls out canary-first (the leader) and then to every member at once.
