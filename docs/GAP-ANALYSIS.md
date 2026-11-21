@@ -3,7 +3,7 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 10 complete. Packet filter, NAT, routing, WireGuard
+**Status: Phases 0 to 11 complete. Packet filter, NAT, routing, WireGuard
 with identity-aware access, and load balancing with SNI routing and
 certificates are driven by the model and verified against a real kernel
 ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
@@ -19,6 +19,8 @@ active/standby pair whose connections survive a failover, the cluster
 hands a dead voter's vote to its partner, and a node has metrics, health
 endpoints, encrypted backups and a Debian package with a sandboxed unit
 ([phase-10](phase-10-ha.md), runbook in [operations.md](operations.md)).
+Nodes hand out addresses, answer names and serve time per interface, with
+DHCP leases shared across an HA pair ([phase-11](phase-11-services.md)).
 What is open is listed per area below.**
 
 Effort is rough engineering time for one experienced engineer, including
@@ -39,6 +41,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 8 | Multi-site SDN fabric | done | - | - |
 | 9 | Flow analysis extensions | done | - | - |
 | 10 | Intra-site HA, hardening, operations | done | - | - |
+| 11 | DHCP, DNS and NTP per interface | done | - | - |
 
 The Phase 0 estimate was 15 to 18 months of single-engineer work. Every
 area now exists; the open items per area are below.
@@ -189,6 +192,20 @@ Done; see [phase-10-ha.md](phase-10-ha.md) and
 | OpenAPI | generated from the model since Phase 1 |
 | Upgrade migrations | the schema version gate from Phase 7; no data migrations were needed |
 | CI | absent: the checks run from the commit hooks and `scripts/` |
+
+## 11. Network services
+
+Done; see [phase-11-services.md](phase-11-services.md).
+
+| Target | Today |
+| --- | --- |
+| DHCPv4 and DHCPv6 per interface | present (Kea): pools, reservations, options, leases in the console |
+| IPv6 router advertisements | present (radvd): SLAAC, stateless, managed, RDNSS, DNSSL |
+| DNS resolver per interface | present (Unbound): recursive or forwarding, DNS over TLS, DNSSEC, local records, domain forwards, rebind protection |
+| Client names in DNS | present, from the leases, live |
+| NTP per interface | present (chrony), NTS, orphan mode |
+| HA | DHCP hot-standby over the sync link; RA from both nodes |
+| Relay, prefix delegation, PXE, free-form options, external DDNS | absent |
 
 ## Phase 0 deliverables
 
