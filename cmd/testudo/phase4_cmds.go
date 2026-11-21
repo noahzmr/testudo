@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -171,8 +172,13 @@ func cmdWeb(args []string) error {
 	nodeName := fs.String("node-name", "", "this member's name in the cluster (default: the host name)")
 	publicURL := fs.String("public-url", "", "address people reach this console at (https://fw.example.com); used to send visitors of published services here to log in")
 	tlsAuto := fs.Bool("tls-auto", false, "serve HTTPS with a self-signed certificate generated into <storage>/tls on first use")
+	logJSON := fs.Bool("log-json", false, "write the log as JSON lines on stderr, for journald or a log shipper")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *logJSON {
+		// The log package's output goes through this handler from now on.
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	}
 	if (*tlsCert == "") != (*tlsKey == "") {
 		return fmt.Errorf("--tls-cert and --tls-key must be given together")
