@@ -77,6 +77,7 @@ type Op struct {
 	Frr     string         `json:"frr,omitempty"`
 	Routing *RoutingSpec   `json:"routing,omitempty"`
 	WG      *WGSpec        `json:"wg,omitempty"`
+	Links   *LinksSpec     `json:"links,omitempty"`
 	Proxy   *ProxyRequest  `json:"proxy,omitempty"`
 	PAM     *PAMRequest    `json:"pam,omitempty"`
 	Daemon  *DaemonRequest `json:"daemon,omitempty"`
@@ -276,6 +277,11 @@ func (w *Writer) applyDirect(op Op) error {
 			return fmt.Errorf("wireguard sync missing spec")
 		}
 		return w.syncWGDirect(*op.WG)
+	case OpSyncLinks:
+		if op.Links == nil {
+			return fmt.Errorf("links sync missing spec")
+		}
+		return w.syncLinksDirect(*op.Links)
 	case OpSyncRouting:
 		if op.Routing == nil {
 			return fmt.Errorf("routing sync missing spec")
