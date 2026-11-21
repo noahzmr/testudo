@@ -13,9 +13,11 @@ import (
 )
 
 // Managed daemons other than the proxy: keepalived (VRRP between the two
-// nodes of a site) and conntrackd (their connection-state sync). The
-// privileged runner starts them with fixed command lines; a request only
-// names the daemon, what to do, and where its configuration is.
+// nodes of a site), conntrackd (their connection-state sync), and the
+// network services: Kea for DHCPv4 and DHCPv6, Unbound, chronyd and radvd.
+// The privileged runner starts them with fixed command lines; a request
+// only names the daemon, what to do, where its configuration is, and
+// options from the daemon's own short list.
 
 const (
 	// OpDaemonControl starts, restarts, reloads or stops a daemon (Op.Daemon).
@@ -45,14 +47,36 @@ type DaemonRequest struct {
 	ConfigFile string `json:"config_file,omitempty"`
 	RunDir     string `json:"run_dir,omitempty"`
 	LogFile    string `json:"log_file,omitempty"`
+	// Options are named switches the daemon's spec knows (chronyd:
+	// "serve-only").
+	Options []string `json:"options,omitempty"`
+}
+
+func (r DaemonRequest) has(option string) bool {
+	for _, o := range r.Options {
+		if o == option {
+			return true
+		}
+	}
+	return false
 }
 
 type daemonSpec struct {
 	paths []string
 	conf  string // the configuration's file name
 	args  func(req DaemonRequest) []string
+	// env adds to the daemon's environment.
+	env func(req DaemonRequest) []string
+	// options are the switches a request may set.
+	options []string
 	// hup says the daemon reads its configuration again on SIGHUP.
 	hup bool
+}
+
+// keaEnv keeps Kea's pid and lock files in the run directory instead of
+// the distribution's.
+func keaEnv(r DaemonRequest) []string {
+	return []string{"KEA_PIDFILE_DIR=" + r.RunDir, "KEA_LOCKFILE_DIR=" + r.RunDir}
 }
 
 var daemonSpecs = map[string]daemonSpec{
@@ -64,6 +88,28 @@ var daemonSpecs = map[string]daemonSpec{
 		}},
 	"conntrackd": {paths: []string{"/usr/sbin/conntrackd", "/sbin/conntrackd"}, conf: "conntrackd.conf",
 		args: func(r DaemonRequest) []string { return []string{"-C", r.ConfigFile} }},
+	"kea-dhcp4": {paths: []string{"/usr/sbin/kea-dhcp4"}, conf: "kea-dhcp4.conf", hup: true, env: keaEnv,
+		args: func(r DaemonRequest) []string { return []string{"-c", r.ConfigFile} }},
+	"kea-dhcp6": {paths: []string{"/usr/sbin/kea-dhcp6"}, conf: "kea-dhcp6.conf", hup: true, env: keaEnv,
+		args: func(r DaemonRequest) []string { return []string{"-c", r.ConfigFile} }},
+	// Unbound drops to its own user; its configuration lives where that
+	// user can read it again on SIGHUP.
+	"unbound": {paths: []string{"/usr/sbin/unbound"}, conf: "unbound.conf", hup: true,
+		args: func(r DaemonRequest) []string { return []string{"-d", "-p", "-c", r.ConfigFile} }},
+	// chronyd has no reload; a change restarts it. serve-only keeps its
+	// hands off the system clock.
+	"chronyd": {paths: []string{"/usr/sbin/chronyd"}, conf: "chrony.conf", options: []string{"serve-only"},
+		args: func(r DaemonRequest) []string {
+			args := []string{"-d", "-f", r.ConfigFile}
+			if r.has("serve-only") {
+				args = append(args, "-x")
+			}
+			return args
+		}},
+	"radvd": {paths: []string{"/usr/sbin/radvd"}, conf: "radvd.conf", hup: true,
+		args: func(r DaemonRequest) []string {
+			return []string{"-n", "-m", "stderr", "-u", "radvd", "-p", filepath.Join(r.RunDir, "radvd.pid"), "-C", r.ConfigFile}
+		}},
 }
 
 // DaemonBinary returns where a managed daemon is installed.
@@ -131,7 +177,19 @@ func startDaemon(req DaemonRequest, spec daemonSpec, bin string) error {
 	if err := os.MkdirAll(req.RunDir, 0o700); err != nil {
 		return err
 	}
+	for _, o := range req.Options {
+		known := false
+		for _, k := range spec.options {
+			known = known || o == k
+		}
+		if !known {
+			return fmt.Errorf("%s: unknown option %q", req.Name, o)
+		}
+	}
 	cmd := exec.Command(bin, spec.args(req)...)
+	if spec.env != nil {
+		cmd.Env = append(os.Environ(), spec.env(req)...)
+	}
 	if req.LogFile != "" && cleanPath(req.LogFile) {
 		if f, err := os.OpenFile(req.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
 			cmd.Stdout, cmd.Stderr = f, f

@@ -30,6 +30,14 @@ func TestDaemonRequestsAreChecked(t *testing.T) {
 			t.Errorf("%+v was accepted: %v", req, err)
 		}
 	}
+	// Options come from the daemon's own list.
+	bad := DaemonRequest{Name: "chronyd", ConfigFile: "/x/chrony.conf", RunDir: t.TempDir(), Options: []string{"-q"}}
+	if err := startDaemon(bad, daemonSpecs["chronyd"], "/bin/true"); err == nil || !strings.Contains(err.Error(), "unknown option") {
+		t.Errorf("an option chronyd does not list was accepted: %v", err)
+	}
+	if args := daemonSpecs["chronyd"].args(DaemonRequest{ConfigFile: "/x/chrony.conf", Options: []string{"serve-only"}}); args[len(args)-1] != "-x" {
+		t.Errorf("serve-only: %v", args)
+	}
 	// Without a running daemon the status is "stopped" (or "missing" when
 	// it is not installed), never "running".
 	if r := RunDaemon(DaemonRequest{Name: "conntrackd", Mode: DaemonStatus, RunDir: "/run/none"}); r.Output == "running" {
