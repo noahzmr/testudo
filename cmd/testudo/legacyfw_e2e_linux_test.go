@@ -24,10 +24,13 @@ import (
 )
 
 // TestLegacyFirewallMovesIntoTheModel: a node of an older install starts
-// with the old firewall manager's policy file and an empty model. The file
-// moves into the model by itself (the policy, a rule, a port forward and a
-// rule the old WireGuard provisioner made), the kernel holds the model's
-// ruleset, and the file is kept as firewall.json.migrated.
+// with the old firewall manager's policy file, its settings.json and an
+// empty model. The policy moves into the model by itself (the policy, a
+// rule, a port forward and a rule the old WireGuard provisioner made), the
+// kernel holds the model's ruleset, and the file is kept as
+// firewall.json.migrated. The thresholds and integrations of settings.json
+// become the model's node settings, with the integration's password
+// masked in the API.
 func TestLegacyFirewallMovesIntoTheModel(t *testing.T) {
 	bin := os.Getenv("TESTUDO_E2E_BIN")
 	if bin == "" {
@@ -52,6 +55,10 @@ func TestLegacyFirewallMovesIntoTheModel(t *testing.T) {
 	}
 	raw, _ := json.Marshal(pol)
 	testnet.Must(t, os.WriteFile(filepath.Join(dir, "firewall.json"), raw, 0o600))
+	testnet.Must(t, os.WriteFile(filepath.Join(dir, "settings.json"),
+		[]byte(`{"packet_loss_pct": 2, "rtt_ms": 77, "dns_latency_ms": 120, "jitter_ms": 20, "retransmissions_pct": 5,
+		"incident_cooldown_sec": 60, "guacamole_url": "https://guac.example", "guacamole_api_password": "s3cret",
+		"ipfix_interval_sec": 30, "flow_retrans_pct": 5}`), 0o600))
 
 	var stderr bytes.Buffer
 	cmd := exec.Command(bin, "web", "--listen", "127.0.0.1:18086", "--storage", dir, "--db", filepath.Join(dir, "testudo.db"), "--allow-netops-write")
@@ -104,6 +111,10 @@ func TestLegacyFirewallMovesIntoTheModel(t *testing.T) {
 	}
 	if n := list("nat-rules"); len(n) != 1 || n[0]["type"] != "dnat" {
 		t.Errorf("NAT in the model: %v", n)
+	}
+	if ns := list("node-settings"); len(ns) != 1 || ns[0]["rtt_ms"] != 77.0 || ns[0]["guacamole_url"] != "https://guac.example" ||
+		ns[0]["guacamole_api_password"] == "s3cret" || ns[0]["packet_loss_pct"] != nil {
+		t.Errorf("node settings in the model: %v", ns)
 	}
 	if n := list("cluster-nodes"); len(n) != 1 {
 		t.Errorf("this node in the model: %v", n)
