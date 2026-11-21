@@ -36,7 +36,6 @@ const (
 	OpSetIfaceDown     OpKind = "iface_down"
 	OpAddAddr          OpKind = "addr_add"
 	OpDelAddr          OpKind = "addr_del"
-	OpFlushAddrs       OpKind = "addr_flush"
 	OpSetMTU           OpKind = "mtu_set"
 	OpFlushConntrack   OpKind = "ct_flush"
 	OpResetRuleCounter OpKind = "fw_reset_counter"
@@ -248,8 +247,6 @@ func (w *Writer) applyDirect(op Op) error {
 		return w.addAddrDirect(op.Iface, op.CIDR)
 	case OpDelAddr:
 		return w.delAddrDirect(op.Iface, op.CIDR)
-	case OpFlushAddrs:
-		return w.flushAddrsDirect(op.Iface)
 	case OpSetMTU:
 		return w.setMTUDirect(op.Iface, op.MTU)
 	case OpFlushConntrack:

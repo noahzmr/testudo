@@ -222,13 +222,6 @@ func (s *Server) buildMux() error {
 	mux.HandleFunc("/api/capture/clear", s.protect(s.handleCaptureClear))
 
 	// Interfaces
-	mux.HandleFunc("/api/iface/up", s.protect(s.handleIfaceUp))
-	mux.HandleFunc("/api/iface/down", s.protect(s.handleIfaceDown))
-	mux.HandleFunc("/api/iface/addr/add", s.protect(s.handleIfaceAddAddr))
-	mux.HandleFunc("/api/iface/addr/del", s.protect(s.handleIfaceDelAddr))
-	mux.HandleFunc("/api/iface/mtu", s.protect(s.handleIfaceMTU))
-	mux.HandleFunc("/api/iface/dhcp", s.protect(s.handleIfaceDHCP))
-	mux.HandleFunc("/api/iface/static", s.protect(s.handleIfaceStatic))
 
 	// Routes
 

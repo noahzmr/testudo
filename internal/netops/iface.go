@@ -196,30 +196,6 @@ func (w *Writer) delAddrDirect(iface, cidr string) error {
 	return netlink.AddrDel(link, addr)
 }
 
-// FlushAddrs removes every address from iface. Useful before swapping
-// static config or before bringing the iface down.
-func (w *Writer) FlushAddrs(iface string) error {
-	if !w.AllowWrites {
-		return ErrWritesDisabled
-	}
-	return w.mutate(Op{Kind: OpFlushAddrs, Iface: iface})
-}
-
-func (w *Writer) flushAddrsDirect(iface string) error {
-	link, err := netlink.LinkByName(iface)
-	if err != nil {
-		return fmt.Errorf("link %s: %w", iface, err)
-	}
-	addrs, err := netlink.AddrList(link, 0)
-	if err != nil {
-		return err
-	}
-	for _, a := range addrs {
-		_ = netlink.AddrDel(link, &a)
-	}
-	return nil
-}
-
 // SetMTU changes the interface MTU.
 func (w *Writer) SetMTU(iface string, mtu int) error {
 	if !w.AllowWrites {

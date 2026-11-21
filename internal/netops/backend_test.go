@@ -12,7 +12,6 @@ func TestOpCodecRoundTrip(t *testing.T) {
 		{Kind: OpSetIfaceDown, Name: "wg0"},
 		{Kind: OpAddAddr, Iface: "eth0", CIDR: "192.168.1.5/24"},
 		{Kind: OpDelAddr, Iface: "eth0", CIDR: "192.168.1.5/24"},
-		{Kind: OpFlushAddrs, Iface: "eth0"},
 		{Kind: OpSetMTU, Iface: "eth0", MTU: 1400},
 		{Kind: OpResetRuleCounter, Family: "inet", Table: "filter", Chain: "input", Handle: 42},
 		{Kind: OpFlushConntrack, Conntrack: &ConntrackFlow{Proto: "tcp", OrigSrc: "1.2.3.4", OrigDst: "5.6.7.8", OrigSport: 1000, OrigDport: 443}},

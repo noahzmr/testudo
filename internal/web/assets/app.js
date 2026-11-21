@@ -118,47 +118,6 @@
         await post('/api/capture/clear');
         showToast('flow table cleared');
         break;
-      case 'iface-up':
-        await post('/api/iface/up', { name: btn.dataset.name });
-        showToast(btn.dataset.name + ' up');
-        break;
-      case 'iface-down':
-        await post('/api/iface/down', { name: btn.dataset.name });
-        showToast(btn.dataset.name + ' down');
-        break;
-      case 'iface-add-addr': {
-        const cidr = prompt('CIDR to add to ' + btn.dataset.name + ' (e.g. 192.168.1.20/24)');
-        if (!cidr) return;
-        await post('/api/iface/addr/add', { name: btn.dataset.name, cidr: cidr.trim() });
-        showToast('address added');
-        break;
-      }
-      case 'iface-del-addr': {
-        const cidr = prompt('CIDR to remove from ' + btn.dataset.name);
-        if (!cidr) return;
-        await post('/api/iface/addr/del', { name: btn.dataset.name, cidr: cidr.trim() });
-        showToast('address removed');
-        break;
-      }
-      case 'iface-mtu': {
-        const mtu = prompt('MTU for ' + btn.dataset.name, '1500');
-        if (!mtu) return;
-        await post('/api/iface/mtu', { name: btn.dataset.name, mtu: parseInt(mtu, 10) });
-        showToast('MTU set');
-        break;
-      }
-      case 'iface-dhcp':
-        if (!confirm('Switch ' + btn.dataset.name + ' to DHCP? Existing addresses will be flushed.')) return;
-        await post('/api/iface/dhcp', { name: btn.dataset.name });
-        showToast('DHCP requested on ' + btn.dataset.name);
-        break;
-      case 'iface-static': {
-        const cidr = prompt('Static CIDR for ' + btn.dataset.name);
-        if (!cidr) return;
-        await post('/api/iface/static', { name: btn.dataset.name, cidr: cidr.trim() });
-        showToast('static address set');
-        break;
-      }
       // ---- privileged access ----
       case 'pam-request':
         await post('/api/pam/request', {
@@ -1533,17 +1492,8 @@
         + '<td>' + fmtCount((i.rx_dropped || 0) + (i.tx_dropped || 0)) + '</td>'
         + '<td>' + fmtCount(i.collisions) + '</td>'
         + '<td>' + wifiBadge(i.name, wifiByIface) + '</td>'
-        + '<td>'
-        + '<button class="btn btn-small" data-action="iface-up" data-name="' + n + '">up</button> '
-        + '<button class="btn btn-small" data-action="iface-down" data-name="' + n + '">down</button> '
-        + '<button class="btn btn-small" data-action="iface-add-addr" data-name="' + n + '">+ip</button> '
-        + '<button class="btn btn-small" data-action="iface-del-addr" data-name="' + n + '">-ip</button> '
-        + '<button class="btn btn-small" data-action="iface-mtu" data-name="' + n + '">mtu</button> '
-        + '<button class="btn btn-small" data-action="iface-dhcp" data-name="' + n + '">DHCP</button> '
-        + '<button class="btn btn-small" data-action="iface-static" data-name="' + n + '">static</button>'
-        + '</td>'
         + '</tr>';
-    }).join('') || '<tr><td colspan="14" class="muted">no interfaces visible</td></tr>';
+    }).join('') || '<tr><td colspan="13" class="muted">no interfaces visible</td></tr>';
   }
 
   // renderWiFi renders one card per wireless interface on the

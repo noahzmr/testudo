@@ -84,7 +84,7 @@ const PANE = {
 };
 const LABEL = {
   filter_rule: 'Rules', zone: 'Zones', alias: 'Aliases', firewall_policy: 'Policy', nat_rule: 'NAT rules',
-  interface: 'Zone assignment', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
+  interface: 'Configuration', route: 'Static routes', gateway: 'Gateways', bgp_neighbor: 'BGP', ospf_area: 'OSPF', vrf: 'VRFs', policy_route: 'Policy routes',
   wg_tunnel: 'Tunnels', wg_peer: 'Peers', access_resource: 'Resources', access_policy: 'Policies', access_grant: 'Grants',
   user: 'Users', group: 'Groups', role: 'Roles', certificate: 'Certificates', oidc_provider: 'Identity provider', api_token: 'API tokens',
   lb_service: 'Services', lb_router: 'Routers', lb_backend_pool: 'Pools', middleware: 'Middlewares',

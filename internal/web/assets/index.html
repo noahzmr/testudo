@@ -299,7 +299,7 @@
     <section data-pane="ifaces" class="pane" role="tabpanel" aria-label="Interfaces">
       <div class="card">
         <h2>Interfaces · live kernel state <span id="ifaces-watcher" class="watch-badge"></span></h2>
-        <p class="muted">All kernel-visible interfaces are monitored. Errors / drops / collisions and a per-radio WiFi badge sit alongside the link state so a degraded NIC is obvious before flows go silent.</p>
+        <p class="muted">All kernel-visible interfaces are monitored. Errors / drops / collisions and a per-radio WiFi badge sit alongside the link state so a degraded NIC is obvious before flows go silent. Addresses, DHCP, MTU and link state are configured in the model, under Configuration above.</p>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -307,7 +307,6 @@
               <th>RX</th><th>TX</th>
               <th>RX err</th><th>TX err</th><th>Drops</th><th>Coll.</th>
               <th>WiFi</th>
-              <th>Actions</th>
             </tr></thead>
             <tbody id="ifaces-body"></tbody>
           </table>

@@ -571,13 +571,6 @@ func newIfacesTab(eng *engine.Engine, app *App) *ifacesTab {
 func (t *ifacesTab) HelpHints() []KeyHint {
 	return []KeyHint{
 		{Key: "↑/↓ · j/k", Desc: "select interface"},
-		{Key: "u", Desc: "bring selected interface up"},
-		{Key: "d", Desc: "bring selected interface down"},
-		{Key: "a", Desc: "add IP/CIDR to selected"},
-		{Key: "x", Desc: "remove IP/CIDR from selected"},
-		{Key: "m", Desc: "set MTU on selected"},
-		{Key: "h", Desc: "switch selected to DHCP"},
-		{Key: "s", Desc: "switch selected to static (cidr)"},
 		{Key: "r", Desc: "refresh"},
 	}
 }
@@ -605,30 +598,8 @@ func (t *ifacesTab) Update(msg tea.Msg) tea.Cmd {
 			if t.cursor < len(t.infos)-1 {
 				t.cursor++
 			}
-		case "u":
-			if len(t.infos) > 0 {
-				if err := t.eng.Netops().SetIfaceUp(t.infos[t.cursor].Name); err != nil {
-					return func() tea.Msg { return statusMessageMsg(err.Error()) }
-				}
-				return func() tea.Msg { return statusMessageMsg("brought up " + t.infos[t.cursor].Name) }
-			}
-		case "d":
-			if len(t.infos) > 0 {
-				if err := t.eng.Netops().SetIfaceDown(t.infos[t.cursor].Name); err != nil {
-					return func() tea.Msg { return statusMessageMsg(err.Error()) }
-				}
-				return func() tea.Msg { return statusMessageMsg("brought down " + t.infos[t.cursor].Name) }
-			}
-		case "a":
-			return t.openAddAddrModal()
-		case "x":
-			return t.openDelAddrModal()
-		case "m":
-			return t.openSetMTUModal()
-		case "h":
-			return t.openDHCPModal()
-		case "s":
-			return t.openStaticModal()
+		case "u", "d", "a", "x", "m", "h", "s":
+			return statusCmd("interfaces are configured in the model: the console's Interfaces section")
 		case "r":
 			t.refresh()
 		}
@@ -636,109 +607,8 @@ func (t *ifacesTab) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (t *ifacesTab) selectedName() string {
-	if t.cursor < 0 || t.cursor >= len(t.infos) {
-		return ""
-	}
-	return t.infos[t.cursor].Name
-}
-
-func (t *ifacesTab) openAddAddrModal() tea.Cmd {
-	name := t.selectedName()
-	if name == "" {
-		return nil
-	}
-	modal := NewFormModal("Add Address to "+name,
-		[]FormField{
-			{Label: "cidr", Value: "", Hint: "e.g. 192.168.1.20/24"},
-		},
-		func(values map[string]string) error {
-			return t.eng.Netops().AddAddr(name, values["cidr"])
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-func (t *ifacesTab) openDelAddrModal() tea.Cmd {
-	name := t.selectedName()
-	if name == "" {
-		return nil
-	}
-	modal := NewFormModal("Remove Address from "+name,
-		[]FormField{
-			{Label: "cidr", Value: "", Hint: "e.g. 192.168.1.20/24"},
-		},
-		func(values map[string]string) error {
-			return t.eng.Netops().DelAddr(name, values["cidr"])
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-func (t *ifacesTab) openSetMTUModal() tea.Cmd {
-	name := t.selectedName()
-	if name == "" {
-		return nil
-	}
-	modal := NewFormModal("Set MTU on "+name,
-		[]FormField{
-			{Label: "mtu", Value: "1500", Hint: "e.g. 1500 or 9000"},
-		},
-		func(values map[string]string) error {
-			var mtu int
-			if _, err := fmt.Sscanf(values["mtu"], "%d", &mtu); err != nil || mtu <= 0 {
-				return fmt.Errorf("mtu must be a positive integer")
-			}
-			return t.eng.Netops().SetMTU(name, mtu)
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-// openDHCPModal confirms the operation, then asks netops to release any
-// existing lease and request a fresh one via dhclient/dhcpcd.
-func (t *ifacesTab) openDHCPModal() tea.Cmd {
-	name := t.selectedName()
-	if name == "" {
-		return nil
-	}
-	modal := NewFormModal("Switch "+name+" to DHCP",
-		[]FormField{
-			{Label: "confirm", Value: "yes", Hint: "type 'yes' to release existing addrs + request DHCP"},
-		},
-		func(values map[string]string) error {
-			if strings.ToLower(strings.TrimSpace(values["confirm"])) != "yes" {
-				return fmt.Errorf("aborted")
-			}
-			return t.eng.Netops().SetIfaceDHCP(name)
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
-// openStaticModal flushes existing addresses and assigns the supplied CIDR.
-func (t *ifacesTab) openStaticModal() tea.Cmd {
-	name := t.selectedName()
-	if name == "" {
-		return nil
-	}
-	modal := NewFormModal("Switch "+name+" to static IP",
-		[]FormField{
-			{Label: "cidr", Value: "", Hint: "e.g. 192.168.1.20/24"},
-		},
-		func(values map[string]string) error {
-			cidr := strings.TrimSpace(values["cidr"])
-			if cidr == "" {
-				return fmt.Errorf("cidr required")
-			}
-			return t.eng.Netops().SetIfaceStatic(name, cidr)
-		},
-	)
-	return t.app.SetModal(modal)
-}
-
 func (t *ifacesTab) View(w, h int) string {
-	header := headerStyle.Render("Interfaces - u=up · d=down · a=add addr · x=del addr · m=mtu · h=dhcp · s=static · r=refresh")
+	header := headerStyle.Render("Interfaces (kernel) - r=refresh")
 	if ind := watchIndicator(t.eng); ind != "" {
 		header += "  " + ind
 	}
