@@ -185,6 +185,11 @@ func TestFabricEndToEnd(t *testing.T) {
 	}
 	for _, n := range nodes {
 		n.login()
+		// Flow capture is off by default; switch it on, on every interface
+		// that exists now or later.
+		if status, body, _ := n.call("POST", "/api/capture/start", map[string]any{"ifaces": []string{}}); status/100 != 2 {
+			t.Fatalf("start capture on %s: %d %s", n.name, status, body)
+		}
 	}
 	if status, body, _ := n1.call("POST", "/api/v1/cluster/init", nil); status != 200 {
 		t.Fatalf("init: %d %s", status, body)
@@ -241,6 +246,58 @@ func TestFabricEndToEnd(t *testing.T) {
 	})
 	eventually("site1 reaches site2 through the fabric", 30*time.Second, func() bool {
 		return reach(n1, "10.1.0.1", "10.2.0.1")
+	})
+	// What the sites saw of that: one connection, seen at both, with the
+	// fabric path it took. Each member captured its own; the view joins
+	// them member to member.
+	lastSites := ""
+	defer func() {
+		if t.Failed() {
+			t.Logf("flows/sites: %.6000s", lastSites)
+		}
+	}()
+	eventually("the connection is seen at both sites", 60*time.Second, func() bool {
+		reach(n1, "10.1.0.1", "10.2.0.1")
+		_, data, _ := n1.call("GET", "/api/v1/flows/sites?all=1", nil)
+		lastSites = ""
+		for _, line := range strings.Split(string(data), "},{\"proto\"") {
+			if strings.Contains(line, "10.2.0.1:9999") {
+				lastSites += line + "\n"
+			}
+		}
+		var v struct {
+			Connections []struct {
+				Proto     string   `json:"proto"`
+				Sites     []string `json:"sites"`
+				Paths     []string `json:"paths"`
+				Sightings []struct {
+					Node  string `json:"node"`
+					Iface string `json:"iface"`
+					Attrs struct {
+						Tunnel   string `json:"tunnel"`
+						Peer     string `json:"peer"`
+						PeerSite string `json:"peer_site"`
+						Path     string `json:"path"`
+					} `json:"attrs"`
+				} `json:"sightings"`
+			} `json:"connections"`
+		}
+		json.Unmarshal(data, &v)
+		for _, c := range v.Connections {
+			if c.Proto != "tcp" || fmt.Sprint(c.Sites) != "[site1 site2]" || len(c.Paths) == 0 {
+				continue
+			}
+			tunnelAt := map[string]bool{}
+			for _, s := range c.Sightings {
+				if strings.HasPrefix(s.Iface, "tm") && s.Attrs.Tunnel == "fabric" && s.Attrs.Peer != "" && s.Attrs.PeerSite != "" {
+					tunnelAt[s.Node] = true
+				}
+			}
+			if tunnelAt["n1"] && tunnelAt["n2"] {
+				return true
+			}
+		}
+		return false
 	})
 	// The private key never left its node.
 	for _, n := range []*clusterNode{n1, n2} {
