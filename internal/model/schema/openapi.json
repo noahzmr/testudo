@@ -1321,6 +1321,21 @@
             "title": "Labels",
             "type": "object"
           },
+          "mesh_index": {
+            "description": "1 to 31 and unique; decides the tunnel addresses and ports of the node",
+            "maximum": 31,
+            "minimum": 0,
+            "title": "Fabric index",
+            "type": "integer"
+          },
+          "mesh_public_key": {
+            "description": "WireGuard key: 32 bytes, base64",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "readOnly": true,
+            "title": "Fabric public key",
+            "type": "string",
+            "x-rule": "wgkey"
+          },
           "name": {
             "description": "Unique per type; letters digits dot dash underscore",
             "minLength": 1,
@@ -1390,6 +1405,36 @@
             "title": "Updated by",
             "type": "string"
           },
+          "uplinks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "color": {
+                  "description": "One of the fabric's colors",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+                  "title": "Color",
+                  "type": "string",
+                  "x-rule": "objname"
+                },
+                "endpoint": {
+                  "description": "IP address or host name; the port follows from the fabric",
+                  "maxLength": 253,
+                  "minLength": 1,
+                  "title": "Address the other sites reach",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "color",
+                "endpoint"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4,
+            "title": "Uplinks",
+            "type": "array"
+          },
           "version": {
             "minimum": 0,
             "readOnly": true,
@@ -1414,6 +1459,193 @@
         "type": "object",
         "x-kind": "cluster_node",
         "x-menu": "cluster/nodes",
+        "x-scopes": [
+          "global"
+        ]
+      },
+      "Fabric": {
+        "additionalProperties": false,
+        "properties": {
+          "asn": {
+            "description": "For sites without their own",
+            "minimum": 1,
+            "title": "AS number",
+            "type": "integer"
+          },
+          "bfd": {
+            "description": "Notice a dead tunnel in about a second instead of a minute and a half",
+            "title": "BFD",
+            "type": "boolean"
+          },
+          "colors": {
+            "description": "Kinds of uplink such as internet or mpls; at most 4",
+            "items": {
+              "description": "letters, digits, dot, dash, underscore; at most 63",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+              "type": "string",
+              "x-rule": "objname"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Colors",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "hold_seconds": {
+            "description": "How long a path has to be better before traffic moves; default 15",
+            "maximum": 3600,
+            "minimum": 1,
+            "title": "Hold time (s)",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "pool": {
+            "description": "An IPv4 /16 for tunnel and loopback addresses and nothing else",
+            "format": "cidr",
+            "minLength": 1,
+            "title": "Address pool",
+            "type": "string"
+          },
+          "port_base": {
+            "description": "Tunnels listen on this port and the 511 after it",
+            "maximum": 65023,
+            "minimum": 1024,
+            "title": "First port",
+            "type": "integer"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "switch_margin_ms": {
+            "description": "Default 10",
+            "maximum": 10000,
+            "minimum": 1,
+            "title": "Switch margin (ms)",
+            "type": "integer"
+          },
+          "topology": {
+            "enum": [
+              "full_mesh",
+              "hub_spoke"
+            ],
+            "minLength": 1,
+            "title": "Topology",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          },
+          "zone": {
+            "format": "uuid",
+            "title": "Zone of the tunnels",
+            "type": "string",
+            "x-ref": "zone"
+          }
+        },
+        "required": [
+          "asn",
+          "colors",
+          "id",
+          "name",
+          "pool",
+          "port_base",
+          "scope",
+          "topology",
+          "zone"
+        ],
+        "type": "object",
+        "x-kind": "fabric",
+        "x-menu": "cluster/fabric",
         "x-scopes": [
           "global"
         ]
@@ -3606,6 +3838,144 @@
           "node"
         ]
       },
+      "PathPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Created",
+            "type": "string"
+          },
+          "created_by": {
+            "readOnly": true,
+            "title": "Created by",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "minLength": 1,
+            "readOnly": true,
+            "title": "ID",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 32,
+            "title": "Labels",
+            "type": "object"
+          },
+          "mark": {
+            "description": "Set by a filter rule",
+            "minimum": 1,
+            "title": "Firewall mark",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique per type; letters digits dot dash underscore",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+            "title": "Name",
+            "type": "string",
+            "x-rule": "objname"
+          },
+          "overrides": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "description": "global, site:<uuid> or node:<uuid>",
+                  "minLength": 1,
+                  "not": {
+                    "const": "global"
+                  },
+                  "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+                  "title": "Applies to",
+                  "type": "string",
+                  "x-rule": "scope"
+                },
+                "values": {
+                  "minProperties": 1,
+                  "title": "Values",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scope",
+                "values"
+              ],
+              "type": "object"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "prefer": {
+            "description": "lowest_latency or lowest_loss or a color",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Prefer",
+            "type": "string"
+          },
+          "scope": {
+            "description": "global or one site or one node",
+            "minLength": 1,
+            "pattern": "^(global|(site|node):[0-9a-f-]{36})$",
+            "title": "Scope",
+            "type": "string",
+            "x-rule": "scope"
+          },
+          "table": {
+            "description": "Chosen automatically when empty",
+            "maximum": 4294967294,
+            "minimum": 1,
+            "title": "Routing table",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Updated",
+            "type": "string"
+          },
+          "updated_by": {
+            "readOnly": true,
+            "title": "Updated by",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0,
+            "readOnly": true,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "mark",
+          "name",
+          "prefer",
+          "scope"
+        ],
+        "type": "object",
+        "x-kind": "path_policy",
+        "x-menu": "routing/paths",
+        "x-scopes": [
+          "global",
+          "site",
+          "node"
+        ]
+      },
       "Pending": {
         "properties": {
           "actor": {
@@ -4066,6 +4436,7 @@
         "additionalProperties": false,
         "properties": {
           "asn": {
+            "description": "Empty uses the fabric's; sites with the same number talk iBGP",
             "minimum": 0,
             "title": "AS number",
             "type": "integer"
@@ -4085,6 +4456,11 @@
             "maxLength": 512,
             "title": "Description",
             "type": "string"
+          },
+          "hub": {
+            "description": "In a hub-and-spoke fabric spokes connect to hubs only",
+            "title": "Hub",
+            "type": "boolean"
           },
           "id": {
             "format": "uuid",
@@ -4119,6 +4495,15 @@
             "title": "Name",
             "type": "string",
             "x-rule": "objname"
+          },
+          "networks": {
+            "items": {
+              "format": "cidr",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Networks announced into the fabric",
+            "type": "array"
           },
           "overrides": {
             "items": {
@@ -4421,6 +4806,13 @@
             "title": "Labels",
             "type": "object"
           },
+          "mesh_slot": {
+            "description": "1 to 3 stretches the VRF across sites over tunnels of its own; 0 keeps it local",
+            "maximum": 3,
+            "minimum": 0,
+            "title": "Fabric slot",
+            "type": "integer"
+          },
           "name": {
             "description": "Unique per type; letters digits dot dash underscore",
             "minLength": 1,
@@ -4428,6 +4820,16 @@
             "title": "Name",
             "type": "string",
             "x-rule": "objname"
+          },
+          "networks": {
+            "description": "Usually set per site through an override",
+            "items": {
+              "format": "cidr",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Networks announced into the fabric",
+            "type": "array"
           },
           "overrides": {
             "items": {
@@ -7688,6 +8090,278 @@
           "changes"
         ]
       }
+    },
+    "/api/v1/fabrics": {
+      "get": {
+        "operationId": "list_fabric",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Fabric"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Fabric objects",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "post": {
+        "operationId": "create_fabric",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Fabric"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fabric"
+                }
+              }
+            },
+            "description": "Fabric",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Fabric",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/fabrics/{id}": {
+      "delete": {
+        "operationId": "delete_fabric",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Fabric",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "get": {
+        "operationId": "get_fabric",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fabric"
+                }
+              }
+            },
+            "description": "Fabric",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Fabric",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_fabric",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Fabric"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fabric"
+                }
+              }
+            },
+            "description": "Fabric",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Fabric",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
+    "/api/v1/fabrics/{id}/effective": {
+      "get": {
+        "operationId": "effective_fabric",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/Fabric"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Fabric as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/fabrics/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_fabric",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Fabric",
+        "tags": [
+          "cluster"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
     },
     "/api/v1/filter-rules": {
       "get": {
@@ -11182,6 +11856,278 @@
           }
         },
         "summary": "List the objects that reference this OSPF area",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ]
+    },
+    "/api/v1/path-policies": {
+      "get": {
+        "operationId": "list_path_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PathPolicy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List"
+          }
+        },
+        "summary": "List Path policy objects",
+        "tags": [
+          "routing"
+        ]
+      },
+      "post": {
+        "operationId": "create_path_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathPolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PathPolicy"
+                }
+              }
+            },
+            "description": "Path policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          }
+        },
+        "summary": "Create a Path policy",
+        "tags": [
+          "routing"
+        ]
+      }
+    },
+    "/api/v1/path-policies/{id}": {
+      "delete": {
+        "operationId": "delete_path_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictOrInUse"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Delete a Path policy",
+        "tags": [
+          "routing"
+        ]
+      },
+      "get": {
+        "operationId": "get_path_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PathPolicy"
+                }
+              }
+            },
+            "description": "Path policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read a Path policy",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "put": {
+        "operationId": "update_path_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          },
+          {
+            "$ref": "#/components/parameters/changeset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathPolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PathPolicy"
+                }
+              }
+            },
+            "description": "Path policy",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          }
+        },
+        "summary": "Replace a Path policy",
+        "tags": [
+          "routing"
+        ]
+      }
+    },
+    "/api/v1/path-policies/{id}/effective": {
+      "get": {
+        "operationId": "effective_path_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "boolean"
+                    },
+                    "base_scope": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "$ref": "#/components/schemas/PathPolicy"
+                    },
+                    "origins": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "origins"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Effective object"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The Path policy as one site or node sees it, with the origin of every overridden field",
+        "tags": [
+          "routing"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "in": "query",
+          "name": "site",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "node",
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/path-policies/{id}/used-by": {
+      "get": {
+        "operationId": "used_by_path_policy",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UsedBy"
+          }
+        },
+        "summary": "List the objects that reference this Path policy",
         "tags": [
           "routing"
         ]

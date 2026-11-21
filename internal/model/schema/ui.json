@@ -1902,6 +1902,22 @@
           "required": true
         },
         {
+          "name": "mesh_slot",
+          "label": "Fabric slot",
+          "type": "integer",
+          "order": 20,
+          "help": "1 to 3 stretches the VRF across sites over tunnels of its own; 0 keeps it local"
+        },
+        {
+          "name": "networks",
+          "label": "Networks announced into the fabric",
+          "type": "string",
+          "widget": "list",
+          "order": 30,
+          "help": "Usually set per site through an override",
+          "list": true
+        },
+        {
           "name": "scope",
           "label": "Scope",
           "type": "string",
@@ -4055,7 +4071,23 @@
           "name": "asn",
           "label": "AS number",
           "type": "integer",
-          "order": 50
+          "order": 50,
+          "help": "Empty uses the fabric's; sites with the same number talk iBGP"
+        },
+        {
+          "name": "networks",
+          "label": "Networks announced into the fabric",
+          "type": "string",
+          "widget": "list",
+          "order": 60,
+          "list": true
+        },
+        {
+          "name": "hub",
+          "label": "Hub",
+          "type": "boolean",
+          "order": 70,
+          "help": "In a hub-and-spoke fabric spokes connect to hubs only"
         },
         {
           "name": "scope",
@@ -4222,6 +4254,55 @@
           "label": "VRRP priority",
           "type": "integer",
           "order": 40
+        },
+        {
+          "name": "mesh_index",
+          "label": "Fabric index",
+          "type": "integer",
+          "group": "Fabric",
+          "order": 50,
+          "help": "1 to 31 and unique; decides the tunnel addresses and ports of the node"
+        },
+        {
+          "name": "mesh_public_key",
+          "label": "Fabric public key",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Fabric",
+          "order": 60,
+          "rules": [
+            "wgkey"
+          ]
+        },
+        {
+          "name": "uplinks",
+          "label": "Uplinks",
+          "type": "object",
+          "widget": "table",
+          "group": "Fabric",
+          "order": 70,
+          "list": true,
+          "fields": [
+            {
+              "name": "color",
+              "label": "Color",
+              "type": "string",
+              "order": 10,
+              "help": "One of the fabric's colors",
+              "required": true,
+              "rules": [
+                "objname"
+              ]
+            },
+            {
+              "name": "endpoint",
+              "label": "Address the other sites reach",
+              "type": "string",
+              "order": 20,
+              "help": "IP address or host name; the port follows from the fabric",
+              "required": true
+            }
+          ]
         },
         {
           "name": "scope",
@@ -5385,6 +5466,380 @@
           "label": "Disabled",
           "type": "boolean",
           "order": 50
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "fabric",
+      "plural": "fabrics",
+      "title": "Fabric",
+      "menu": "cluster/fabric",
+      "scopes": [
+        "global"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "topology",
+          "label": "Topology",
+          "type": "string",
+          "widget": "select",
+          "order": 10,
+          "required": true,
+          "enum": [
+            "full_mesh",
+            "hub_spoke"
+          ]
+        },
+        {
+          "name": "pool",
+          "label": "Address pool",
+          "type": "string",
+          "order": 20,
+          "help": "An IPv4 /16 for tunnel and loopback addresses and nothing else",
+          "required": true
+        },
+        {
+          "name": "port_base",
+          "label": "First port",
+          "type": "integer",
+          "order": 30,
+          "help": "Tunnels listen on this port and the 511 after it",
+          "required": true
+        },
+        {
+          "name": "asn",
+          "label": "AS number",
+          "type": "integer",
+          "order": 40,
+          "help": "For sites without their own",
+          "required": true
+        },
+        {
+          "name": "colors",
+          "label": "Colors",
+          "type": "string",
+          "widget": "list",
+          "order": 50,
+          "help": "Kinds of uplink such as internet or mpls; at most 4",
+          "required": true,
+          "list": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "zone",
+          "label": "Zone of the tunnels",
+          "type": "ref",
+          "widget": "ref-picker",
+          "ref": "zone",
+          "order": 60,
+          "required": true
+        },
+        {
+          "name": "bfd",
+          "label": "BFD",
+          "type": "boolean",
+          "order": 70,
+          "help": "Notice a dead tunnel in about a second instead of a minute and a half"
+        },
+        {
+          "name": "switch_margin_ms",
+          "label": "Switch margin (ms)",
+          "type": "integer",
+          "order": 80,
+          "help": "Default 10"
+        },
+        {
+          "name": "hold_seconds",
+          "label": "Hold time (s)",
+          "type": "integer",
+          "order": 90,
+          "help": "How long a path has to be better before traffic moves; default 15"
+        },
+        {
+          "name": "scope",
+          "label": "Scope",
+          "type": "string",
+          "widget": "scope-picker",
+          "group": "Scope",
+          "order": 800,
+          "help": "global or one site or one node",
+          "required": true,
+          "rules": [
+            "scope"
+          ]
+        },
+        {
+          "name": "overrides",
+          "label": "Overrides",
+          "type": "object",
+          "widget": "override-list",
+          "group": "Scope",
+          "order": 801,
+          "list": true,
+          "fields": [
+            {
+              "name": "scope",
+              "label": "Applies to",
+              "type": "string",
+              "widget": "scope-picker",
+              "order": 1,
+              "required": true,
+              "rules": [
+                "scope"
+              ]
+            },
+            {
+              "name": "values",
+              "label": "Values",
+              "type": "map",
+              "widget": "override-editor",
+              "order": 2,
+              "required": true
+            }
+          ]
+        },
+        {
+          "name": "id",
+          "label": "ID",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 900,
+          "required": true
+        },
+        {
+          "name": "version",
+          "label": "Version",
+          "type": "integer",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 901
+        },
+        {
+          "name": "created_at",
+          "label": "Created",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 902
+        },
+        {
+          "name": "created_by",
+          "label": "Created by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 903
+        },
+        {
+          "name": "updated_at",
+          "label": "Updated",
+          "type": "datetime",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 904
+        },
+        {
+          "name": "updated_by",
+          "label": "Updated by",
+          "type": "string",
+          "widget": "readonly",
+          "group": "Meta",
+          "order": 905
+        },
+        {
+          "name": "labels",
+          "label": "Labels",
+          "type": "map",
+          "widget": "key-value",
+          "group": "Meta",
+          "order": 906
+        }
+      ]
+    },
+    {
+      "kind": "path_policy",
+      "plural": "path-policies",
+      "title": "Path policy",
+      "menu": "routing/paths",
+      "scopes": [
+        "global",
+        "site",
+        "node"
+      ],
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "order": 1,
+          "help": "Unique per type; letters digits dot dash underscore",
+          "required": true,
+          "rules": [
+            "objname"
+          ]
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "string",
+          "widget": "textarea",
+          "order": 2
+        },
+        {
+          "name": "enabled",
+          "label": "Enabled",
+          "type": "boolean",
+          "order": 5
+        },
+        {
+          "name": "mark",
+          "label": "Firewall mark",
+          "type": "integer",
+          "order": 10,
+          "help": "Set by a filter rule",
+          "required": true
+        },
+        {
+          "name": "prefer",
+          "label": "Prefer",
+          "type": "string",
+          "order": 20,
+          "help": "lowest_latency or lowest_loss or a color",
+          "required": true
+        },
+        {
+          "name": "table",
+          "label": "Routing table",
+          "type": "integer",
+          "order": 30,
+          "help": "Chosen automatically when empty"
         },
         {
           "name": "scope",

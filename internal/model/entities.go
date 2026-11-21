@@ -34,6 +34,8 @@ const (
 	KindPolicyRoute    Kind = "policy_route"
 	KindOIDCProvider   Kind = "oidc_provider"
 	KindAPIToken       Kind = "api_token"
+	KindFabric         Kind = "fabric"
+	KindPathPolicy     Kind = "path_policy"
 )
 
 func init() {
@@ -65,6 +67,8 @@ func init() {
 	register("access-policies", "Access policy", "access/policies", allLevels, func() Entity { return &AccessPolicy{} })
 	register("oidc-providers", "OIDC provider", "system/oidc", globalOny, func() Entity { return &OIDCProvider{} })
 	register("api-tokens", "API token", "system/tokens", globalOny, func() Entity { return &APIToken{} })
+	register("fabrics", "Fabric", "cluster/fabric", globalOny, func() Entity { return &Fabric{} })
+	register("path-policies", "Path policy", "routing/paths", allLevels, func() Entity { return &PathPolicy{} })
 }
 
 // Interface binds a kernel network device on one node to a zone.
@@ -215,6 +219,10 @@ func (OSPFArea) Kind() Kind { return KindOSPFArea }
 type VRF struct {
 	Meta  `yaml:",inline"`
 	Table uint32 `json:"table" yaml:"table" validate:"required,min=1,max=4294967294" ui:"label=Routing table,order=10"`
+	// MeshSlot stretches the VRF across the fabric: every pair of sites
+	// that both have it gets tunnels of its own for it.
+	MeshSlot int      `json:"mesh_slot,omitempty" yaml:"mesh_slot,omitempty" validate:"min=0,max=3" ui:"label=Fabric slot,order=20,help=1 to 3 stretches the VRF across sites over tunnels of its own; 0 keeps it local"`
+	Networks []string `json:"networks,omitempty" yaml:"networks,omitempty" validate:"max=64,dive,cidr" ui:"label=Networks announced into the fabric,widget=list,order=30,help=Usually set per site through an override"`
 }
 
 func (VRF) Kind() Kind { return KindVRF }
@@ -383,7 +391,9 @@ type Site struct {
 	Voter        Ref[ClusterNode] `json:"voter,omitzero" yaml:"voter,omitempty" validate:"-" ui:"label=Voting node,widget=ref-picker,ref=cluster_node,order=20"`
 	Witness      bool             `json:"witness,omitempty" yaml:"witness,omitempty" validate:"-" ui:"label=Witness only,order=30,help=Votes but carries no traffic"`
 	MeshEndpoint string           `json:"mesh_endpoint,omitempty" yaml:"mesh_endpoint,omitempty" validate:"omitempty,hostport" ui:"label=Mesh endpoint,order=40"`
-	ASN          uint32           `json:"asn,omitempty" yaml:"asn,omitempty" validate:"-" ui:"label=AS number,order=50"`
+	ASN          uint32           `json:"asn,omitempty" yaml:"asn,omitempty" validate:"-" ui:"label=AS number,order=50,help=Empty uses the fabric's; sites with the same number talk iBGP"`
+	Networks     []string         `json:"networks,omitempty" yaml:"networks,omitempty" validate:"max=64,dive,cidr" ui:"label=Networks announced into the fabric,widget=list,order=60"`
+	Hub          bool             `json:"hub,omitempty" yaml:"hub,omitempty" validate:"-" ui:"label=Hub,order=70,help=In a hub-and-spoke fabric spokes connect to hubs only"`
 }
 
 func (Site) Kind() Kind { return KindSite }
@@ -396,6 +406,19 @@ type ClusterNode struct {
 	Address      string    `json:"address" yaml:"address" validate:"required,ip" ui:"label=Cluster address,order=30,help=Address on the site mesh"`
 	RouterID     string    `json:"router_id,omitempty" yaml:"router_id,omitempty" validate:"omitempty,ipv4" ui:"label=Router ID,order=35,help=For BGP and OSPF; defaults to the cluster address when that is IPv4"`
 	VRRPPriority int       `json:"vrrp_priority,omitempty" yaml:"vrrp_priority,omitempty" validate:"min=0,max=254" ui:"label=VRRP priority,order=40"`
+	// The node's place in the fabric. The public key is filled in by the
+	// node itself; its private key never leaves it.
+	MeshIndex     int      `json:"mesh_index,omitempty" yaml:"mesh_index,omitempty" validate:"min=0,max=31" ui:"label=Fabric index,group=Fabric,order=50,help=1 to 31 and unique; decides the tunnel addresses and ports of the node"`
+	MeshPublicKey string   `json:"mesh_public_key,omitempty" yaml:"mesh_public_key,omitempty" validate:"omitempty,wgkey" ui:"label=Fabric public key,widget=readonly,group=Fabric,order=60"`
+	Uplinks       []Uplink `json:"uplinks,omitempty" yaml:"uplinks,omitempty" validate:"max=4,dive" ui:"label=Uplinks,widget=table,group=Fabric,order=70"`
+}
+
+// Uplink is one way out of a node that the fabric builds tunnels over.
+// Tunnels connect uplinks of the same color: the internet to the internet,
+// the MPLS line to the MPLS line.
+type Uplink struct {
+	Color    string `json:"color" yaml:"color" validate:"required,objname" ui:"label=Color,order=10,help=One of the fabric's colors"`
+	Endpoint string `json:"endpoint" yaml:"endpoint" validate:"required,max=253" ui:"label=Address the other sites reach,order=20,help=IP address or host name; the port follows from the fabric"`
 }
 
 func (ClusterNode) Kind() Kind { return KindClusterNode }
@@ -494,3 +517,36 @@ type APIToken struct {
 }
 
 func (APIToken) Kind() Kind { return KindAPIToken }
+
+// Fabric is the network between the sites: a WireGuard tunnel for every
+// pair of nodes at different sites (or between every spoke and every hub)
+// and every color they share, with BGP over the tunnels. There is one.
+type Fabric struct {
+	Meta     `yaml:",inline"`
+	Enabled  bool      `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Topology string    `json:"topology" yaml:"topology" validate:"required,oneof=full_mesh hub_spoke" ui:"label=Topology,widget=select,order=10"`
+	Pool     string    `json:"pool" yaml:"pool" validate:"required,cidr" ui:"label=Address pool,order=20,help=An IPv4 /16 for tunnel and loopback addresses and nothing else"`
+	PortBase int       `json:"port_base" yaml:"port_base" validate:"required,min=1024,max=65023" ui:"label=First port,order=30,help=Tunnels listen on this port and the 511 after it"`
+	ASN      uint32    `json:"asn" yaml:"asn" validate:"required,min=1" ui:"label=AS number,order=40,help=For sites without their own"`
+	Colors   []string  `json:"colors" yaml:"colors" validate:"required,min=1,max=4,dive,objname" ui:"label=Colors,widget=list,order=50,help=Kinds of uplink such as internet or mpls; at most 4"`
+	Zone     Ref[Zone] `json:"zone" yaml:"zone" validate:"required" ui:"label=Zone of the tunnels,widget=ref-picker,ref=zone,order=60"`
+	BFD      bool      `json:"bfd,omitempty" yaml:"bfd,omitempty" validate:"-" ui:"label=BFD,order=70,help=Notice a dead tunnel in about a second instead of a minute and a half"`
+	// Path selection: a color is preferred over another when it is better
+	// by SwitchMargin milliseconds (and by a fifth) for HoldSeconds.
+	SwitchMarginMs int `json:"switch_margin_ms,omitempty" yaml:"switch_margin_ms,omitempty" validate:"omitempty,min=1,max=10000" ui:"label=Switch margin (ms),order=80,help=Default 10"`
+	HoldSeconds    int `json:"hold_seconds,omitempty" yaml:"hold_seconds,omitempty" validate:"omitempty,min=1,max=3600" ui:"label=Hold time (s),order=90,help=How long a path has to be better before traffic moves; default 15"`
+}
+
+func (Fabric) Kind() Kind { return KindFabric }
+
+// PathPolicy steers marked traffic to the other sites over a chosen kind
+// of path. A filter rule sets the mark.
+type PathPolicy struct {
+	Meta    `yaml:",inline"`
+	Enabled bool   `json:"enabled" yaml:"enabled" validate:"-" ui:"label=Enabled,order=5"`
+	Mark    uint32 `json:"mark" yaml:"mark" validate:"required,min=1" ui:"label=Firewall mark,order=10,help=Set by a filter rule"`
+	Prefer  string `json:"prefer" yaml:"prefer" validate:"required,max=32" ui:"label=Prefer,order=20,help=lowest_latency or lowest_loss or a color"`
+	Table   uint32 `json:"table,omitempty" yaml:"table,omitempty" validate:"omitempty,min=1,max=4294967294" ui:"label=Routing table,order=30,help=Chosen automatically when empty"`
+}
+
+func (PathPolicy) Kind() Kind { return KindPathPolicy }
