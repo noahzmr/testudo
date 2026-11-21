@@ -324,29 +324,7 @@
   function clearInputs(ids) { ids.forEach(id => { document.getElementById(id).value = ''; }); }
 
   function collectSettings() {
-    return {
-      packet_loss_pct:      parseFloat(val('s-loss')) || 0,
-      dns_latency_ms:       parseFloat(val('s-dns')) || 0,
-      jitter_ms:            parseFloat(val('s-jitter')) || 0,
-      rtt_ms:               parseFloat(val('s-rtt')) || 0,
-      retransmissions_pct:  parseFloat(val('s-retrans')) || 0,
-      expected_down_mbps:   parseFloat(val('s-expdown')) || 0,
-      expected_up_mbps:     parseFloat(val('s-expup')) || 0,
-      incident_cooldown_sec: parseFloat(val('s-cooldown')) || 0,
-      allow_netops_write:   document.getElementById('s-allow').checked,
-      sentry_dsn:           val('s-sentry'),
-      guacamole_url:        val('s-guac-url'),
-      guacamole_conn_id:    val('s-guac-cid'),
-      guacamole_template:   val('s-guac-tpl'),
-      guacamole_api_user:   val('s-guac-api-user'),
-      guacamole_api_password: val('s-guac-api-pass') || null,
-      guacamole_recording_path:  val('s-guac-rec'),
-      guacamole_typescript_path: val('s-guac-ts'),
-      ipfix_enabled:        document.getElementById('s-ipfix-en').checked,
-      ipfix_endpoint:       val('s-ipfix-ep'),
-      ipfix_interval_sec:   parseInt(val('s-ipfix-int') || '0', 10),
-      ipfix_domain_id:      parseInt(val('s-ipfix-dom') || '0', 10),
-    };
+    return { allow_netops_write: document.getElementById('s-allow').checked };
   }
 
   // ---- Render helpers ----
@@ -2216,32 +2194,10 @@
   let settingsLoaded = false;
   function renderSettings(t) {
     if (!t) return;
-    // Re-populate every refresh until the user has edited any field; once
-    // edited, leave their work in place. Tracked by a "loaded" flag flipped
-    // on the first non-empty snapshot.
+    // Filled once; after that the checkbox is the operator's until saved.
     if (settingsLoaded) return;
     settingsLoaded = true;
-    document.getElementById('s-loss').value = t.packet_loss_pct;
-    document.getElementById('s-dns').value = t.dns_latency_ms;
-    document.getElementById('s-jitter').value = t.jitter_ms;
-    document.getElementById('s-rtt').value = t.rtt_ms;
-    document.getElementById('s-retrans').value = t.retransmissions_pct;
-    document.getElementById('s-expdown').value = t.expected_down_mbps || 0;
-    document.getElementById('s-expup').value = t.expected_up_mbps || 0;
-    document.getElementById('s-cooldown').value = t.incident_cooldown_sec;
     document.getElementById('s-allow').checked = !!t.allow_netops_write;
-    document.getElementById('s-sentry').value = t.sentry_dsn || '';
-    document.getElementById('s-guac-url').value = t.guacamole_url || '';
-    document.getElementById('s-guac-cid').value = t.guacamole_conn_id || '';
-    document.getElementById('s-guac-tpl').value = t.guacamole_template || '';
-    document.getElementById('s-guac-api-user').value = t.guacamole_api_user || '';
-    document.getElementById('s-guac-rec').value = t.guacamole_recording_path || '';
-    document.getElementById('s-guac-ts').value = t.guacamole_typescript_path || '';
-    // The API password is never sent to the page; blank means "keep".
-    document.getElementById('s-ipfix-en').checked = !!t.ipfix_enabled;
-    document.getElementById('s-ipfix-ep').value = t.ipfix_endpoint || '';
-    document.getElementById('s-ipfix-int').value = t.ipfix_interval_sec || 30;
-    document.getElementById('s-ipfix-dom').value = t.ipfix_domain_id || 0;
   }
 
   function shortenMid(s, max) {

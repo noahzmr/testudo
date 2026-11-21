@@ -671,51 +671,19 @@
 
     <section data-pane="settings" class="pane" role="tabpanel" aria-label="Settings">
       <div class="card">
-        <h2>Thresholds</h2>
-        <div class="form-grid">
-          <label>packet loss %<input id="s-loss" type="number" step="0.1"/></label>
-          <label>DNS latency ms<input id="s-dns" type="number"/></label>
-          <label>jitter ms<input id="s-jitter" type="number"/></label>
-          <label>RTT ms<input id="s-rtt" type="number"/></label>
-          <label>retransmissions %<input id="s-retrans" type="number" step="0.1"/></label>
-          <label>expected download Mbps<input id="s-expdown" type="number" step="1" placeholder="0 = off"/></label>
-          <label>expected upload Mbps<input id="s-expup" type="number" step="1" placeholder="0 = off"/></label>
-          <label>incident cooldown s<input id="s-cooldown" type="number"/></label>
-        </div>
-      </div>
-      <div class="card">
-        <h2>Netops &amp; integrations</h2>
+        <h2>This node</h2>
+        <p class="muted">Thresholds, flow export and the integrations (Sentry, Guacamole, MaxMind) are node settings of the model, under Node settings above: one for every node, one per site or one per node. Whether this node may write to the kernel stays its own switch.</p>
         <div class="form-grid">
           <label class="full"><input id="s-allow" type="checkbox"/> allow netops writes</label>
-          <label class="full">Sentry DSN<input id="s-sentry"/></label>
-          <label>Guacamole URL<input id="s-guac-url"/></label>
-          <label>Guacamole conn ID<input id="s-guac-cid"/></label>
-          <label class="full">Connect template (Guacamole or custom)
-            <input id="s-guac-tpl" placeholder="https://guac.example.com/#/client/?host={host}&amp;protocol={proto}&amp;port={port}"/>
-          </label>
-          <label>Guacamole API user <span class="muted">(brokered access)</span><input id="s-guac-api-user" placeholder="account that may manage connections"/></label>
-          <label>Guacamole API password<input id="s-guac-api-pass" type="password" autocomplete="off" placeholder="leave blank to keep"/></label>
-          <label>recording path (in guacd)<input id="s-guac-rec" placeholder="/var/lib/guacamole/recordings"/></label>
-          <label>typescript path (ssh)<input id="s-guac-ts" placeholder="/var/lib/guacamole/typescripts"/></label>
         </div>
-        <p class="muted">With API credentials set, an ssh/rdp access grant creates a per-grant Guacamole connection (template = the resource's broker ref) with recording on, and deletes it - killing the live session - when the grant ends.</p>
-      </div>
-      <div class="card">
-        <h2>IPFIX flow export</h2>
-        <div class="form-grid">
-          <label class="full"><input id="s-ipfix-en" type="checkbox"/> enable IPFIX export</label>
-          <label class="full">collector endpoint<input id="s-ipfix-ep" placeholder="host:port (UDP), e.g. ipfix.opsanio-customer-domain.exanio.net"/></label>
-          <label>interval (s)<input id="s-ipfix-int" type="number"/></label>
-          <label>observation domain<input id="s-ipfix-dom" type="number"/></label>
-        </div>
-        <div class="muted" id="ipfix-status">status: -</div>
+        <div class="row"><button data-action="settings-save" class="btn btn-go">Save</button></div>
+        <div class="muted" id="ipfix-status">IPFIX export: -</div>
       </div>
       <div class="card">
         <h2>Baseline maintenance</h2>
         <div class="muted">Baselines are auto-learned per (target, hour-of-day). Reset when the network legitimately changed (new ISP, moved desk). Requires "allow netops writes".</div>
         <div class="row"><button data-action="baseline-reset" class="btn btn-warn">Reset learned baselines</button></div>
       </div>
-      <div class="row"><button data-action="settings-save" class="btn btn-go">Save settings</button></div>
 
       <div class="card" id="account-card">
         <h2>My account <span class="muted">· <span id="me-summary">—</span></span></h2>

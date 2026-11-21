@@ -28,7 +28,6 @@ import (
 	"github.com/noahzmr/testudo/internal/config"
 	"github.com/noahzmr/testudo/internal/engine"
 	"github.com/noahzmr/testudo/internal/identity"
-	sentryx "github.com/noahzmr/testudo/internal/integrations/sentry"
 	"github.com/noahzmr/testudo/internal/localauth"
 	"github.com/noahzmr/testudo/internal/netops"
 )
@@ -570,78 +569,26 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(snap)
 }
 
+// handleSettings sets what stays the node's own: whether it may write to
+// the kernel. Thresholds and integrations are node settings of the model.
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var body struct {
-		PacketLossPct       float64 `json:"packet_loss_pct"`
-		DNSLatencyMs        float64 `json:"dns_latency_ms"`
-		JitterMs            float64 `json:"jitter_ms"`
-		RTTMs               float64 `json:"rtt_ms"`
-		RetransmissionsPct  float64 `json:"retransmissions_pct"`
-		IncidentCooldownSec float64 `json:"incident_cooldown_sec"`
-		AllowNetopsWrite    bool    `json:"allow_netops_write"`
-		SentryDSN           string  `json:"sentry_dsn"`
-		GuacamoleURL        string  `json:"guacamole_url"`
-		GuacamoleConnID     string  `json:"guacamole_conn_id"`
-		GuacamoleTemplate   string  `json:"guacamole_template"`
-		GuacamoleAPIUser    string  `json:"guacamole_api_user"`
-		GuacamoleAPIPass    *string `json:"guacamole_api_password"` // nil = keep current (never echoed to the page)
-		GuacamoleRecording  string  `json:"guacamole_recording_path"`
-		GuacamoleTypescript string  `json:"guacamole_typescript_path"`
-		IPFIXEnabled        bool    `json:"ipfix_enabled"`
-		IPFIXEndpoint       string  `json:"ipfix_endpoint"`
-		IPFIXIntervalSec    int     `json:"ipfix_interval_sec"`
-		IPFIXDomainID       uint32  `json:"ipfix_domain_id"`
-		EBPFEnabled         bool    `json:"ebpf_enabled"`
-		FlowRetransPct      float64 `json:"flow_retrans_pct"`
-		ExpectedDownMbps    float64 `json:"expected_down_mbps"`
-		ExpectedUpMbps      float64 `json:"expected_up_mbps"`
+		AllowNetopsWrite bool `json:"allow_netops_write"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	prev := s.Engine.Settings().Snapshot()
-	err := s.Engine.Settings().Update(func(t *config.Thresholds) {
-		t.PacketLossPct = body.PacketLossPct
-		t.DNSLatencyMs = body.DNSLatencyMs
-		t.JitterMs = body.JitterMs
-		t.RTTMs = body.RTTMs
-		t.RetransmissionsPct = body.RetransmissionsPct
-		t.IncidentCooldown = time.Duration(body.IncidentCooldownSec * float64(time.Second))
-		t.AllowNetopsWrite = body.AllowNetopsWrite
-		t.SentryDSN = body.SentryDSN
-		t.GuacamoleURL = body.GuacamoleURL
-		t.GuacamoleConnID = body.GuacamoleConnID
-		t.GuacamoleTemplate = body.GuacamoleTemplate
-		t.GuacamoleAPIUser = body.GuacamoleAPIUser
-		if body.GuacamoleAPIPass != nil && *body.GuacamoleAPIPass != "" {
-			t.GuacamoleAPIPassword = *body.GuacamoleAPIPass
-		}
-		t.GuacamoleRecordingPath = body.GuacamoleRecording
-		t.GuacamoleTypescriptPath = body.GuacamoleTypescript
-		t.IPFIXEnabled = body.IPFIXEnabled
-		t.IPFIXEndpoint = body.IPFIXEndpoint
-		t.IPFIXIntervalSec = body.IPFIXIntervalSec
-		t.IPFIXDomainID = body.IPFIXDomainID
-		t.EBPFEnabled = body.EBPFEnabled
-		t.FlowRetransPct = body.FlowRetransPct
-		t.ExpectedDownMbps = body.ExpectedDownMbps
-		t.ExpectedUpMbps = body.ExpectedUpMbps
-	})
-	if err != nil {
+	if err := s.Engine.Settings().Update(func(t *config.Thresholds) { t.AllowNetopsWrite = body.AllowNetopsWrite }); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Mirror the runtime state changes the Settings TUI tab does.
 	if nw := s.Engine.Netops(); nw != nil {
 		nw.AllowWrites = body.AllowNetopsWrite
-	}
-	if body.SentryDSN != prev.SentryDSN {
-		_ = sentryx.Init(body.SentryDSN, "testudo")
 	}
 	s.Engine.Audit(actorFrom(r), "settings_update",
 		fmt.Sprintf(`{"allow_netops_write":%v}`, body.AllowNetopsWrite), nil)

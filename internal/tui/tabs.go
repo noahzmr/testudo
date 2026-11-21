@@ -1275,6 +1275,10 @@ type thresholdRow struct {
 	isAction     bool
 	requireWrite bool
 	action       func(*settingsTab) tea.Cmd
+
+	// local rows are the node's own; every other value is a node setting of
+	// the model and only shown here.
+	local bool
 }
 
 func newSettingsTab(eng *engine.Engine, app *App) *settingsTab {
@@ -1317,7 +1321,7 @@ func (t *settingsTab) rows() []thresholdRow {
 			apply: func(t *config.Thresholds, v float64) { t.ExpectedUpMbps = v }},
 		{label: "Incident cooldown", value: th.IncidentCooldown.Seconds(), unit: "s", stepBig: 30, stepSmall: 5,
 			apply: func(t *config.Thresholds, v float64) { t.IncidentCooldown = time.Duration(v * float64(time.Second)) }},
-		{label: "Allow netops writes", value: bool01(th.AllowNetopsWrite), unit: "", isBool: true,
+		{label: "Allow netops writes", value: bool01(th.AllowNetopsWrite), unit: "", isBool: true, local: true,
 			apply: func(t *config.Thresholds, v float64) { t.AllowNetopsWrite = v != 0 },
 			afterApply: func(s *settingsTab, v float64) {
 				// Push the new value into the live netops.Writer so the
@@ -1409,6 +1413,12 @@ func (t *settingsTab) Update(msg tea.Msg) tea.Cmd {
 		_ = t.eng.Settings().Update(func(th *config.Thresholds) { r.apply(th, newV) })
 		if r.afterApply != nil {
 			r.afterApply(t, newV)
+		}
+	}
+	switch m.String() {
+	case "+", "=", "shift++", "-", "_", " ", "enter":
+		if r := rows[t.cursor]; !r.isAction && !r.local {
+			return statusCmd("thresholds and integrations are node settings of the model: the console's Settings section")
 		}
 	}
 	switch m.String() {
@@ -1506,7 +1516,7 @@ func (t *settingsTab) openStringEditor(r thresholdRow) tea.Cmd {
 }
 func (t *settingsTab) View(w, h int) string {
 	rows := []string{
-		headerStyle.Render("Settings - ↑/↓ row · +/- adjust · enter/space edit · auto-saves"),
+		headerStyle.Render("Settings - values from the model's node settings · enter toggles netops writes · auto-saves"),
 	}
 	// innerW: inside boxStyle (border 2 + pad 2 = 4) without a row indent.
 	innerW := w - 4
