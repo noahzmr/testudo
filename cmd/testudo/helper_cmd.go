@@ -20,6 +20,7 @@ import (
 	"github.com/noahzmr/testudo/internal/engine"
 	"github.com/noahzmr/testudo/internal/health"
 	"github.com/noahzmr/testudo/internal/netops"
+	"github.com/noahzmr/testudo/internal/nflog"
 	"github.com/noahzmr/testudo/internal/privsep"
 	"github.com/noahzmr/testudo/internal/storage"
 )
@@ -188,7 +189,7 @@ func runHelper() error {
 
 // socketReq is the body of an OpOpenSocket request.
 type socketReq struct {
-	Type  string `json:"type"`  // "icmp" | "afpacket"
+	Type  string `json:"type"`  // "icmp" | "afpacket" | "nflog"
 	Iface string `json:"iface"` // for afpacket bind
 }
 
@@ -217,6 +218,13 @@ func openPrivilegedSocket(body []byte) ([]byte, int, error) {
 			if ifi, err := net.InterfaceByName(req.Iface); err == nil {
 				_ = unix.Bind(fd, &unix.SockaddrLinklayer{Protocol: htons(unix.ETH_P_ALL), Ifindex: ifi.Index})
 			}
+		}
+		return nil, fd, nil
+	case "nflog":
+		// The firewall's log group, bound here; the engine only reads.
+		fd, err := nflog.Open(nflog.Group)
+		if err != nil {
+			return nil, -1, err
 		}
 		return nil, fd, nil
 	default:

@@ -59,7 +59,27 @@ const (
 	// KindLatency as a fake "RTT" under a "wifi:" target name, which every
 	// latency consumer then had to recognise and skip.
 	KindWiFiMetric Kind = "wifi_metric"
+
+	// KindFirewallLog is one packet a filter rule with logging on (or the
+	// policy's drop logging) matched; payload FirewallLogPayload.
+	KindFirewallLog Kind = "firewall_log"
 )
+
+// FirewallLogPayload is one logged packet, with the rule that logged it.
+type FirewallLogPayload struct {
+	RuleID   string `json:"rule_id,omitempty"`
+	Rule     string `json:"rule"` // the rule's name, or "default drop"
+	Action   string `json:"action,omitempty"`
+	Chain    string `json:"chain,omitempty"`
+	InIface  string `json:"in_iface,omitempty"`
+	OutIface string `json:"out_iface,omitempty"`
+	Src      string `json:"src"`
+	Dst      string `json:"dst"`
+	Proto    string `json:"proto"`
+	SrcPort  uint16 `json:"src_port,omitempty"`
+	DstPort  uint16 `json:"dst_port,omitempty"`
+	Length   int    `json:"length,omitempty"`
+}
 
 // Severity is the canonical 4-level alert ladder defined in the project specification.
 // Use these as the AnomalyPayload.Severity value.
@@ -447,6 +467,8 @@ func kindMask(k Kind) uint64 {
 		return 1 << 19
 	case KindWiFiMetric:
 		return 1 << 20
+	case KindFirewallLog:
+		return 1 << 21
 	}
 	// Unknown kinds match no filter; only the unfiltered subscriber sees them.
 	return 1 << 63

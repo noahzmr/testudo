@@ -1,7 +1,7 @@
 table inet testudo
 delete table inet testudo
 table inet testudo {
-	set gen_b36546f62732b0ed {
+	set gen_bb0d208b81cfdb43 {
 		type ifname
 	}
 	set z_lan_000000 {
@@ -114,7 +114,7 @@ table inet testudo {
 		tcp dport { 22, 443, 8080 } accept
 		udp dport { 51820 } accept
 		iifname @z_lan_000000 meta l4proto tcp th dport { 9090 } meta mark set 0x10 counter accept comment "00000000-0000-4000-8000-000000000054"
-		limit rate 10/second log prefix "testudo drop input: "
+		limit rate 10/second log prefix "t:drop:input" group 7
 	}
 	chain forward {
 		type filter hook forward priority filter; policy drop;
@@ -126,14 +126,14 @@ table inet testudo {
 		ct state invalid drop
 		iifname @z_wan_000000 fib saddr . iif oif missing counter drop
 		ct status dnat accept
-		ip saddr @a4_blocklist_000000 log prefix "testudo block-listed: " counter drop comment "00000000-0000-4000-8000-000000000050"
-		ip6 saddr @a6_blocklist_000000 log prefix "testudo block-listed: " counter drop comment "00000000-0000-4000-8000-000000000050"
+		ip saddr @a4_blocklist_000000 log prefix "t:00000000-0000-4000-8000-000000000050" group 7 counter drop comment "00000000-0000-4000-8000-000000000050"
+		ip6 saddr @a6_blocklist_000000 log prefix "t:00000000-0000-4000-8000-000000000050" group 7 counter drop comment "00000000-0000-4000-8000-000000000050"
 		iifname @z_lan_000000 oifname @z_wan_000000 ip daddr { 192.0.2.10 } meta l4proto tcp th dport { 443, 80, 8000-8099 } ct state { new } counter accept comment "00000000-0000-4000-8000-000000000051"
 		iifname @z_lan_000000 oifname @z_wan_000000 ip6 daddr { 2001:db8::10 } meta l4proto tcp th dport { 443, 80, 8000-8099 } ct state { new } counter accept comment "00000000-0000-4000-8000-000000000051"
 		iifname @z_vpn_000000 ip saddr { 10.8.0.0/24 } ip daddr { 10.0.0.53 } meta l4proto { tcp, udp } th dport { 53 } limit rate 100/second counter accept comment "00000000-0000-4000-8000-000000000052"
 		ip saddr { 198.51.100.7 } ip daddr { 10.0.0.0/8, 10.20.0.0/16 } meta l4proto tcp th dport { 22 } counter accept comment "00000000-0000-4000-8000-000000000053"
 		iifname @z_lan_000000 oifname @z_lan_000000 accept
-		limit rate 10/second log prefix "testudo drop forward: "
+		limit rate 10/second log prefix "t:drop:forward" group 7
 	}
 	chain output {
 		type filter hook output priority filter; policy accept;

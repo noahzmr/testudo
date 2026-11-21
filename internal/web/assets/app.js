@@ -1626,6 +1626,20 @@
     }).join('');
   }
 
+  function renderFirewallLog(rows) {
+    const ep = (a, p) => a ? escape(p ? (a.includes(':') ? '[' + a + ']:' + p : a + ':' + p) : a) : '-';
+    setHTML(document.getElementById('fw-log-body'), (rows || []).map(r => '<tr>'
+      + '<td>' + escape(new Date(r.time).toLocaleTimeString()) + '</td>'
+      + '<td>' + escape(r.rule || '-') + '</td>'
+      + '<td>' + escape(r.action || '-') + '</td>'
+      + '<td>' + escape(r.in_iface || '-') + '</td>'
+      + '<td>' + escape(r.out_iface || '-') + '</td>'
+      + '<td class="mono">' + ep(r.src, r.src_port) + '</td>'
+      + '<td class="mono">' + ep(r.dst, r.dst_port) + '</td>'
+      + '<td>' + escape(r.proto || '-') + '</td>'
+      + '</tr>').join('') || '<tr><td colspan="8" class="muted">nothing logged yet: switch logging on for a rule, or the policy\'s drop logging</td></tr>');
+  }
+
   function renderRoutes(rows) {
     document.getElementById('routes-body').innerHTML = (rows || []).map(r =>
       '<tr>'
@@ -2361,7 +2375,7 @@
     ifaces:    s => { renderIfaces(s.ifaces, s.wifi); renderWatcher(s.watcher); },
     wifi:      s => renderWiFiDetail(s.wifi),
     routes:    s => { renderRoutes(s.routes); renderWatcher(s.watcher); },
-    firewall:  s => renderFirewall(s.model_rules, s.firewall, s.firewall_rules),
+    firewall:  s => { renderFirewall(s.model_rules, s.firewall, s.firewall_rules); renderFirewallLog(s.firewall_log); },
     nat:       s => { renderNAT(s.model_nat); renderConntrack(s.conntrack, s.thresholds && s.thresholds.allow_netops_write); },
     wireguard: s => renderWireGuard(s.wireguard),
     tcpdump:   s => renderTCPDump(s.tcpdump),

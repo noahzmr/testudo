@@ -35,28 +35,30 @@ type snapshot struct {
 	FirewallPolicy *firewallStatusView `json:"firewall_policy,omitempty"`
 	// ModelRules and ModelNAT are the model's rules on this node with what
 	// each has matched; they are changed in the model.
-	ModelRules    []engine.RuleView    `json:"model_rules"`
-	ModelNAT      []engine.RuleView    `json:"model_nat"`
-	WireGuard     []wgDeviceView       `json:"wireguard"`
-	Neighbours    []neighbourView      `json:"neighbours"`
-	Conflicts     []ipConflictView     `json:"ip_conflicts"`
-	Conntrack     conntrackView        `json:"conntrack"`
-	Anomalies     []anomalyView        `json:"anomalies"`
-	Thresholds    thresholdsView       `json:"thresholds"`
-	TCPDump       []tcpdumpView        `json:"tcpdump"`
-	IPFIX         ipfixView            `json:"ipfix"`
-	LatencySeries map[string][]float64 `json:"latency_series"`
-	DNSSeries     map[string][]float64 `json:"dns_series"`
-	Bandwidth     []bandwidthView      `json:"bandwidth"`
-	TopHosts      []hostRollupView     `json:"top_hosts"`
-	TopProcesses  []procRollupView     `json:"top_processes"`
-	TopServices   []serviceRollupView  `json:"top_services"`
-	Telemetry     telemetryView        `json:"telemetry"`
-	Clock         clockView            `json:"clock"`
-	WiFi          []wifiView           `json:"wifi"`
-	Subsystems    []subsystemView      `json:"subsystems"`
-	Audit         []auditView          `json:"audit"`
-	Privsep       string               `json:"privsep"`
+	ModelRules []engine.RuleView `json:"model_rules"`
+	ModelNAT   []engine.RuleView `json:"model_nat"`
+	// FirewallLog are the latest packets logging rules matched.
+	FirewallLog   []engine.FirewallLogEntry `json:"firewall_log"`
+	WireGuard     []wgDeviceView            `json:"wireguard"`
+	Neighbours    []neighbourView           `json:"neighbours"`
+	Conflicts     []ipConflictView          `json:"ip_conflicts"`
+	Conntrack     conntrackView             `json:"conntrack"`
+	Anomalies     []anomalyView             `json:"anomalies"`
+	Thresholds    thresholdsView            `json:"thresholds"`
+	TCPDump       []tcpdumpView             `json:"tcpdump"`
+	IPFIX         ipfixView                 `json:"ipfix"`
+	LatencySeries map[string][]float64      `json:"latency_series"`
+	DNSSeries     map[string][]float64      `json:"dns_series"`
+	Bandwidth     []bandwidthView           `json:"bandwidth"`
+	TopHosts      []hostRollupView          `json:"top_hosts"`
+	TopProcesses  []procRollupView          `json:"top_processes"`
+	TopServices   []serviceRollupView       `json:"top_services"`
+	Telemetry     telemetryView             `json:"telemetry"`
+	Clock         clockView                 `json:"clock"`
+	WiFi          []wifiView                `json:"wifi"`
+	Subsystems    []subsystemView           `json:"subsystems"`
+	Audit         []auditView               `json:"audit"`
+	Privsep       string                    `json:"privsep"`
 }
 
 // wifiView is the per-interface wireless snapshot the dashboard
@@ -972,6 +974,7 @@ func (s *Server) buildSnapshot() snapshot {
 		snap.FirewallPolicy = &firewallStatusView{Available: v.Error == "" || v.Loaded, Error: v.Error, Enforce: v.DefaultDeny,
 			WritesAllowed: eng.Netops() != nil && eng.Netops().WritesAllowed(), InSync: v.InSync, HasPolicy: v.HasPolicy, Policy: v.Policy, RuleCount: len(v.Rules)}
 		snap.ModelRules, snap.ModelNAT = v.Rules, v.NAT
+		snap.FirewallLog = eng.FirewallLog(50)
 	}
 
 	// WireGuard devices/peers from the collector's enriched snapshot (public

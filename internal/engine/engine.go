@@ -36,6 +36,8 @@ import (
 )
 
 type Engine struct {
+	// fwlog keeps the packets the firewall logged lately.
+	fwlog fwLog
 	// l3 dedupes neighbour/conntrack persistence (snapshot goroutine only).
 	l3 l3Persist
 	// wifiPersist thins WiFi metric samples (metrics consumer goroutine only).
@@ -292,6 +294,7 @@ func (e *Engine) Start(parent context.Context) error {
 	}
 	e.startSnapshotter(ctx)
 	e.startFirewallReconciler(ctx)
+	e.startFirewallLog(ctx)
 	e.startPAM(ctx)
 	e.startWireGuardPersister(ctx)
 	e.startDownsampler(ctx)

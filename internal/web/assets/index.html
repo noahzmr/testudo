@@ -345,6 +345,15 @@
         <p class="muted">The model's rules on this node with what each has matched, and whether the kernel holds exactly the model's ruleset (it is loaded again when it does not). Change them under <a href="#/filter-rules">Rules</a>, <a href="#/firewall-policies">Policy</a> and <a href="#/nat-rules">NAT rules</a>; access grants and the services' openings come from their own objects.</p>
       </div>
       <div class="card">
+        <h2>Logged packets <span class="muted">· rules with logging on and the policy's drop logging · newest first</span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Rule</th><th>Action</th><th>In</th><th>Out</th><th>Source</th><th>Destination</th><th>Proto</th></tr></thead>
+            <tbody id="fw-log-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
         <h2>Rules <span class="muted">· from the model · read-only here</span></h2>
         <div class="table-wrap">
           <table>

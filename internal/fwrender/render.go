@@ -425,6 +425,14 @@ func (r *renderer) policyFragment(p *model.FirewallPolicy) PolicyFragment {
 	return pf
 }
 
+// Logged packets go to a netfilter log group, which the engine reads and
+// exports, not to the kernel log. The prefix names the rule that logged.
+const (
+	LogGroup      = 7 // nflog.Group
+	LogRulePrefix = "t:"
+	LogDropPrefix = "t:drop:"
+)
+
 const synFloodLine = "tcp flags & (fin | syn | rst | ack) == syn limit rate over 200/second burst 400 packets counter drop"
 
 // Assemble combines the model's fragments with the running side into the
@@ -511,7 +519,7 @@ func assembleBody(f Fragments) string {
 				w(c.TailOpen...)
 			}
 			if f.Policy.LogPrefix != "" {
-				w(fmt.Sprintf("limit rate 10/second log prefix %s", quote(f.Policy.LogPrefix+" "+chain+": ")))
+				w(fmt.Sprintf("limit rate 10/second log prefix %s group %d", quote(LogDropPrefix+chain), LogGroup))
 			}
 		}
 		b.WriteString("\t}\n")
@@ -740,7 +748,7 @@ func (r *renderer) rule(fr *model.FilterRule, chain string) {
 		tail = append(tail, fmt.Sprintf("meta mark set 0x%x", fr.Mark))
 	}
 	if fr.Log {
-		tail = append(tail, "log prefix "+quote("testudo "+fr.Name+": "))
+		tail = append(tail, fmt.Sprintf("log prefix %s group %d", quote(LogRulePrefix+fr.ID), LogGroup))
 	}
 	tail = append(tail, "counter", fr.Action, "comment "+quote(fr.ID))
 

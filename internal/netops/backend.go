@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/noahzmr/testudo/internal/nflog"
 	"github.com/noahzmr/testudo/internal/privsep"
 )
 
@@ -293,4 +294,17 @@ func (w *Writer) applyDirect(op Op) error {
 	default:
 		return fmt.Errorf("unknown op kind %q", op.Kind)
 	}
+}
+
+// OpenNFLOG returns a socket bound to the firewall's log group: opened by
+// the privileged helper when there is one, in this process otherwise.
+func (w *Writer) OpenNFLOG() (int, error) {
+	if h, ok := w.be().(*helperBackend); ok {
+		_, fd, err := h.client.Call(privsep.OpOpenSocket, []byte(`{"type":"nflog"}`))
+		if err == nil && fd < 0 {
+			err = fmt.Errorf("the helper returned no socket")
+		}
+		return fd, err
+	}
+	return nflog.Open(nflog.Group)
 }
