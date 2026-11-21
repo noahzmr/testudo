@@ -10,7 +10,7 @@ import (
 // Retention windows. Rollups live far longer than raw samples so the baseline
 // survives raw-sample rotation (assessment storage recommendation).
 const (
-	RawSampleRetention     = 30 * 24 * time.Hour  // raw samples / flow snapshots
+	RawSampleRetention     = 30 * 24 * time.Hour  // raw samples, flow snapshots, session flows
 	RollupRetention        = 365 * 24 * time.Hour // (target, dow, hour) baselines
 	DefaultMaxIncidents    = 200                  // per-session incident cap (weakness #6)
 	DefaultMaxFlowSnapRows = 50_000               // global flow_snapshots cap
@@ -204,6 +204,9 @@ func (s *Store) Retain(ctx context.Context, now time.Time) error {
 	}{
 		{`DELETE FROM samples WHERE ts < ?`, rawCut},
 		{`DELETE FROM flow_snapshots WHERE ts < ?`, rawCut},
+		// Session flow rows follow the raw data: they used to stay for
+		// ever and grew with every session.
+		{`DELETE FROM flows WHERE last_seen < ?`, rawCut},
 		{`DELETE FROM quality_rollup WHERE updated < ?`, rollupCut},
 	}
 	for _, st := range stmts {

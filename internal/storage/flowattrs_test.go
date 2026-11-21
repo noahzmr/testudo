@@ -53,3 +53,25 @@ func TestFlowAttrsSurviveAndOldDatabasesMigrate(t *testing.T) {
 		}
 	}
 }
+
+func TestOldFlowsAreRetired(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	now := time.Now()
+	for i, age := range []time.Duration{time.Hour, RawSampleRetention + time.Hour} {
+		seen := now.Add(-age)
+		st.UpsertFlow(ctx, "s", FlowRow{Iface: "eth0", AIP: "10.0.0.1", APort: uint16(i + 1), BIP: "10.0.0.2", BPort: 80, Proto: "tcp",
+			FirstSeen: seen, LastSeen: seen})
+	}
+	if err := st.Retain(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.FlowsBySession(ctx, "s", 10)
+	if len(rows) != 1 || rows[0].APort != 1 {
+		t.Errorf("after retention: %+v", rows)
+	}
+}
