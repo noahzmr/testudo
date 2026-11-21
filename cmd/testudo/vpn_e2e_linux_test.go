@@ -278,10 +278,34 @@ func TestVPNEndToEnd(t *testing.T) {
 		t.Errorf("console over the VPN: %d", status)
 	}
 
+	// Flow capture, to see whose traffic the tunnel carries.
+	if status, out := call(local, "POST", "/api/capture/start", map[string]any{"ifaces": []string{}}); status/100 != 2 {
+		t.Fatalf("start capture: %d %v", status, out)
+	}
+	time.Sleep(6 * time.Second) // capture has found the tunnel device
+
 	// Identity-aware access: alice's device reaches what her policy names,
 	// seen at the server with her tunnel address, and nothing else.
 	if got := reach("10.50.0.2:8443"); got != "10.8.0.2" {
 		t.Errorf("the resource a policy grants: server saw %q, want 10.8.0.2", got)
+	}
+	// The flow in the tunnel is hers: the peer and the person are named.
+	attributed := false
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline) && !attributed; time.Sleep(500 * time.Millisecond) {
+		reach("10.50.0.2:8443")
+		_, snap := call(local, "GET", "/api/snapshot", nil)
+		list, _ := snap["flows"].([]any)
+		for _, f := range list {
+			fm := f.(map[string]any)
+			attrs, _ := fm["attrs"].(map[string]any)
+			if attrs != nil && attrs["user"] == "alice" && attrs["peer"] == "alice-laptop" && attrs["tunnel"] != nil &&
+				strings.Contains(fmt.Sprint(fm["a"], fm["b"]), "10.8.0.2") {
+				attributed = true
+			}
+		}
+	}
+	if !attributed {
+		t.Error("no flow in the tunnel names alice and her peer")
 	}
 	if got := reach("10.50.0.2:8444"); got != "" {
 		t.Errorf("a port no policy grants was reachable (%q)", got)
