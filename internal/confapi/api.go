@@ -67,7 +67,7 @@ func RolePermissions(role string) []string {
 		return []string{"*:write"}
 	case "operator":
 		return []string{"*:read", "firewall:write", "routing:write", "vpn:write", "loadbalancer:write",
-			"interfaces:write", "access:write"}
+			"interfaces:write", "access:write", "services:write"}
 	case "approver":
 		return []string{"*:read", "access:write"}
 	}
@@ -99,6 +99,8 @@ type Server struct {
 	Cluster ClusterAdmin
 	// SiteFlows correlates the members' flows; nil disables it.
 	SiteFlows func(ctx context.Context, all bool) any
+	// DHCPLeases lists the node's DHCP leases; nil disables it.
+	DHCPLeases func(ctx context.Context) (any, error)
 	// Audit reads the audit log; nil disables the endpoint.
 	Audit AuditReader
 	// Heartbeat is the interval of keep-alive comments on the event stream.
@@ -277,6 +279,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/audit", s.audit)
 	m.HandleFunc("GET /api/v1/cluster", s.clusterStatus)
 	m.HandleFunc("GET /api/v1/flows/sites", s.siteFlows)
+	m.HandleFunc("GET /api/v1/dhcp/leases", s.dhcpLeases)
 	m.HandleFunc("POST /api/v1/cluster/init", s.clusterInit)
 	m.HandleFunc("POST /api/v1/cluster/join", s.clusterJoin)
 	m.HandleFunc("POST /api/v1/cluster/token", s.clusterToken)
@@ -588,4 +591,25 @@ func (s *Server) addToChangeSet(ctx context.Context, id Identity, csID string, o
 		}
 		return out, err
 	}
+}
+
+// ServicesArea guards DHCP, DNS and NTP.
+const ServicesArea = "services"
+
+// dhcpLeases lists the addresses this node's DHCP servers handed out.
+func (s *Server) dhcpLeases(w http.ResponseWriter, r *http.Request) {
+	if s.DHCPLeases == nil {
+		fail(w, http.StatusServiceUnavailable, "unavailable", "DHCP is not available on this node")
+		return
+	}
+	if !who(r).Can(ServicesArea, "read") {
+		fail(w, http.StatusForbidden, "forbidden", "needs services:read")
+		return
+	}
+	leases, err := s.DHCPLeases(r.Context())
+	if err != nil {
+		fail(w, http.StatusBadGateway, "unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, leases)
 }

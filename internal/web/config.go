@@ -30,15 +30,16 @@ func (s *Server) mountConfig(mux *http.ServeMux) error {
 		return nil
 	}
 	api := &confapi.Server{
-		Store:     s.Engine.ConfigStore(),
-		Engine:    s.Engine.ConfigApply(),
-		Done:      s.stopping,
-		Runtime:   s.Engine.ConfigRuntime,
-		Keys:      s.Engine,
-		Certs:     s.Engine,
-		Secrets:   s.Engine,
-		Cluster:   s.Engine,
-		SiteFlows: s.Engine.SiteFlows,
+		Store:      s.Engine.ConfigStore(),
+		Engine:     s.Engine.ConfigApply(),
+		Done:       s.stopping,
+		Runtime:    s.Engine.ConfigRuntime,
+		Keys:       s.Engine,
+		Certs:      s.Engine,
+		Secrets:    s.Engine,
+		Cluster:    s.Engine,
+		SiteFlows:  s.Engine.SiteFlows,
+		DHCPLeases: s.Engine.DHCPLeases,
 		Audit: func(ctx context.Context, limit int) ([]confapi.AuditRow, error) {
 			entries, err := s.Engine.RecentAudit(ctx, limit)
 			rows := make([]confapi.AuditRow, 0, len(entries))
