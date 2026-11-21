@@ -46,6 +46,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 10 | Intra-site HA, hardening, operations | done | - | - |
 | 11 | DHCP, DNS and NTP per interface | done | - | - |
 | 12 | One source of truth, pushed live views | done | - | - |
+| 13 | Bonds, bridges, VLANs, PPPoE, DHCPv6-PD, DHCP relay | done | - | - |
 
 The Phase 0 estimate was 15 to 18 months of single-engineer work. Every
 area now exists; the open items per area are below.
@@ -197,6 +198,24 @@ Done; see [phase-11-services.md](phase-11-services.md).
 | NTP per interface | present (chrony), NTS, orphan mode |
 | HA | DHCP hot-standby over the sync link; RA from both nodes |
 | Relay, prefix delegation, PXE, free-form options, external DDNS | absent |
+
+## Toward the enterprise market
+
+What buyers check before anything else, and what is planned for it. Every
+item uses kernel features or open-source programs run as separate
+processes; libraries linked into the binary are permissively licensed.
+Release engineering, Terraform and Ansible come later; the API they need
+exists.
+
+| Phase | Area | Built on |
+| --- | --- | --- |
+| 13 | Bonds/LACP, bridges, VLANs, PPPoE, DHCPv6 prefix delegation, DHCP relay | netlink, pppd, dhcpcd, dnsmasq ([phase-13](phase-13-interfaces.md)) |
+| 14 | Filter-rule logs, syslog/CEF/JSON export, hash-chained configuration log, SNMPv3, NetFlow v9 | NFLOG, net-snmp |
+| 15 | IPsec IKEv2 site-to-site | strongSwan (vici) |
+| 16 | LDAP groups, SAML, RADIUS/TACACS+ for admin logins, user identity on the LAN | go-ldap, crewjam/saml, layeh/radius |
+| 17 | IPS, application identification, DNS filtering, threat feeds | Suricata (NFQUEUE), Unbound RPZ |
+| 18 | Flowtable offload, XDP early drop, scale tests | nftables, XDP |
+| 19 | Fencing, backups with the consensus state, a canary that is not the leader | keepalived, Raft |
 
 ## Phase 0 deliverables
 

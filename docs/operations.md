@@ -145,6 +145,18 @@ If the distribution's own network configuration (ifupdown, netplan,
 NetworkManager) also manages a device, let only one of them set its
 addresses.
 
+### Bonds, bridges, VLANs, PPPoE, DHCPv6
+
+Interfaces → Bonds, Bridges, VLANs, PPPoE and DHCPv6 create those devices
+on a node; an interface of the model then gives them addresses and a
+zone. Testudo only changes or removes devices it made: a device of the
+same name made by the distribution is refused. PPPoE sessions run as
+`testudo-pppoe@<device>` and DHCPv6 clients as `testudo-dhcpcd6@<device>`.
+A DHCPv6 client can ask the provider for a prefix and give /64s of it to
+LAN interfaces; a router advertisement there announces it. DHCP relay
+(Services → DHCP relay) passes requests on a LAN to a central DHCP
+server.
+
 ## Node settings
 
 Thresholds, flow export and the integrations (Sentry, Guacamole,
