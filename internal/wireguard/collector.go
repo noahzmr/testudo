@@ -458,3 +458,11 @@ func appendCapped(s []float64, v float64) []float64 {
 	}
 	return s
 }
+
+// hostCIDR turns a bare address into a /32, leaving an existing CIDR untouched.
+func hostCIDR(s string) string {
+	if strings.Contains(s, "/") {
+		return s
+	}
+	return s + "/32"
+}
