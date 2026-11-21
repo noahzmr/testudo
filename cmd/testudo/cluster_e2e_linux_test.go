@@ -33,6 +33,9 @@ type clusterNode struct {
 	stderr *bytes.Buffer
 	hc     *http.Client
 	bin    string
+	// frr, when set, is a directory with run/ and etc/ that this node's
+	// processes see as /run/frr and /etc/frr: its own routing daemon.
+	frr string
 }
 
 func (n *clusterNode) base() string { return "http://" + n.ip + ":8080" }
@@ -40,8 +43,13 @@ func (n *clusterNode) base() string { return "http://" + n.ip + ":8080" }
 func (n *clusterNode) start() {
 	n.t.Helper()
 	n.stderr = &bytes.Buffer{}
-	n.cmd = exec.Command(n.bin, "web", "--listen", n.ip+":8080", "--storage", n.dir, "--db", filepath.Join(n.dir, "testudo.db"),
-		"--allow-netops-write", "--node-name", n.name, "--cluster-raft", n.ip+":7946", "--cluster-api", n.ip+":7947")
+	args := []string{"web", "--listen", n.ip + ":8080", "--storage", n.dir, "--db", filepath.Join(n.dir, "testudo.db"),
+		"--allow-netops-write", "--node-name", n.name, "--cluster-raft", n.ip + ":7946", "--cluster-api", n.ip + ":7947"}
+	n.cmd = exec.Command(n.bin, args...)
+	if n.frr != "" {
+		n.cmd = exec.Command("unshare", append([]string{"-m", "--propagation", "private", "sh", "-c",
+			"mount --bind " + n.frr + "/run /run/frr && mount --bind " + n.frr + "/etc /etc/frr && exec \"$0\" \"$@\"", n.bin}, args...)...)
+	}
 	n.cmd.Env = append(os.Environ(), "HOME="+n.dir)
 	n.cmd.Stderr = n.stderr
 	// The child is created from a thread that sits in the namespace.
