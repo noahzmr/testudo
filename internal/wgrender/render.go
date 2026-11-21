@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/noahzmr/testudo/internal/confstore"
+	"github.com/noahzmr/testudo/internal/mesh"
 	"github.com/noahzmr/testudo/internal/model"
 	"github.com/noahzmr/testudo/internal/netops"
 )
@@ -129,6 +130,27 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 		}
 		dev.Peers = append(dev.Peers, netops.WGPeerSpec{PublicKey: p.PublicKey, PresharedRef: p.PresharedRef,
 			AllowedIPs: allowed, Endpoint: p.Endpoint, Keepalive: p.Keepalive})
+	}
+	// The fabric's tunnels: one device per peer node, color and slot, each
+	// with a single peer, so that the kernel's routing (filled by BGP)
+	// decides which tunnel a packet takes.
+	plan, err := mesh.Build(st, opt.SiteID, opt.NodeID)
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+	for _, t := range plan.Tunnels {
+		if other, dup := names[t.Device]; dup {
+			errs = append(errs, fmt.Sprintf("fabric tunnel %s: the device is already used by tunnel %q", t.Device, other))
+			continue
+		}
+		if other, dup := ports[t.ListenPort]; dup {
+			errs = append(errs, fmt.Sprintf("fabric tunnel %s: port %d is already used by tunnel %q", t.Device, t.ListenPort, other))
+			continue
+		}
+		names[t.Device], ports[t.ListenPort] = "fabric", "fabric"
+		res.Devices = append(res.Devices, netops.WGDeviceSpec{Name: t.Device, ListenPort: t.ListenPort, MTU: mesh.MTU,
+			Addresses: []string{t.Local}, KeyRef: mesh.KeyRef, Peers: []netops.WGPeerSpec{{PublicKey: t.PeerKey,
+				AllowedIPs: []string{"0.0.0.0/0", "::/0"}, Endpoint: t.Endpoint, Keepalive: mesh.Keepalive}}})
 	}
 	sort.Slice(res.Devices, func(i, j int) bool { return res.Devices[i].Name < res.Devices[j].Name })
 	if len(errs) > 0 {
