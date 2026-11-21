@@ -98,6 +98,42 @@ If the pair's voter is unreachable for 30 seconds, the cluster gives the
 site's vote to the partner and the audit log says
 `cluster_voter_failover`. The old voter comes back as a non-voter.
 
+## DHCP, DNS and NTP
+
+Services → DHCP, Router advertisements, DNS resolver, DNS records, NTP.
+Each object names the interfaces it serves; the firewall opens its port on
+those interfaces only. Give the interfaces their addresses in the model
+(Interfaces → zone assignment): the defaults (gateway, DNS and NTP server
+handed to clients) are derived from them, or from the pair's virtual
+address. Before the first service, stop the distribution's own units:
+
+```sh
+systemctl disable --now kea-dhcp4-server kea-dhcp6-server unbound chrony radvd systemd-timesyncd
+```
+
+* **DHCP**: one scope per interface and family, with pools and
+  reservations. Tick "Register client names in DNS" to make clients
+  resolvable under the scope's domain (default: the resolver's local
+  domain, `home.arpa`). Services → Leases lists who has which address.
+* **IPv6**: a router advertisement per interface. `slaac` for plain
+  networks, `managed` with a DHCPv6 scope when addresses must be handed
+  out and recorded.
+* **DNS**: recursive by default with DNSSEC; or forward to upstreams, over
+  TLS as `9.9.9.9#dns.quad9.net`. Internal domains of a directory go into
+  domain forwards. VPN clients that reach the resolver through another
+  interface go into "Also answer".
+* **NTP**: pools or servers to follow. The node sets its own clock
+  unless "Leave the system clock alone" is on; with no source reachable it
+  keeps serving its clock at stratum 10.
+
+On an HA pair, put the scopes at the site: both nodes run DHCP
+hot-standby over the sync link and the standby takes over within seconds
+(port 8000/8001 on the sync link). Clients get the virtual address as
+gateway, DNS and NTP server.
+
+Logs of the daemons are in `/var/lib/testudo/services/<daemon>.log`; the
+configuration in `/run/testudo-svc`.
+
 ## Monitoring
 
 | Endpoint | Login | Use |
