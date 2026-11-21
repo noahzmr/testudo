@@ -3,7 +3,7 @@
 Companion to [ARCHITECTURE-current.md](ARCHITECTURE-current.md). Updated at
 the end of every phase.
 
-**Status: Phases 0 to 7 complete. Packet filter, NAT, routing, WireGuard
+**Status: Phases 0 to 8 complete. Packet filter, NAT, routing, WireGuard
 with identity-aware access, and load balancing with SNI routing and
 certificates are driven by the model and verified against a real kernel
 ([phase-2](phase-2-packet-filter.md), [phase-3](phase-3-routing.md),
@@ -11,7 +11,9 @@ certificates are driven by the model and verified against a real kernel
 go through PAM, OIDC or the built-in store and end in permissions from the
 model ([phase-6](phase-6-identity.md)). Nodes form a Raft cluster that
 replicates the model and applies changes canary first
-([phase-7](phase-7-cluster.md)). The multi-site fabric (Phase 8) is next.**
+([phase-7](phase-7-cluster.md)), and the network between their sites is
+derived from it ([phase-8](phase-8-fabric.md)). Flow analysis extensions
+(Phase 9) are next.**
 
 Effort is rough engineering time for one experienced engineer, including
 tests and documentation. Risk is the chance of the area going wrong in a way
@@ -28,7 +30,7 @@ that hurts an operator (lock-out, outage, data loss, security defect).
 | 5 | Load balancing, SNI, certificates | done | - | - |
 | 6 | Linux-PAM, OIDC, RBAC, audit | done | - | - |
 | 7 | Raft cluster core | done | - | - |
-| 8 | Multi-site SDN fabric | nothing | 8–10 weeks | high |
+| 8 | Multi-site SDN fabric | done | - | - |
 | 9 | Flow analysis extensions | about 50 % | 5–6 weeks | medium |
 | 10 | Intra-site HA, hardening, operations | about 10 % | 5–6 weeks | medium |
 
@@ -141,7 +143,10 @@ and sessions are per member.
 
 ## 8. SDN fabric
 
-Nothing exists. Depends on phases 1, 3, 4 and 7.
+Done; see [phase-8-fabric.md](phase-8-fabric.md). Open: stretched VRFs,
+path policies and hub-and-spoke are not tested with traffic, the fabric is
+IPv4 only, EVPN/VXLAN is not built, and cluster traffic does not move onto
+the fabric.
 
 ## 9. Flow analysis
 
