@@ -50,7 +50,8 @@
     "vpn:write",
     "loadbalancer:write",
     "interfaces:write",
-    "access:write"
+    "access:write",
+    "services:write"
   ]
 }
 ## role
