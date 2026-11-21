@@ -96,6 +96,8 @@ type ConntrackQuery struct {
 	SrcIPs  []string `json:"src_ips,omitempty"`  // original-source addresses (bare or CIDR) to keep
 	DstCIDR string   `json:"dst_cidr,omitempty"` // original-destination address/CIDR to keep
 	Limit   int      `json:"limit,omitempty"`    // keep at most this many (sorted by bytes desc); 0 = all
+	// NATOnly keeps the translated entries: what flow attribution needs.
+	NATOnly bool `json:"nat_only,omitempty"`
 }
 
 // ConntrackResult is a (possibly truncated) dump plus the matching total.
@@ -183,9 +185,12 @@ func (q ConntrackQuery) matcher() (func(ConntrackFlow) bool, error) {
 		dst = &p
 	}
 	if len(srcs) == 0 && dst == nil {
-		return func(ConntrackFlow) bool { return true }, nil
+		return func(f ConntrackFlow) bool { return !q.NATOnly || f.NATed }, nil
 	}
 	return func(f ConntrackFlow) bool {
+		if q.NATOnly && !f.NATed {
+			return false
+		}
 		if len(srcs) > 0 {
 			a, err := netip.ParseAddr(f.OrigSrc)
 			if err != nil {
