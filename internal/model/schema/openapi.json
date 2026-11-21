@@ -8907,6 +8907,27 @@
         }
       ]
     },
+    "/api/v1/flows/sites": {
+      "get": {
+        "operationId": "site_flows",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Correlated connections"
+          }
+        },
+        "summary": "Connections seen at more than one member, with where, over which tunnel and path; query all=1 adds the rest",
+        "tags": [
+          "cluster"
+        ]
+      }
+    },
     "/api/v1/gateways": {
       "get": {
         "operationId": "list_gateway",

@@ -97,6 +97,8 @@ type Server struct {
 	Secrets SecretKeeper
 	// Cluster is this node's cluster membership; nil disables clustering.
 	Cluster ClusterAdmin
+	// SiteFlows correlates the members' flows; nil disables it.
+	SiteFlows func(ctx context.Context, all bool) any
 	// Audit reads the audit log; nil disables the endpoint.
 	Audit AuditReader
 	// Heartbeat is the interval of keep-alive comments on the event stream.
@@ -274,6 +276,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/v1/tokens", s.createToken)
 	m.HandleFunc("GET /api/v1/audit", s.audit)
 	m.HandleFunc("GET /api/v1/cluster", s.clusterStatus)
+	m.HandleFunc("GET /api/v1/flows/sites", s.siteFlows)
 	m.HandleFunc("POST /api/v1/cluster/init", s.clusterInit)
 	m.HandleFunc("POST /api/v1/cluster/join", s.clusterJoin)
 	m.HandleFunc("POST /api/v1/cluster/token", s.clusterToken)

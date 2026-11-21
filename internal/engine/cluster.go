@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -66,6 +67,7 @@ func (e *Engine) openCluster() {
 			}
 		},
 		MeshKey: func() string { return e.meshPublicKey(false) },
+		Flows:   func() ([]byte, error) { return json.Marshal(e.localNodeFlows()) },
 	})
 	if err != nil {
 		log.Printf("cluster: %v", err)

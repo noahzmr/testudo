@@ -168,3 +168,19 @@ func (s *Server) clusterResolveOverride(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, o)
 }
+
+// siteFlows joins what the members of the cluster saw of the same
+// connections: where each was seen, over which tunnel and path. The flows
+// are fetched from the members when asked, not replicated. ?all=1 also
+// lists connections only one member saw.
+func (s *Server) siteFlows(w http.ResponseWriter, r *http.Request) {
+	if s.SiteFlows == nil {
+		fail(w, http.StatusServiceUnavailable, "unavailable", "flows are not available on this node")
+		return
+	}
+	if !who(r).Can(ClusterArea, "read") {
+		fail(w, http.StatusForbidden, "forbidden", "needs cluster:read")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.SiteFlows(r.Context(), r.URL.Query().Get("all") == "1"))
+}

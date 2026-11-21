@@ -615,6 +615,8 @@ func OpenAPI() ([]byte, error) {
 		return tagged(op(id, summary, map[string]any{"200": resp("Cluster status", clusterStatus), "409": problem("Refused; the message says why.", nil)}, extra...), "cluster")
 	}
 	paths["/api/v1/cluster"] = map[string]any{"get": tagged(op("cluster_status", "The cluster as this member sees it", ok("Cluster status", clusterStatus)), "cluster")}
+	paths["/api/v1/flows/sites"] = map[string]any{"get": tagged(op("site_flows", "Connections seen at more than one member, with where, over which tunnel and path; query all=1 adds the rest",
+		ok("Correlated connections", map[string]any{"type": "object"})), "cluster")}
 	paths["/api/v1/cluster/init"] = map[string]any{"post": cl("cluster_init", "Make this node the first member of a new cluster; its model becomes the cluster's")}
 	paths["/api/v1/cluster/join"] = map[string]any{"post": cl("cluster_join", "Make this node a member of the cluster a join token is for; the node has to be empty",
 		map[string]any{"requestBody": jsonBody(strs("token"))})}
