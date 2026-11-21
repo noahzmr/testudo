@@ -73,6 +73,12 @@ type Store interface {
 	VerifyAccessEvents(ctx context.Context) (checked int, broken int64, err error)
 }
 
+// ChainReporter is a store that keeps the access logs of several members
+// and reports the check of each one's chain.
+type ChainReporter interface {
+	Chains(ctx context.Context) []storage.ChainStatus
+}
+
 // Catalog is what the configuration model says about access: the
 // resources, the policies that let a subject ask, and the tunnel addresses
 // of a user's WireGuard peers.
@@ -596,8 +602,11 @@ type Overview struct {
 	Events       []storage.AccessEvent `json:"events"`
 	ChainChecked int                   `json:"chain_checked"`
 	ChainBroken  int64                 `json:"chain_broken_at"` // 0 = intact
-	Device       string                `json:"device"`
-	PeerUsers    map[string]string     `json:"peer_users"` // pubkey -> user
+	// Chains are the checks of every member's chain, where the store
+	// keeps the logs of several.
+	Chains    []storage.ChainStatus `json:"chains,omitempty"`
+	Device    string                `json:"device"`
+	PeerUsers map[string]string     `json:"peer_users"` // pubkey -> user
 }
 
 // Overview returns resources, policies, recent grants and events plus a chain
@@ -613,6 +622,9 @@ func (m *Manager) Overview(ctx context.Context) (Overview, error) {
 		return o, err
 	}
 	o.ChainChecked, o.ChainBroken, _ = m.store.VerifyAccessEvents(ctx)
+	if cr, ok := m.store.(ChainReporter); ok {
+		o.Chains = cr.Chains(ctx)
+	}
 	o.PeerUsers = m.cat.PeerUsers()
 	o.Device = m.device()
 	return o, nil

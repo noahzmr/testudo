@@ -157,6 +157,14 @@ type AccessEvent struct {
 	Member string `json:"member,omitempty"`
 }
 
+// ChainStatus is the outcome of checking one member's access-log chain.
+type ChainStatus struct {
+	Member   string `json:"member"`
+	Checked  int    `json:"checked"`
+	BrokenAt int64  `json:"broken_at,omitempty"` // 0 = intact
+	Error    string `json:"error,omitempty"`     // the check could not be made
+}
+
 // ---- resources -------------------------------------------------------
 
 func (s *Store) UpsertPAMResource(ctx context.Context, r PAMResource) error {
