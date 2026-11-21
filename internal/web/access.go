@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/noahzmr/testudo/internal/model"
@@ -31,21 +30,14 @@ const (
 	nextCookie   = "testudo_next"
 )
 
-type accessTicket struct {
-	sid     string
-	host    string
-	expires time.Time
-}
-
-type accessGrant struct {
-	sid  string
-	host string
-}
-
-type accessState struct {
-	mu      sync.Mutex
-	tickets map[string]accessTicket
-	grants  map[string]accessGrant
+// accessPass is a ticket (good once, for a minute) or a grant (the cookie
+// of a published service, for as long as the console session lasts). Both
+// are stored for every member: the console that hands out a ticket and the
+// proxy that takes it may run on different members.
+type accessPass struct {
+	SID     string    `json:"sid"`
+	Host    string    `json:"host"`
+	Expires time.Time `json:"expires"`
 }
 
 // consoleURL is the address people reach this console at: the configured
@@ -100,10 +92,8 @@ func (s *Server) protectedHost(host string) bool {
 // liveSession returns the console session with the given id when it is
 // still good, brought up to date with the model and the provider.
 func (s *Server) liveSession(r *http.Request, sid string) *sessionRecord {
-	s.mu.RLock()
-	rec, ok := s.sessions[sid]
-	s.mu.RUnlock()
-	if !ok || time.Now().After(rec.expiresAt) {
+	rec := s.loadSession(sid)
+	if rec == nil || time.Now().After(rec.expiresAt) {
 		return nil
 	}
 	if !s.current(sid, rec) || !s.oidcFresh(r.Context(), sid, rec) {
@@ -131,26 +121,24 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 			required[g] = true
 		}
 	}
-	a := &s.access
-
 	// A visitor coming back from the console with a ticket.
 	if u, err := url.ParseRequestURI(uri); err == nil && u.Query().Get(ticketParam) != "" {
 		q := u.Query()
 		ticket := q.Get(ticketParam)
 		q.Del(ticketParam)
 		u.RawQuery = q.Encode()
-		a.mu.Lock()
-		t, ok := a.tickets[ticket]
-		delete(a.tickets, ticket) // a ticket is good once
-		a.mu.Unlock()
-		if ok && time.Now().Before(t.expires) && t.host == hostOnly(host) {
+		var t accessPass
+		ok := validEntryID(ticket) && s.shared.get(ticketEntry+ticket, &t)
+		if ok {
+			s.shared.del(ticketEntry + ticket) // a ticket is good once
+		}
+		if ok && time.Now().Before(t.Expires) && t.Host == hostOnly(host) {
 			id := newSessionID()
-			a.mu.Lock()
-			if a.grants == nil {
-				a.grants = map[string]accessGrant{}
+			expires := time.Now().Add(sessionTTL)
+			if rec := s.loadSession(t.SID); rec != nil {
+				expires = rec.expiresAt
 			}
-			a.grants[id] = accessGrant{sid: t.sid, host: t.host}
-			a.mu.Unlock()
+			_ = s.shared.put(grantEntry+id, accessPass{SID: t.SID, Host: t.Host, Expires: expires})
 			http.SetCookie(w, &http.Cookie{Name: accessCookie, Value: id, Path: "/", HttpOnly: true,
 				Secure: proto == "https", SameSite: http.SameSiteLaxMode})
 			// Absolute: the proxy would resolve a relative address against
@@ -161,12 +149,10 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 		uri = u.RequestURI() // fall through and ask for a login again
 	}
 
-	if c, err := r.Cookie(accessCookie); err == nil {
-		a.mu.Lock()
-		g, ok := a.grants[c.Value]
-		a.mu.Unlock()
-		if ok && g.host == hostOnly(host) {
-			if rec := s.liveSession(r, g.sid); rec != nil {
+	if c, err := r.Cookie(accessCookie); err == nil && validEntryID(c.Value) {
+		var g accessPass
+		if s.shared.get(grantEntry+c.Value, &g) && g.Host == hostOnly(host) {
+			if rec := s.liveSession(r, g.SID); rec != nil {
 				for _, id := range rec.principal.Groups {
 					if required[id] {
 						w.Header().Set("X-Forwarded-User", rec.user)
@@ -178,9 +164,7 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "You are logged in as "+rec.user+", and this service is not open to you.", http.StatusForbidden)
 				return
 			}
-			a.mu.Lock()
-			delete(a.grants, c.Value)
-			a.mu.Unlock()
+			s.shared.del(grantEntry + c.Value)
 		}
 	}
 
@@ -215,18 +199,10 @@ func (s *Server) handleAccessLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ticket := newSessionID()
-	a := &s.access
-	a.mu.Lock()
-	if a.tickets == nil {
-		a.tickets = map[string]accessTicket{}
+	if err := s.shared.put(ticketEntry+ticket, accessPass{SID: c.Value, Host: hostOnly(host), Expires: time.Now().Add(ticketTTL)}); err != nil {
+		http.Error(w, "the ticket could not be stored", http.StatusServiceUnavailable)
+		return
 	}
-	for id, t := range a.tickets {
-		if time.Now().After(t.expires) {
-			delete(a.tickets, id)
-		}
-	}
-	a.tickets[ticket] = accessTicket{sid: c.Value, host: hostOnly(host), expires: time.Now().Add(ticketTTL)}
-	a.mu.Unlock()
 	u, err := url.ParseRequestURI(rd)
 	if err != nil {
 		http.Error(w, "unknown service", http.StatusBadRequest)
@@ -255,12 +231,24 @@ func (s *Server) afterLogin(w http.ResponseWriter, r *http.Request) string {
 
 // dropAccess forgets the grants that hang on a console session.
 func (s *Server) dropAccess(sid string) {
-	a := &s.access
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	for id, g := range a.grants {
-		if g.sid == sid {
-			delete(a.grants, id)
+	for _, name := range s.shared.names(grantEntry) {
+		var g accessPass
+		if !s.shared.get(name, &g) || g.SID == sid {
+			s.shared.del(name)
 		}
 	}
+}
+
+// validEntryID accepts what newSessionID makes, so a cookie or a ticket
+// from a visitor cannot name anything else in the secret store.
+func validEntryID(id string) bool {
+	if len(id) != 32 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }

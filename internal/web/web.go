@@ -51,7 +51,10 @@ type Server struct {
 	index     *staticAsset // index.html with versioned asset URLs
 
 	mu       sync.RWMutex
+	// sessions caches the sessions this member has seen; shared holds them
+	// for every member.
 	sessions map[string]*sessionRecord
+	shared   *shared
 
 	// PublicURL is the address people reach this console at, for sending
 	// visitors of published services here to log in. Empty uses the
@@ -60,7 +63,6 @@ type Server struct {
 	// ControlSocket is the path of the control socket for the command line;
 	// "" serves none.
 	ControlSocket string
-	access        accessState
 
 	// logins counts failed logins per address.
 	logins loginLimiter
@@ -126,10 +128,17 @@ func (s *Server) netops(r *http.Request) *netops.Writer {
 
 // New constructs an unstarted Server. Mux is built lazily on first ListenAndServe.
 func New(eng *engine.Engine, addr string) *Server {
-	return &Server{
+	srv := &Server{
 		Engine: eng, Addr: addr, Issuer: "Testudo",
 		sessions: make(map[string]*sessionRecord),
+		shared:   &shared{},
 	}
+	if eng != nil {
+		if sec, ok := eng.SessionStore(); ok {
+			srv.shared.sec, srv.shared.local = sec, sec.Local()
+		}
+	}
+	return srv
 }
 
 func (s *Server) buildMux() error {
@@ -427,10 +436,8 @@ func (s *Server) session(r *http.Request) *sessionRecord {
 	if err != nil {
 		return nil
 	}
-	s.mu.RLock()
-	rec, ok := s.sessions[c.Value]
-	s.mu.RUnlock()
-	if !ok || time.Now().After(rec.expiresAt) {
+	rec := s.loadSession(c.Value)
+	if rec == nil || time.Now().After(rec.expiresAt) {
 		return nil
 	}
 	if !s.current(c.Value, rec) || !s.oidcFresh(r.Context(), c.Value, rec) {
@@ -546,11 +553,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	var rec *sessionRecord
 	if c, err := r.Cookie(sessionCookieName); err == nil {
-		s.mu.Lock()
-		rec = s.sessions[c.Value]
-		delete(s.sessions, c.Value)
-		s.mu.Unlock()
-		s.dropAccess(c.Value)
+		rec = s.loadSession(c.Value)
+		s.endSession(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: "", Path: "/", Expires: time.Unix(0, 0),
@@ -576,14 +580,7 @@ func (s *Server) gcSessionsLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.mu.Lock()
-			now := time.Now()
-			for k, v := range s.sessions {
-				if now.After(v.expiresAt) {
-					delete(s.sessions, k)
-				}
-			}
-			s.mu.Unlock()
+			s.gcShared(s.Engine.LeadsCluster())
 		}
 	}
 }

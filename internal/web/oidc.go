@@ -197,10 +197,19 @@ func (s *Server) oidcFresh(ctx context.Context, sid string, rec *sessionRecord) 
 	if !due {
 		return true
 	}
-	end := func(err error) bool {
+	// Another member may have renewed the session already.
+	var d sessionDoc
+	if s.shared.get(sessionEntry+sid, &d) && d.OIDC != nil && d.OIDC.Tokens.Expiry.After(o.tokens.Expiry) {
 		s.mu.Lock()
-		delete(s.sessions, sid)
+		rec.oidc = &oidcSession{tokens: d.OIDC.Tokens, subject: d.OIDC.Subject, sessionID: d.OIDC.SessionID}
+		o = rec.oidc
 		s.mu.Unlock()
+		if time.Now().Before(o.tokens.Expiry) {
+			return true
+		}
+	}
+	end := func(err error) bool {
+		s.endSession(sid)
 		s.Engine.Audit(rec.user, "session_end", `{"reason":"the identity provider did not renew the session"}`, err)
 		return false
 	}
@@ -223,6 +232,7 @@ func (s *Server) oidcFresh(ctx context.Context, sid string, rec *sessionRecord) 
 	rec.oidc = &oidcSession{tokens: tokens, subject: id.Subject, sessionID: o.sessionID}
 	rec.login, rec.principal, rec.role = &login, p, p.LegacyRole()
 	s.mu.Unlock()
+	_ = s.saveSession(sid, rec)
 	return true
 }
 

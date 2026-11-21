@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -27,6 +28,9 @@ func consoleAccess(p identity.Principal) bool {
 
 // modelState returns the current configuration, or nil without a model.
 func (s *Server) modelState() *confstore.State {
+	if s.Engine == nil {
+		return nil
+	}
 	if st := s.Engine.ConfigStore(); st != nil {
 		return st.Current()
 	}
@@ -42,9 +46,9 @@ func (s *Server) startSession(w http.ResponseWriter, p identity.Principal, login
 		rec.index = st.Index()
 	}
 	sid := newSessionID()
-	s.mu.Lock()
-	s.sessions[sid] = rec
-	s.mu.Unlock()
+	if err := s.saveSession(sid, rec); err != nil {
+		log.Printf("web: storing the session of %s: %v", p.Name, err)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sid,
@@ -59,15 +63,13 @@ func (s *Server) startSession(w http.ResponseWriter, p identity.Principal, login
 // dropSessions ends every session the predicate selects and returns how
 // many there were.
 func (s *Server) dropSessions(match func(*sessionRecord) bool) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	n := 0
-	for sid, rec := range s.sessions {
+	s.eachSession(func(sid string, rec *sessionRecord) {
 		if match(rec) {
-			delete(s.sessions, sid)
+			s.endSession(sid)
 			n++
 		}
-	}
+	})
 	return n
 }
 
@@ -85,9 +87,7 @@ func (s *Server) current(sid string, rec *sessionRecord) bool {
 	}
 	p, err := identity.Resolve(st, *rec.login)
 	if err != nil || !consoleAccess(p) {
-		s.mu.Lock()
-		delete(s.sessions, sid)
-		s.mu.Unlock()
+		s.endSession(sid)
 		s.Engine.Audit(rec.user, "session_end", `{"reason":"access withdrawn"}`, err)
 		return false
 	}

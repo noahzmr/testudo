@@ -15,11 +15,25 @@ import (
 	"github.com/noahzmr/testudo/internal/identity"
 	"github.com/noahzmr/testudo/internal/localauth"
 	"github.com/noahzmr/testudo/internal/model"
+	"github.com/noahzmr/testudo/internal/secrets"
 )
 
 // LocalSecrets is where local users' password hashes and second factors
 // are kept: the node's secret store, which a cluster replicates.
 func (e *Engine) LocalSecrets() localauth.Secrets { return e.conf.secrets }
+
+// SessionStore is where console sessions are kept: the secret store, which
+// a cluster replicates. ok is false without a configuration model.
+func (e *Engine) SessionStore() (secrets.Store, bool) {
+	return e.conf.secrets, e.conf.secrets.Dir != ""
+}
+
+// LeadsCluster reports whether this node does the cluster-wide chores: it
+// leads its cluster, or it has none.
+func (e *Engine) LeadsCluster() bool {
+	m := e.cluster.mgr
+	return m == nil || !m.Member() || (m.Node() != nil && m.Node().IsLeader())
+}
 
 // FirstRunPassword is the password of the administrator this start created,
 // or "". It is shown once.
