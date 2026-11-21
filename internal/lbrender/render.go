@@ -235,7 +235,7 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 			if len(servers) > 0 && w != servers[0]["weight"] {
 				equal = false
 			}
-			servers = append(servers, map[string]any{"address": b.Address, "weight": w})
+			servers = append(servers, map[string]any{"address": b.Address, "weight": w, "site": b.Site.ID})
 		}
 		switch family {
 		case "http":
@@ -245,20 +245,43 @@ func Render(st *confstore.State, opt Options) (Result, error) {
 			if p.ProxyProtocol != "" {
 				r.fail(p, "the PROXY protocol toward backends is available for TCP services only")
 			}
-			lb := map[string]any{"passHostHeader": true}
-			var list []any
+			balancer := func(list []map[string]any) map[string]any {
+				lb := map[string]any{"passHostHeader": true}
+				var out []any
+				for _, s := range list {
+					out = append(out, map[string]any{"url": "http://" + s["address"].(string), "weight": s["weight"]})
+				}
+				lb["servers"] = out
+				if p.HealthCheck.Type == "http" {
+					lb["healthCheck"] = map[string]any{"path": p.HealthCheck.Path,
+						"interval": duration(p, r, p.HealthCheck.Interval, "10s"), "timeout": duration(p, r, p.HealthCheck.Timeout, "3s")}
+				}
+				if p.Sticky {
+					lb["sticky"] = map[string]any{"cookie": map[string]any{"name": "testudo_lb", "httpOnly": true}}
+				}
+				return map[string]any{"loadBalancer": lb}
+			}
+			// Backends at several sites: the ones here (or without a site)
+			// take the traffic, the others only when none of those is
+			// healthy.
+			var local, remote []map[string]any
 			for _, s := range servers {
-				list = append(list, map[string]any{"url": "http://" + s["address"].(string), "weight": s["weight"]})
+				if site := s["site"].(string); site == "" || site == r.opt.SiteID {
+					local = append(local, s)
+				} else {
+					remote = append(remote, s)
+				}
 			}
-			lb["servers"] = list
-			if p.HealthCheck.Type == "http" {
-				lb["healthCheck"] = map[string]any{"path": p.HealthCheck.Path,
-					"interval": duration(p, r, p.HealthCheck.Interval, "10s"), "timeout": duration(p, r, p.HealthCheck.Timeout, "3s")}
+			switch {
+			case len(local) > 0 && len(remote) > 0 && r.opt.SiteID != "":
+				if p.HealthCheck.Type != "http" {
+					r.fail(p, "backends at other sites take over when the local ones fail an HTTP health check; set one")
+				}
+				httpServices[name+"-local"], httpServices[name+"-remote"] = balancer(local), balancer(remote)
+				httpServices[name] = map[string]any{"failover": map[string]any{"service": name + "-local", "fallback": name + "-remote"}}
+			default:
+				httpServices[name] = balancer(servers)
 			}
-			if p.Sticky {
-				lb["sticky"] = map[string]any{"cookie": map[string]any{"name": "testudo_lb", "httpOnly": true}}
-			}
-			httpServices[name] = map[string]any{"loadBalancer": lb}
 		case "tcp":
 			if _, done := tcpServices[name]; done {
 				return name
