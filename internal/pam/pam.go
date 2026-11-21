@@ -126,6 +126,10 @@ type Options struct {
 	Broker       Broker
 	// OnEvent is called (outside the lock) after every access event is stored.
 	OnEvent func(storage.AccessEvent)
+	// Leads reports whether this manager does the chores every member
+	// would otherwise do at once on shared requests: expiring them and
+	// sampling their traffic. nil: always.
+	Leads func() bool
 }
 
 // Errors callers can match on.
@@ -561,8 +565,11 @@ func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 10 * time.Second
 	}
-	if n := m.Expire(ctx); n > 0 {
-		log.Printf("pam: expired %d grant(s) at boot", n)
+	leads := func() bool { return m.opts.Leads == nil || m.opts.Leads() }
+	if leads() {
+		if n := m.Expire(ctx); n > 0 {
+			log.Printf("pam: expired %d grant(s) at boot", n)
+		}
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -571,8 +578,10 @@ func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			m.Expire(ctx)
-			m.Observe(ctx)
+			if leads() {
+				m.Expire(ctx)
+				m.Observe(ctx)
+			}
 		}
 	}
 }
